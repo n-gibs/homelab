@@ -1,0 +1,10 @@
+---
+- name: Install k3s agent
+  shell: >
+    curl -sfL https://get.k3s.io |
+    K3S_URL={{ k3s_server_url }}
+    K3S_TOKEN={{ k3s_node_token }}
+    sh -
+  become: yes
+  args:
+    creates: /usr/local/bin/k3s

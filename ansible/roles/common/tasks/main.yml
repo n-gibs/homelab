@@ -1,0 +1,17 @@
+---
+- name: Update apt cache and upgrade packages
+  apt:
+    update_cache: yes
+    upgrade: dist
+  become: yes
+
+- name: Install base packages
+  apt:
+    name:
+      - curl
+      - wget
+      - git
+      - htop
+      - vim
+    state: present
+  become: yes

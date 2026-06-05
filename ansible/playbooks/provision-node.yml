@@ -1,0 +1,6 @@
+---
+- name: Provision base node
+  hosts: all
+  roles:
+    - common
+    - tailscale
