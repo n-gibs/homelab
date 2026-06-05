@@ -1,0 +1,3 @@
+---
+k3s_version: "latest"
+k3s_server_args: ""  # e.g. "--disable traefik" to swap Traefik for another ingress controller
