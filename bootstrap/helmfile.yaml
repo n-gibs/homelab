@@ -1,0 +1,52 @@
+repositories:
+  - name: cilium
+    url: https://helm.cilium.io
+  - name: traefik
+    url: https://traefik.github.io/charts
+  - name: cert-manager
+    url: https://charts.jetstack.io
+  - name: argo
+    url: https://argoproj.github.io/argo-helm
+
+releases:
+  - name: cilium
+    namespace: kube-system
+    chart: cilium/cilium
+    version: "1.16.0"
+    values:
+      - values/cilium.yaml
+    wait: true
+
+  - name: traefik
+    namespace: traefik
+    chart: traefik/traefik
+    version: "30.0.0"
+    createNamespace: true
+    values:
+      - values/traefik.yaml
+    needs:
+      - kube-system/cilium
+    wait: true
+
+  - name: cert-manager
+    namespace: cert-manager
+    chart: cert-manager/cert-manager
+    version: "1.15.0"
+    createNamespace: true
+    values:
+      - values/cert-manager.yaml
+    needs:
+      - kube-system/cilium
+    wait: true
+
+  - name: argocd
+    namespace: argocd
+    chart: argo/argo-cd
+    version: "7.4.0"
+    createNamespace: true
+    values:
+      - values/argocd.yaml
+    needs:
+      - traefik/traefik
+      - cert-manager/cert-manager
+    wait: true
