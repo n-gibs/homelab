@@ -1,0 +1,7 @@
+gitops:
+  repo: https://github.com/OWNER/homelab  # update with your repo URL
+  revision: main
+  stacks:
+    - name: system
+    - name: platform
+    - name: apps

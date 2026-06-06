@@ -23,3 +23,10 @@ releases:
     needs:
       - kube-system/cilium
     wait: true
+
+  - name: root
+    namespace: argocd
+    chart: ./root
+    needs:
+      - argocd/argocd
+    wait: true
