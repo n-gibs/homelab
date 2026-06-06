@@ -1,0 +1,7 @@
+server:
+  ingress:
+    enabled: false  # expose via Gateway API after bootstrap
+
+configs:
+  params:
+    server.insecure: true  # TLS terminated at gateway

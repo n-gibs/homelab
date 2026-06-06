@@ -1,0 +1,25 @@
+kubeProxyReplacement: true
+k8sServiceHost: "127.0.0.1"  # replace with control plane Tailscale IP
+k8sServicePort: "6443"
+
+ipam:
+  mode: kubernetes
+
+loadBalancer:
+  algorithm: maglev
+
+l2announcements:
+  enabled: true
+
+l2podAnnouncements:
+  enabled: true
+
+operator:
+  replicas: 1
+
+hubble:
+  enabled: true
+  relay:
+    enabled: true
+  ui:
+    enabled: true
