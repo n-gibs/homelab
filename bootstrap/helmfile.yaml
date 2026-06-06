@@ -1,8 +1,6 @@
 repositories:
   - name: cilium
     url: https://helm.cilium.io
-  - name: traefik
-    url: https://traefik.github.io/charts
   - name: argo
     url: https://argoproj.github.io/argo-helm
 
@@ -15,17 +13,6 @@ releases:
       - values/cilium.yaml
     wait: true
 
-  - name: traefik
-    namespace: traefik
-    chart: traefik/traefik
-    version: "30.0.0"
-    createNamespace: true
-    values:
-      - values/traefik.yaml
-    needs:
-      - kube-system/cilium
-    wait: true
-
   - name: argocd
     namespace: argocd
     chart: argo/argo-cd
@@ -34,5 +21,5 @@ releases:
     values:
       - values/argocd.yaml
     needs:
-      - traefik/traefik
+      - kube-system/cilium
     wait: true
