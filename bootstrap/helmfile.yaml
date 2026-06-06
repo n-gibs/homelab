@@ -4,29 +4,28 @@ repositories:
   - name: argo
     url: https://argoproj.github.io/argo-helm
 
+---
+
 releases:
   - name: cilium
     namespace: kube-system
     chart: cilium/cilium
-    version: "1.16.0"
+    version: 1.16.0
     values:
       - values/cilium.yaml
-    wait: true
 
   - name: argocd
     namespace: argocd
-    chart: argo/argo-cd
-    version: "7.4.0"
     createNamespace: true
+    chart: argo/argo-cd
+    version: 7.4.0
     values:
       - values/argocd.yaml
     needs:
       - kube-system/cilium
-    wait: true
 
   - name: root
     namespace: argocd
     chart: ./root
     needs:
       - argocd/argocd
-    wait: true
