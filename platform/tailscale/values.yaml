@@ -1,0 +1,6 @@
+oauth:
+  clientId: ""     # TODO: set via ExternalSecret or patch
+  clientSecret: "" # TODO: set via ExternalSecret or patch
+
+operatorConfig:
+  hostname: homelab-operator

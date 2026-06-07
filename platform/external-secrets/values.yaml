@@ -1,0 +1,8 @@
+installCRDs: true
+
+# Bitwarden/Vaultwarden webhook needed for secrets sync
+webhook:
+  enabled: true
+
+certController:
+  enabled: true

@@ -1,0 +1,3 @@
+chartName: external-secrets
+chartRepo: https://charts.external-secrets.io
+chartVersion: 0.16.1
