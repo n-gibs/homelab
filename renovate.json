@@ -1,0 +1,34 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "timezone": "America/Los_Angeles",
+  "schedule": ["every weekend"],
+  "labels": ["dependencies"],
+  "packageRules": [
+    {
+      "matchManagers": ["helmv3"],
+      "groupName": "helm charts",
+      "automerge": false
+    },
+    {
+      "matchManagers": ["ansible-galaxy"],
+      "groupName": "ansible dependencies",
+      "automerge": false
+    }
+  ],
+  "helm-values": {
+    "fileMatch": ["(^|/)values\\.yaml$"]
+  },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "fileMatch": ["ansible/group_vars/k3s_cluster\\.yml"],
+      "matchStrings": ["k3s_version: \"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "k3s-io/k3s",
+      "datasourceTemplate": "github-releases",
+      "versioningTemplate": "loose"
+    }
+  ]
+}
