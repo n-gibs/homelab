@@ -1,0 +1,44 @@
+controllers:
+  main:
+    containers:
+      app:
+        image:
+          repository: lscr.io/linuxserver/jellyfin
+          tag: latest
+        env:
+          PUID: "1000"
+          PGID: "1000"
+          TZ: America/Los_Angeles
+
+service:
+  main:
+    controller: main
+    ports:
+      http:
+        port: 8096
+
+route:
+  main:
+    enabled: true
+    kind: HTTPRoute
+    hostnames:
+      - jellyfin.nik-homelab.dev
+    parentRefs:
+      - name: homelab
+        namespace: envoy-gateway-system
+
+persistence:
+  config:
+    type: persistentVolumeClaim
+    storageClass: local-path
+    size: 10Gi
+    accessMode: ReadWriteOnce
+    globalMounts:
+      - path: /config
+  media:
+    type: nfs
+    server: 192.168.1.28
+    path: /mnt/storage/media
+    globalMounts:
+      - path: /media
+        readOnly: true
