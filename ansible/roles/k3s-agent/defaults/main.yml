@@ -1,3 +1,0 @@
----
-k3s_server_url: ""   # set to tailscale IP of control plane, e.g. https://100.x.x.x:6443
-k3s_node_token: ""   # fetched from server role or set manually

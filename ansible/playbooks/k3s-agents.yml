@@ -1,5 +1,0 @@
----
-- name: Join k3s worker nodes
-  hosts: k3s_agents
-  roles:
-    - k3s-agent

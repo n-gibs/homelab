@@ -1,0 +1,5 @@
+---
+nfs_server_host: "192.168.1.28"  # worker-01
+nfs_server_export: /mnt/storage
+nfs_client_mount_path: /mnt/storage
+nfs_client_mount_options: "defaults,nofail,_netdev"

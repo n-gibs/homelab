@@ -1,5 +1,5 @@
 gitops:
-  repo: https://github.com/OWNER/homelab  # update with your repo URL
+  repo: https://github.com/n-gibs/homelab # update with your repo URL
   revision: main
   stacks:
     - name: system

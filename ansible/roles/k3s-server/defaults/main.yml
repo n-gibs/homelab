@@ -1,3 +1,0 @@
----
-k3s_version: "latest"
-k3s_server_args: "--flannel-backend=none --disable-network-policy --disable traefik"

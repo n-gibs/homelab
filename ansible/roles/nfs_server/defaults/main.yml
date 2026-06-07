@@ -1,0 +1,5 @@
+---
+nfs_export_path: /mnt/storage
+nfs_drive_uuid: "9701ed19-d894-496c-8594-1d671d789b8e"
+nfs_allowed_clients: "192.168.1.0/24"
+nfs_mount_options: "defaults,nofail,x-systemd.automount"
