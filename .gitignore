@@ -1,0 +1,6 @@
+autoinstall/.secrets
+autoinstall/user-data
+
+# Ansible
+*.retry
+.vault_pass
