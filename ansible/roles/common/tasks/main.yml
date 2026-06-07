@@ -1,17 +1,100 @@
 ---
-- name: Update apt cache and upgrade packages
-  apt:
-    update_cache: yes
-    upgrade: dist
-  become: yes
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+  become: true
 
 - name: Install base packages
-  apt:
+  ansible.builtin.apt:
     name:
       - curl
       - wget
       - git
       - htop
       - vim
+      - unattended-upgrades
+      - ufw
+      - fail2ban
+      - open-iscsi
+      - nfs-common
     state: present
-  become: yes
+  become: true
+
+- name: Configure unattended-upgrades
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/50unattended-upgrades
+    content: |
+      Unattended-Upgrade::Allowed-Origins {
+        "${distro_id}:${distro_codename}-security";
+      };
+      Unattended-Upgrade::Automatic-Reboot "false";
+    mode: "0644"
+  become: true
+
+- name: Enable unattended-upgrades
+  ansible.builtin.service:
+    name: unattended-upgrades
+    enabled: true
+    state: started
+  become: true
+
+- name: Harden SSH - disable password auth
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "^#?PasswordAuthentication"
+    line: "PasswordAuthentication no"
+    state: present
+  become: true
+  notify: Restart sshd
+
+- name: Harden SSH - disable root login
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "^#?PermitRootLogin"
+    line: "PermitRootLogin no"
+    state: present
+  become: true
+  notify: Restart sshd
+
+- name: Configure UFW defaults
+  community.general.ufw:
+    direction: "{{ item.direction }}"
+    policy: "{{ item.policy }}"
+  loop:
+    - { direction: incoming, policy: deny }
+    - { direction: outgoing, policy: allow }
+  become: true
+
+- name: Allow SSH through UFW
+  community.general.ufw:
+    rule: allow
+    port: "22"
+    proto: tcp
+  become: true
+
+- name: Allow k3s API server
+  community.general.ufw:
+    rule: allow
+    port: "6443"
+    proto: tcp
+  become: true
+
+- name: Allow kubelet metrics
+  community.general.ufw:
+    rule: allow
+    port: "10250"
+    proto: tcp
+  become: true
+
+- name: Allow Cilium VXLAN
+  community.general.ufw:
+    rule: allow
+    port: "8472"
+    proto: udp
+  become: true
+
+- name: Enable UFW
+  community.general.ufw:
+    state: enabled
+  become: true
