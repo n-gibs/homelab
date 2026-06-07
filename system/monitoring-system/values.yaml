@@ -1,52 +1,51 @@
-kube-prometheus-stack:
-  # k3s doesn't expose these endpoints
-  kubeControllerManager:
-    enabled: false
-  kubeScheduler:
-    enabled: false
-  kubeProxy:
-    enabled: false
+# k3s doesn't expose these endpoints
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false
 
-  kubelet:
-    serviceMonitor:
+kubelet:
+  serviceMonitor:
+    relabelings:
+      - action: replace
+        sourceLabels: [__metrics_path__]
+        targetLabel: metrics_path
+      - action: replace
+        sourceLabels: []
+        targetLabel: cluster
+        replacement: homelab
+
+kube-state-metrics:
+  prometheus:
+    monitor:
       relabelings:
-        - action: replace
-          sourceLabels: [__metrics_path__]
-          targetLabel: metrics_path
         - action: replace
           sourceLabels: []
           targetLabel: cluster
           replacement: homelab
 
-  kube-state-metrics:
-    prometheus:
-      monitor:
-        relabelings:
-          - action: replace
-            sourceLabels: []
-            targetLabel: cluster
-            replacement: homelab
-
-  prometheus-node-exporter:
-    prometheus:
-      monitor:
-        relabelings:
-          - action: replace
-            sourceLabels: []
-            targetLabel: cluster
-            replacement: homelab
-
+prometheus-node-exporter:
   prometheus:
-    prometheusSpec:
-      ruleSelectorNilUsesHelmValues: false
-      serviceMonitorSelectorNilUsesHelmValues: false
-      podMonitorSelectorNilUsesHelmValues: false
-      probeSelectorNilUsesHelmValues: false
+    monitor:
+      relabelings:
+        - action: replace
+          sourceLabels: []
+          targetLabel: cluster
+          replacement: homelab
 
-  grafana:
-    enabled: true
-    adminPassword: changeme  # override via secret in production
-    grafana.ini:
-      server:
-        root_url: "%(protocol)s://%(domain)s/grafana"
-        serve_from_sub_path: true
+prometheus:
+  prometheusSpec:
+    ruleSelectorNilUsesHelmValues: false
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    probeSelectorNilUsesHelmValues: false
+
+grafana:
+  enabled: true
+  adminPassword: changeme  # override via secret in production
+  grafana.ini:
+    server:
+      root_url: "%(protocol)s://%(domain)s/grafana"
+      serve_from_sub_path: true
