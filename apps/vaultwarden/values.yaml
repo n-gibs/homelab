@@ -1,0 +1,41 @@
+controllers:
+  main:
+    containers:
+      app:
+        image:
+          repository: vaultwarden/server
+          tag: latest
+        env:
+          DOMAIN: "https://vault.nik-homelab.dev"
+          WEBSOCKET_ENABLED: "true"
+          ADMIN_TOKEN:
+            valueFrom:
+              secretKeyRef:
+                name: vaultwarden-admin-token
+                key: token
+
+service:
+  main:
+    controller: main
+    ports:
+      http:
+        port: 80
+
+route:
+  main:
+    enabled: true
+    kind: HTTPRoute
+    hostnames:
+      - vault.nik-homelab.dev
+    parentRefs:
+      - name: homelab
+        namespace: envoy-gateway-system
+
+persistence:
+  data:
+    type: persistentVolumeClaim
+    storageClass: local-path
+    size: 1Gi
+    accessMode: ReadWriteOnce
+    globalMounts:
+      - path: /data
