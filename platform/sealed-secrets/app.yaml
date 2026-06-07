@@ -1,0 +1,3 @@
+chartName: sealed-secrets
+chartRepo: https://bitnami-labs.github.io/sealed-secrets
+chartVersion: 2.18.6
