@@ -1,0 +1,49 @@
+controllers:
+  main:
+    containers:
+      app:
+        image:
+          repository: lscr.io/linuxserver/sonarr
+          tag: latest
+        env:
+          PUID: "1000"
+          PGID: "1000"
+          TZ: America/Los_Angeles
+
+service:
+  main:
+    controller: main
+    ports:
+      http:
+        port: 8989
+
+route:
+  main:
+    enabled: true
+    kind: HTTPRoute
+    hostnames:
+      - sonarr.nik-homelab.dev
+    parentRefs:
+      - name: homelab
+        namespace: envoy-gateway-system
+
+persistence:
+  config:
+    type: persistentVolumeClaim
+    storageClass: local-path
+    size: 2Gi
+    accessMode: ReadWriteOnce
+    globalMounts:
+      - path: /config
+  media:
+    type: nfs
+    server: 192.168.1.28
+    path: /mnt/storage/media
+    globalMounts:
+      - path: /media
+  downloads:
+    type: nfs
+    server: 192.168.1.28
+    path: /mnt/storage/downloads
+    globalMounts:
+      - path: /downloads

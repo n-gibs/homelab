@@ -1,0 +1,37 @@
+controllers:
+  main:
+    containers:
+      app:
+        image:
+          repository: lscr.io/linuxserver/prowlarr
+          tag: latest
+        env:
+          PUID: "1000"
+          PGID: "1000"
+          TZ: America/Los_Angeles
+
+service:
+  main:
+    controller: main
+    ports:
+      http:
+        port: 9696
+
+route:
+  main:
+    enabled: true
+    kind: HTTPRoute
+    hostnames:
+      - prowlarr.nik-homelab.dev
+    parentRefs:
+      - name: homelab
+        namespace: envoy-gateway-system
+
+persistence:
+  config:
+    type: persistentVolumeClaim
+    storageClass: local-path
+    size: 1Gi
+    accessMode: ReadWriteOnce
+    globalMounts:
+      - path: /config

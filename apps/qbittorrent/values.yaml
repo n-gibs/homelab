@@ -1,0 +1,63 @@
+controllers:
+  main:
+    containers:
+      app:
+        image:
+          repository: lscr.io/linuxserver/qbittorrent
+          tag: latest
+        env:
+          PUID: "1000"
+          PGID: "1000"
+          TZ: America/Los_Angeles
+          WEBUI_PORT: "8080"
+      gluetun:
+        image:
+          repository: qmcgaw/gluetun
+          tag: latest
+        env:
+          VPN_SERVICE_PROVIDER: mullvad  # TODO: set your VPN provider
+          VPN_TYPE: wireguard
+          TZ: America/Los_Angeles
+        envFrom:
+          - secretRef:
+              name: gluetun-vpn-creds  # TODO: seal via `just seal-secret`
+        securityContext:
+          capabilities:
+            add:
+              - NET_ADMIN
+
+service:
+  main:
+    controller: main
+    ports:
+      http:
+        port: 8080
+
+route:
+  main:
+    enabled: true
+    kind: HTTPRoute
+    hostnames:
+      - qbittorrent.nik-homelab.dev
+    parentRefs:
+      - name: homelab
+        namespace: envoy-gateway-system
+
+persistence:
+  config:
+    type: persistentVolumeClaim
+    storageClass: local-path
+    size: 1Gi
+    accessMode: ReadWriteOnce
+    advancedMounts:
+      main:
+        app:
+          - path: /config
+  downloads:
+    type: nfs
+    server: 192.168.1.28
+    path: /mnt/storage/downloads
+    advancedMounts:
+      main:
+        app:
+          - path: /downloads
