@@ -1,0 +1,13 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: wildcard-nik-homelab-dev
+  namespace: envoy-gateway-system
+spec:
+  secretName: wildcard-nik-homelab-dev
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  dnsNames:
+    - "*.nik-homelab.dev"
+    - "nik-homelab.dev"
