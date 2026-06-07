@@ -1,0 +1,3 @@
+chartName: external-dns
+chartRepo: https://kubernetes-sigs.github.io/external-dns
+chartVersion: 1.21.1

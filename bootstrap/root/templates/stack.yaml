@@ -10,8 +10,8 @@ spec:
     - git:
         repoURL: {{ $.Values.gitops.repo }}
         revision: {{ $.Values.gitops.revision }}
-        directories:
-          - path: {{ $stack.name }}/*
+        files:
+          - path: "{{ $stack.name }}/*/app.yaml"
   template:
     metadata:
       name: '{{`{{path.basename}}`}}'
@@ -20,10 +20,21 @@ spec:
         name: in-cluster
         namespace: '{{`{{path.basename}}`}}'
       project: default
-      source:
-        repoURL: {{ $.Values.gitops.repo }}
-        path: '{{`{{path}}`}}'
-        targetRevision: {{ $.Values.gitops.revision }}
+      sources:
+        - repoURL: '{{`{{chartRepo}}`}}'
+          chart: '{{`{{chartName}}`}}'
+          targetRevision: '{{`{{chartVersion}}`}}'
+          helm:
+            valueFiles:
+              - $values/{{`{{path}}`}}/values.yaml
+        - repoURL: {{ $.Values.gitops.repo }}
+          targetRevision: {{ $.Values.gitops.revision }}
+          ref: values
+        - repoURL: {{ $.Values.gitops.repo }}
+          targetRevision: {{ $.Values.gitops.revision }}
+          path: '{{`{{path}}`}}'
+          directory:
+            exclude: '{app.yaml,values.yaml}'
       syncPolicy:
         automated:
           prune: true

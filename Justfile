@@ -6,6 +6,14 @@ playbook := "ansible/site.yml"
 default:
     @just --list
 
+# ── Autoinstall USB ──────────────────────────────────────────────────────────
+
+# Build autoinstall user-data from template + secrets
+build-usb:
+    bash autoinstall/build.sh
+
+# ── Ansible ──────────────────────────────────────────────────────────────────
+
 # Install Ansible Galaxy dependencies
 deps:
     ansible-galaxy install -r ansible/requirements.yml
@@ -34,6 +42,12 @@ provision-nfs:
 dry-run:
     ansible-playbook -i {{inventory}} {{playbook}} --vault-password-file {{vault_pass}} --check
 
+# Run ansible-lint
+lint:
+    ansible-lint ansible/site.yml
+
+# ── Vault ────────────────────────────────────────────────────────────────────
+
 # View encrypted vault contents
 vault-view:
     ansible-vault view ansible/vault.yml --vault-password-file {{vault_pass}}
@@ -42,14 +56,73 @@ vault-view:
 vault-edit:
     ansible-vault edit ansible/vault.yml --vault-password-file {{vault_pass}}
 
-# Build autoinstall user-data from template + secrets
-build-usb:
-    bash autoinstall/build.sh
+# ── Cluster Bootstrap ────────────────────────────────────────────────────────
 
-# Run ansible-lint
-lint:
-    ansible-lint ansible/site.yml
+# Bootstrap cluster: install Cilium, ArgoCD, and root ApplicationSets
+bootstrap:
+    helmfile apply -f bootstrap/helmfile.yaml
 
-# Show TODOs remaining (IPs to fill in)
+# Bootstrap only Cilium
+bootstrap-cilium:
+    helmfile apply -f bootstrap/helmfile.yaml -l name=cilium
+
+# Bootstrap only ArgoCD
+bootstrap-argocd:
+    helmfile apply -f bootstrap/helmfile.yaml -l name=argocd
+
+# Bootstrap only root chart (ApplicationSets)
+bootstrap-root:
+    helmfile apply -f bootstrap/helmfile.yaml -l name=root
+
+# Diff bootstrap changes without applying
+bootstrap-diff:
+    helmfile diff -f bootstrap/helmfile.yaml
+
+# ── Sealed Secrets ───────────────────────────────────────────────────────────
+
+# Fetch the cluster's sealed-secrets public cert (run after bootstrap)
+kubeseal-fetch-cert:
+    kubeseal --fetch-cert --controller-name sealed-secrets-controller --controller-namespace sealed-secrets > pub-cert.pem
+
+# Seal a secret file: just seal-secret path/to/secret.yaml
+seal-secret file:
+    kubeseal --cert pub-cert.pem -f {{file}} -w {{file}}.sealed.yaml
+
+# ── Config Generation ────────────────────────────────────────────────────────
+
+# Inject secrets into config templates (run before committing config/)
+build-config:
+    #!/usr/bin/env bash
+    source .secrets
+    sed -i '' "s|TODO@example.com.*|${LETSENCRYPT_EMAIL}|g" config/cert-manager/cluster-issuer.yaml
+    echo "Config built"
+
+# ── Post-Bootstrap Secrets ───────────────────────────────────────────────────
+
+# Seal Cloudflare API token (run after bootstrap + kubeseal-fetch-cert)
+seal-cloudflare-token:
+    #!/usr/bin/env bash
+    source .secrets
+    kubectl create secret generic cloudflare-api-token \
+      --namespace cert-manager \
+      --from-literal=api-token="$CLOUDFLARE_API_TOKEN" \
+      --dry-run=client -o yaml | \
+    kubeseal --cert pub-cert.pem -o yaml > config/cert-manager/cloudflare-api-token.yaml
+    echo "Sealed: config/cert-manager/cloudflare-api-token.yaml"
+
+# Seal Vaultwarden admin token (run after bootstrap + kubeseal-fetch-cert)
+seal-vaultwarden-token:
+    #!/usr/bin/env bash
+    source .secrets
+    kubectl create secret generic vaultwarden-admin-token \
+      --namespace vaultwarden \
+      --from-literal=token="$VAULTWARDEN_ADMIN_TOKEN" \
+      --dry-run=client -o yaml | \
+    kubeseal --cert pub-cert.pem -o yaml > apps/vaultwarden/admin-token.yaml
+    echo "Sealed: apps/vaultwarden/admin-token.yaml"
+
+# ── Misc ─────────────────────────────────────────────────────────────────────
+
+# Show TODOs remaining
 todos:
-    @grep -rn "TODO" ansible/ autoinstall/
+    @grep -rn "TODO" ansible/ autoinstall/ bootstrap/ platform/ apps/ system/

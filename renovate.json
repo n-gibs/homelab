@@ -8,20 +8,26 @@
   "labels": ["dependencies"],
   "packageRules": [
     {
-      "matchManagers": ["helmv3"],
-      "groupName": "helm charts",
-      "automerge": false
-    },
-    {
       "matchManagers": ["ansible-galaxy"],
       "groupName": "ansible dependencies",
       "automerge": false
+    },
+    {
+      "matchManagers": ["regex"],
+      "matchFileNames": ["**/app.yaml"],
+      "groupName": "helm charts",
+      "automerge": false
     }
   ],
-  "helm-values": {
-    "fileMatch": ["(^|/)values\\.yaml$"]
-  },
   "customManagers": [
+    {
+      "customType": "regex",
+      "fileMatch": ["(^|/)app\\.yaml$"],
+      "matchStrings": [
+        "chartName: (?<depName>[^\\n]+)\\nchartRepo: (?<registryUrl>[^\\n]+)\\nchartVersion: (?<currentValue>[^\\n]+)"
+      ],
+      "datasourceTemplate": "helm"
+    },
     {
       "customType": "regex",
       "fileMatch": ["ansible/group_vars/k3s_cluster\\.yml"],

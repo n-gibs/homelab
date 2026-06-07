@@ -4,3 +4,7 @@ autoinstall/user-data
 # Ansible
 *.retry
 .vault_pass
+
+# Local secrets (never commit)
+.secrets
+pub-cert.pem

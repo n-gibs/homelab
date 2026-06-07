@@ -1,6 +1,13 @@
 server:
   ingress:
-    enabled: false  # expose via Gateway API after bootstrap
+    enabled: false
+  httproute:
+    enabled: true
+    parentRefs:
+      - name: homelab
+        namespace: envoy-gateway-system
+    hostnames:
+      - argocd.nik-homelab.dev
 
 configs:
   params:
