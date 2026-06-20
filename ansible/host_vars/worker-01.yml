@@ -1,0 +1,3 @@
+---
+# G9: label node so media apps schedule here
+extra_agent_args: "--node-label homelab.io/storage=true"

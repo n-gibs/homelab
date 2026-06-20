@@ -8,3 +8,6 @@ autoinstall/user-data
 # Local secrets (never commit)
 .secrets
 pub-cert.pem
+
+# Built configs with injected secrets (never commit)
+config/

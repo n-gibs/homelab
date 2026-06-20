@@ -1,5 +1,5 @@
 kubeProxyReplacement: true
-k8sServiceHost: "127.0.0.1"  # replace with control plane Tailscale IP
+k8sServiceHost: "192.168.30.129"
 k8sServicePort: "6443"
 
 ipam:
@@ -13,6 +13,7 @@ l2announcements:
 
 l2podAnnouncements:
   enabled: true
+  interfacePattern: "^(enp2s0|eno1)$"
 
 operator:
   replicas: 1

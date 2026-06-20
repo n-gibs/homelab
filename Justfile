@@ -66,8 +66,9 @@ bootstrap:
 bootstrap-cilium:
     helmfile apply -f bootstrap/helmfile.yaml -l name=cilium
 
-# Bootstrap only ArgoCD
+# Bootstrap Gateway API CRDs + ArgoCD
 bootstrap-argocd:
+    helmfile apply -f bootstrap/helmfile.yaml -l name=gateway-api-crds
     helmfile apply -f bootstrap/helmfile.yaml -l name=argocd
 
 # Bootstrap only root chart (ApplicationSets)
@@ -90,12 +91,13 @@ seal-secret file:
 
 # ── Config Generation ────────────────────────────────────────────────────────
 
-# Inject secrets into config templates (run before committing config/)
+# Render templates with injected secrets into config/ (gitignored, apply from here)
 build-config:
     #!/usr/bin/env bash
     source .secrets
-    sed -i '' "s|TODO@example.com.*|${LETSENCRYPT_EMAIL}|g" config/cert-manager/cluster-issuer.yaml
-    echo "Config built"
+    mkdir -p config/cert-manager
+    envsubst < system/cert-manager/cluster-issuer.yaml > config/cert-manager/cluster-issuer.yaml
+    echo "Built: config/cert-manager/cluster-issuer.yaml"
 
 # ── Post-Bootstrap Secrets ───────────────────────────────────────────────────
 

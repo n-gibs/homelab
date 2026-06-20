@@ -2,8 +2,7 @@
 collections:
   - name: kubernetes.core
     version: ">=2.4.0"
-
-roles:
-  - name: k3s_io.k3s_ansible
-    src: https://github.com/k3s-io/k3s-ansible
-    version: master
+  - name: k3s.orchestration
+    source: https://github.com/k3s-io/k3s-ansible
+    type: git
+    version: "1.2.1"

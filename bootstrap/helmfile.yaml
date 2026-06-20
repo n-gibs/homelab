@@ -10,19 +10,26 @@ releases:
   - name: cilium
     namespace: kube-system
     chart: cilium/cilium
-    version: 1.19.4
+    version: 1.19.5
     values:
       - values/cilium.yaml
+
+  - name: gateway-api-crds
+    namespace: kube-system
+    chart: ./charts/gateway-api-crds
+    needs:
+      - kube-system/cilium
 
   - name: argocd
     namespace: argocd
     createNamespace: true
     chart: argo/argo-cd
-    version: 9.5.20
+    version: 9.5.22
     values:
       - values/argocd.yaml
     needs:
       - kube-system/cilium
+      - kube-system/gateway-api-crds
 
   - name: root
     namespace: argocd

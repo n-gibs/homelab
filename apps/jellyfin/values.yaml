@@ -1,5 +1,8 @@
 controllers:
   main:
+    pod:
+      nodeSelector:
+        homelab.io/storage: "true"
     containers:
       app:
         image:
