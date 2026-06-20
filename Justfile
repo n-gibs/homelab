@@ -66,10 +66,11 @@ bootstrap:
 bootstrap-cilium:
     helmfile apply -f bootstrap/helmfile.yaml -l name=cilium
 
-# Bootstrap Gateway API CRDs + ArgoCD
+# Bootstrap Gateway API CRDs + ArgoCD + register private repo
 bootstrap-argocd:
     helmfile apply -f bootstrap/helmfile.yaml -l name=gateway-api-crds
     helmfile apply -f bootstrap/helmfile.yaml -l name=argocd
+    just register-repo
 
 # Bootstrap only root chart (ApplicationSets)
 bootstrap-root:
@@ -98,6 +99,23 @@ build-config:
     mkdir -p config/cert-manager
     envsubst < system/cert-manager/cluster-issuer.yaml > config/cert-manager/cluster-issuer.yaml
     echo "Built: config/cert-manager/cluster-issuer.yaml"
+
+# ── ArgoCD Repo Credential ───────────────────────────────────────────────────
+
+# Register private GitHub repo with ArgoCD (run after bootstrap-argocd, before bootstrap-root)
+register-repo:
+    #!/usr/bin/env bash
+    source .secrets
+    kubectl create secret generic homelab-repo \
+      --namespace argocd \
+      --from-literal=type=git \
+      --from-literal=url=https://github.com/n-gibs/homelab \
+      --from-literal=username=n-gibs \
+      --from-literal=password="$GITHUB_REPO_PAT" \
+      --dry-run=client -o yaml | \
+    kubectl apply -f -
+    kubectl label secret homelab-repo -n argocd argocd.argoproj.io/secret-type=repository --overwrite
+    echo "Registered: https://github.com/n-gibs/homelab"
 
 # ── Post-Bootstrap Secrets ───────────────────────────────────────────────────
 

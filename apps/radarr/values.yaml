@@ -40,13 +40,13 @@ persistence:
       - path: /config
   media:
     type: nfs
-    server: 192.168.1.28
+    server: 192.168.30.194
     path: /mnt/storage/media
     globalMounts:
       - path: /media
   downloads:
     type: nfs
-    server: 192.168.1.28
+    server: 192.168.30.194
     path: /mnt/storage/downloads
     globalMounts:
       - path: /downloads
