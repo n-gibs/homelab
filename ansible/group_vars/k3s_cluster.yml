@@ -12,5 +12,6 @@ extra_server_args: >-
   --disable servicelb
   --flannel-backend=none
   --disable-network-policy
+  --write-kubeconfig-mode=644
 
 extra_agent_args: ""

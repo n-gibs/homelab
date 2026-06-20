@@ -1,4 +1,36 @@
 ---
+- name: Add root subuid mapping for containerd user namespaces
+  ansible.builtin.lineinfile:
+    path: /etc/subuid
+    line: "root:165536:65536"
+    create: true
+    mode: "0644"
+  become: true
+
+- name: Add root subgid mapping for containerd user namespaces
+  ansible.builtin.lineinfile:
+    path: /etc/subgid
+    line: "root:165536:65536"
+    create: true
+    mode: "0644"
+  become: true
+
+- name: Create containerd override config directory
+  ansible.builtin.file:
+    path: /var/lib/rancher/k3s/agent/etc/containerd/config-v3.toml.d
+    state: directory
+    mode: "0755"
+  become: true
+
+- name: Configure containerd native snapshotter for Ubuntu 26.04+ / kernel 7.x
+  ansible.builtin.copy:
+    dest: /var/lib/rancher/k3s/agent/etc/containerd/config-v3.toml.d/snapshotter.toml
+    content: |
+      [plugins."io.containerd.cri.v1.images"]
+        snapshotter = "native"
+    mode: "0644"
+  become: true
+
 - name: Update apt cache
   ansible.builtin.apt:
     update_cache: true
