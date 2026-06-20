@@ -1,3 +1,4 @@
 chartName: gateway-helm
 chartRepo: https://charts.envoyproxy.io
 chartVersion: 1.8.1
+syncWave: "1"

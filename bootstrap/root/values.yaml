@@ -2,9 +2,9 @@ gitops:
   repo: https://github.com/n-gibs/homelab # update with your repo URL
   revision: main
   stacks:
-    - name: platform
-      syncWave: "1"
     - name: system
+      syncWave: "1"
+    - name: platform
       syncWave: "2"
     - name: apps
       syncWave: "3"
