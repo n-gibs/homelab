@@ -1,0 +1,25 @@
+controllers:
+  main:
+    type: cronjob
+    cronjob:
+      schedule: "0 4 * * *"
+    pod:
+      nodeSelector:
+        homelab.io/storage: "true"
+    containers:
+      app:
+        image:
+          repository: ghcr.io/recyclarr/recyclarr
+          tag: latest
+        args: ["sync"]
+        env:
+          TZ: America/Los_Angeles
+
+persistence:
+  config:
+    type: persistentVolumeClaim
+    storageClass: local-path
+    size: 1Gi
+    accessMode: ReadWriteOnce
+    globalMounts:
+      - path: /config

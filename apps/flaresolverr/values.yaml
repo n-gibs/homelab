@@ -1,0 +1,20 @@
+controllers:
+  main:
+    pod:
+      nodeSelector:
+        homelab.io/storage: "true"
+    containers:
+      app:
+        image:
+          repository: ghcr.io/flaresolverr/flaresolverr
+          tag: latest
+        env:
+          TZ: America/Los_Angeles
+          LOG_LEVEL: info
+
+service:
+  main:
+    controller: main
+    ports:
+      http:
+        port: 8191

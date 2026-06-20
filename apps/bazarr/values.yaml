@@ -6,7 +6,7 @@ controllers:
     containers:
       app:
         image:
-          repository: lscr.io/linuxserver/jellyfin
+          repository: lscr.io/linuxserver/bazarr
           tag: latest
         env:
           PUID: "1000"
@@ -18,14 +18,14 @@ service:
     controller: main
     ports:
       http:
-        port: 8096
+        port: 6767
 
 route:
   main:
     enabled: true
     kind: HTTPRoute
     hostnames:
-      - jellyfin.nik-homelab.dev
+      - bazarr.nik-homelab.dev
     parentRefs:
       - name: homelab
         namespace: envoy-gateway-system
@@ -34,7 +34,7 @@ persistence:
   config:
     type: persistentVolumeClaim
     storageClass: local-path
-    size: 10Gi
+    size: 2Gi
     accessMode: ReadWriteOnce
     globalMounts:
       - path: /config
@@ -44,4 +44,3 @@ persistence:
     path: /mnt/storage/media
     globalMounts:
       - path: /media
-        readOnly: true
