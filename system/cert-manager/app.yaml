@@ -1,3 +1,4 @@
 chartName: cert-manager
 chartRepo: https://charts.jetstack.io
 chartVersion: 1.20.2
+syncWave: "2"
