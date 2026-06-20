@@ -5,6 +5,8 @@ kind: ApplicationSet
 metadata:
   name: {{ $stack.name }}
   namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ $stack.syncWave | default "0" | quote }}
 spec:
   generators:
     - git:
@@ -15,6 +17,8 @@ spec:
   template:
     metadata:
       name: '{{`{{path.basename}}`}}'
+      annotations:
+        argocd.argoproj.io/sync-wave: '{{`{{syncWave | default "0"}}`}}'
     spec:
       destination:
         name: in-cluster
