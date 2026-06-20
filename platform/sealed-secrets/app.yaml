@@ -1,3 +1,3 @@
 chartName: sealed-secrets
-chartRepo: https://bitnami-labs.github.io/sealed-secrets
-chartVersion: 2.18.6
+chartRepo: https://charts.bitnami.com/bitnami
+chartVersion: 2.5.19
