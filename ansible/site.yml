@@ -5,14 +5,15 @@
     - common
 
 - name: Deploy k3s cluster
-  ansible.builtin.import_playbook: k3s_io.k3s_ansible.site
+  ansible.builtin.import_playbook: k3s.orchestration.site
 
 - name: Configure NFS server on worker-01
   hosts: worker-01
   roles:
     - nfs_server
 
-- name: Configure NFS client on worker-02
-  hosts: worker-02
-  roles:
-    - nfs_client
+# Uncomment when G6 is provisioned
+# - name: Configure NFS client on control-plane-02
+#   hosts: control-plane-02
+#   roles:
+#     - nfs_client

@@ -1,0 +1,7 @@
+---
+# G6: k3s server + worker (schedulable — no control-plane taint)
+extra_server_args: >-
+  --disable traefik
+  --disable servicelb
+  --flannel-backend=none
+  --disable-network-policy

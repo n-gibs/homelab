@@ -4,7 +4,7 @@ metadata:
   name: letsencrypt-prod
 spec:
   acme:
-    email: TODO@example.com  # TODO: replace with your email (not committed)
+    email: ${LETSENCRYPT_EMAIL}
     server: https://acme-v02.api.letsencrypt.org/directory
     privateKeySecretRef:
       name: letsencrypt-prod-account-key
@@ -21,7 +21,7 @@ metadata:
   name: letsencrypt-staging
 spec:
   acme:
-    email: TODO@example.com  # TODO: replace with your email (not committed)
+    email: ${LETSENCRYPT_EMAIL}
     server: https://acme-staging-v02.api.letsencrypt.org/directory
     privateKeySecretRef:
       name: letsencrypt-staging-account-key
