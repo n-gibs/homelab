@@ -29,5 +29,6 @@ hubble:
   enabled: true
   relay:
     enabled: true
+    hostNetwork: true
   ui:
     enabled: true
