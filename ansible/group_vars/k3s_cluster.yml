@@ -13,5 +13,6 @@ extra_server_args: >-
   --flannel-backend=none
   --disable-network-policy
   --write-kubeconfig-mode=644
+  --resolv-conf /run/systemd/resolve/resolv.conf
 
 extra_agent_args: ""
