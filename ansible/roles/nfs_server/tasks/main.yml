@@ -25,6 +25,16 @@
     state: mounted
   become: true
 
+- name: Create NFS subdirectories
+  ansible.builtin.file:
+    path: "{{ nfs_export_path }}/{{ item }}"
+    state: directory
+    mode: "0755"
+    owner: nobody
+    group: nogroup
+  become: true
+  loop: "{{ nfs_subdirs }}"
+
 - name: Configure NFS export
   ansible.builtin.lineinfile:
     path: /etc/exports
