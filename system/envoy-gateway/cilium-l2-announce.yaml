@@ -1,0 +1,14 @@
+apiVersion: cilium.io/v2alpha1
+kind: CiliumL2AnnouncementPolicy
+metadata:
+  name: homelab
+spec:
+  nodeSelector:
+    matchLabels: {}
+  interfaces:
+    - ^enp2s0$
+    - ^eno1$
+  externalIPs: false
+  loadBalancerIPs: true
+  serviceSelector:
+    matchLabels: {}

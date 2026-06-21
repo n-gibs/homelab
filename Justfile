@@ -153,6 +153,20 @@ seal-gluetun-creds:
     kubeseal --cert pub-cert.pem -o yaml > apps/qbittorrent/gluetun-vpn-creds.yaml
     echo "Sealed: apps/qbittorrent/gluetun-vpn-creds.yaml"
 
+# Seal Tailscale operator OAuth credentials (run after bootstrap + kubeseal-fetch-cert)
+# Get clientId/clientSecret from: https://login.tailscale.com/admin/settings/oauth
+# Required scopes: devices:write (for operator to manage devices)
+seal-tailscale-oauth:
+    #!/usr/bin/env bash
+    source .secrets
+    kubectl create secret generic operator-oauth \
+      --namespace tailscale \
+      --from-literal=client_id="$TAILSCALE_OAUTH_CLIENT_ID" \
+      --from-literal=client_secret="$TAILSCALE_OAUTH_CLIENT_SECRET" \
+      --dry-run=client -o yaml | \
+    kubeseal --cert pub-cert.pem -o yaml > platform/tailscale/operator-oauth.yaml
+    echo "Sealed: platform/tailscale/operator-oauth.yaml"
+
 # ── Misc ─────────────────────────────────────────────────────────────────────
 
 # Show TODOs remaining
