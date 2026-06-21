@@ -22,6 +22,9 @@ socketLB:
   enabled: true
   hostNamespaceOnly: false
 
+bpf:
+  lbExternalClusterIP: true
+
 hubble:
   enabled: true
   relay:
