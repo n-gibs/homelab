@@ -10,6 +10,7 @@ extra_server_args: >-
   --node-taint node-role.kubernetes.io/control-plane=:NoSchedule
   --disable traefik
   --disable servicelb
+  --disable metrics-server
   --flannel-backend=none
   --disable-network-policy
   --write-kubeconfig-mode=644

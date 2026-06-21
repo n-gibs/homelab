@@ -18,6 +18,10 @@ l2podAnnouncements:
 operator:
   replicas: 1
 
+socketLB:
+  enabled: true
+  hostNamespaceOnly: false
+
 hubble:
   enabled: true
   relay:
