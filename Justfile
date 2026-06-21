@@ -141,6 +141,18 @@ seal-vaultwarden-token:
     kubeseal --cert pub-cert.pem -o yaml > apps/vaultwarden/admin-token.yaml
     echo "Sealed: apps/vaultwarden/admin-token.yaml"
 
+# Seal gluetun VPN credentials (run after bootstrap + kubeseal-fetch-cert)
+seal-gluetun-creds:
+    #!/usr/bin/env bash
+    source .secrets
+    kubectl create secret generic gluetun-vpn-creds \
+      --namespace qbittorrent \
+      --from-literal=WIREGUARD_PRIVATE_KEY="$WIREGUARD_PRIVATE_KEY" \
+      --from-literal=WIREGUARD_ADDRESSES="$WIREGUARD_ADDRESSES" \
+      --dry-run=client -o yaml | \
+    kubeseal --cert pub-cert.pem -o yaml > apps/qbittorrent/gluetun-vpn-creds.yaml
+    echo "Sealed: apps/qbittorrent/gluetun-vpn-creds.yaml"
+
 # ── Misc ─────────────────────────────────────────────────────────────────────
 
 # Show TODOs remaining
