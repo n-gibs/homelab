@@ -16,3 +16,5 @@ extra_server_args: >-
   --resolv-conf /run/systemd/resolve/resolv.conf
 
 extra_agent_args: ""
+
+letsencrypt_email: "{{ vault_letsencrypt_email }}"
