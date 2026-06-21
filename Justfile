@@ -161,8 +161,8 @@ seal-tailscale-oauth:
     source .secrets
     kubectl create secret generic operator-oauth \
       --namespace tailscale \
-      --from-literal=client_id="$TAILSCALE_OAUTH_CLIENT_ID" \
-      --from-literal=client_secret="$TAILSCALE_OAUTH_CLIENT_SECRET" \
+      --from-literal=client_id="$TAILSCALE_CLIENT_ID" \
+      --from-literal=client_secret="$TAILSCALE_CLIENT_SECRET" \
       --dry-run=client -o yaml | \
     kubeseal --cert pub-cert.pem -o yaml > platform/tailscale/operator-oauth.yaml
     echo "Sealed: platform/tailscale/operator-oauth.yaml"
