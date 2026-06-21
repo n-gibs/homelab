@@ -4,3 +4,5 @@ oauth:
 
 operatorConfig:
   hostname: homelab-operator
+  defaultTags:
+    - "tag:homelab"
