@@ -18,12 +18,13 @@ controllers:
           repository: qmcgaw/gluetun
           tag: latest
         env:
-          VPN_SERVICE_PROVIDER: mullvad  # TODO: set your VPN provider
+          VPN_SERVICE_PROVIDER: mullvad
           VPN_TYPE: wireguard
           TZ: America/Los_Angeles
+          FIREWALL_OUTBOUND_SUBNETS: "10.0.0.0/8,192.168.0.0/16"
         envFrom:
           - secretRef:
-              name: gluetun-vpn-creds  # TODO: seal via `just seal-secret`
+              name: gluetun-vpn-creds
         securityContext:
           capabilities:
             add:
@@ -56,11 +57,11 @@ persistence:
       main:
         app:
           - path: /config
-  downloads:
+  data:
     type: nfs
     server: 192.168.30.194
-    path: /mnt/storage/downloads
+    path: /mnt/storage
     advancedMounts:
       main:
         app:
-          - path: /downloads
+          - path: /data

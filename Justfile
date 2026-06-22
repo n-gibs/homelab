@@ -178,6 +178,80 @@ seal-cloudflare-token-external-dns:
     kubeseal --cert pub-cert.pem -o yaml > system/external-dns/cloudflare-token.yaml
     echo "Sealed: system/external-dns/cloudflare-token.yaml"
 
+# Seal arr stack API keys (run after bootstrap + kubeseal-fetch-cert)
+# Add to .secrets: SONARR_API_KEY, RADARR_API_KEY, PROWLARR_API_KEY (use `uuidgen | tr -d '-' | tr '[:upper:]' '[:lower:]'`)
+seal-arr-api-keys:
+    #!/usr/bin/env bash
+    source .secrets
+    kubectl create secret generic arr-api-key \
+      --namespace sonarr \
+      --from-literal=SONARR__AUTH__APIKEY="$SONARR_API_KEY" \
+      --dry-run=client -o yaml | \
+    kubeseal --cert pub-cert.pem -o yaml > apps/sonarr/arr-api-key.yaml
+    echo "Sealed: apps/sonarr/arr-api-key.yaml"
+    kubectl create secret generic arr-api-key \
+      --namespace radarr \
+      --from-literal=RADARR__AUTH__APIKEY="$RADARR_API_KEY" \
+      --dry-run=client -o yaml | \
+    kubeseal --cert pub-cert.pem -o yaml > apps/radarr/arr-api-key.yaml
+    echo "Sealed: apps/radarr/arr-api-key.yaml"
+    kubectl create secret generic arr-api-key \
+      --namespace prowlarr \
+      --from-literal=PROWLARR__AUTH__APIKEY="$PROWLARR_API_KEY" \
+      --dry-run=client -o yaml | \
+    kubeseal --cert pub-cert.pem -o yaml > apps/prowlarr/arr-api-key.yaml
+    echo "Sealed: apps/prowlarr/arr-api-key.yaml"
+    kubectl create secret generic recyclarr-api-keys \
+      --namespace recyclarr \
+      --from-literal=SONARR_API_KEY="$SONARR_API_KEY" \
+      --from-literal=RADARR_API_KEY="$RADARR_API_KEY" \
+      --dry-run=client -o yaml | \
+    kubeseal --cert pub-cert.pem -o yaml > apps/recyclarr/api-keys.yaml
+    echo "Sealed: apps/recyclarr/api-keys.yaml"
+
+# Wire Prowlarr → Sonarr/Radarr via API (run after apps are healthy)
+# Note: Bazarr → Sonarr/Radarr has no REST API; configure manually at bazarr.nik-homelab.dev → Settings
+wire-media:
+    #!/usr/bin/env bash
+    source .secrets
+    echo "Port-forwarding Prowlarr..."
+    kubectl port-forward -n prowlarr svc/prowlarr 9696:9696 &
+    PF_PROWLARR=$!
+    trap "kill $PF_PROWLARR 2>/dev/null" EXIT
+    sleep 4
+
+    PROWLARR="http://localhost:9696"
+
+    # Prowlarr → Sonarr
+    SONARR_EXISTS=$(curl -sf -H "X-Api-Key: $PROWLARR_API_KEY" "$PROWLARR/api/v1/applications" \
+      | python3 -c "import sys,json; print(any(a['name']=='Sonarr' for a in json.load(sys.stdin)))" 2>/dev/null || echo False)
+    if [ "$SONARR_EXISTS" = "False" ]; then
+      curl -sf -X POST \
+        -H "X-Api-Key: $PROWLARR_API_KEY" -H "Content-Type: application/json" \
+        "$PROWLARR/api/v1/applications" \
+        -d "{\"name\":\"Sonarr\",\"syncLevel\":\"fullSync\",\"implementation\":\"Sonarr\",\"configContract\":\"SonarrSettings\",\"fields\":[{\"name\":\"prowlarrUrl\",\"value\":\"http://prowlarr.prowlarr.svc.cluster.local:9696\"},{\"name\":\"baseUrl\",\"value\":\"http://sonarr.sonarr.svc.cluster.local:8989\"},{\"name\":\"apiKey\",\"value\":\"$SONARR_API_KEY\"},{\"name\":\"syncCategories\",\"value\":[5000,5030,5040]}]}"
+      echo "Prowlarr → Sonarr: wired"
+    else
+      echo "Prowlarr → Sonarr: already configured"
+    fi
+
+    # Prowlarr → Radarr
+    RADARR_EXISTS=$(curl -sf -H "X-Api-Key: $PROWLARR_API_KEY" "$PROWLARR/api/v1/applications" \
+      | python3 -c "import sys,json; print(any(a['name']=='Radarr' for a in json.load(sys.stdin)))" 2>/dev/null || echo False)
+    if [ "$RADARR_EXISTS" = "False" ]; then
+      curl -sf -X POST \
+        -H "X-Api-Key: $PROWLARR_API_KEY" -H "Content-Type: application/json" \
+        "$PROWLARR/api/v1/applications" \
+        -d "{\"name\":\"Radarr\",\"syncLevel\":\"fullSync\",\"implementation\":\"Radarr\",\"configContract\":\"RadarrSettings\",\"fields\":[{\"name\":\"prowlarrUrl\",\"value\":\"http://prowlarr.prowlarr.svc.cluster.local:9696\"},{\"name\":\"baseUrl\",\"value\":\"http://radarr.radarr.svc.cluster.local:7878\"},{\"name\":\"apiKey\",\"value\":\"$RADARR_API_KEY\"},{\"name\":\"syncCategories\",\"value\":[2000,2010,2020,2030,2040,2045,2050,2060,2070]}]}"
+      echo "Prowlarr → Radarr: wired"
+    else
+      echo "Prowlarr → Radarr: already configured"
+    fi
+
+    echo ""
+    echo "Manual step: Bazarr has no settings API."
+    echo "Go to bazarr.nik-homelab.dev → Settings → Sonarr/Radarr and configure."
+
 # ── Misc ─────────────────────────────────────────────────────────────────────
 
 # Show TODOs remaining
