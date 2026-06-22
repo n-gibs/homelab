@@ -24,6 +24,7 @@ controllers:
           FIREWALL_OUTBOUND_SUBNETS: "10.0.0.0/8,192.168.0.0/16"
           FIREWALL_INPUT_PORTS: "8080,6881"
           DNS_KEEP_NAMESERVER: "on"
+          DNS_UPSTREAM_IPV6: "on"
           BLOCK_MALICIOUS: "off"
           BLOCK_ADS: "off"
           BLOCK_SURVEILLANCE: "off"
