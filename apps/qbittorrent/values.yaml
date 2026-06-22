@@ -25,6 +25,7 @@ controllers:
           FIREWALL_INPUT_PORTS: "8080"
           WIREGUARD_ENDPOINT_PORT: "443"
           DNS_KEEP_NAMESERVER: "on"
+          SERVER_COUNTRIES: "USA"
         envFrom:
           - secretRef:
               name: gluetun-vpn-creds
