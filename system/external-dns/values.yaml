@@ -11,8 +11,10 @@ env:
         name: cloudflare-api-token
         key: api-token
 
+cloudflare:
+  proxied: false
+
 extraArgs:
-  - --cloudflare-proxied=false
   - --gateway-namespace=envoy-gateway-system
 
 policy: sync
