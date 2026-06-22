@@ -3,6 +3,17 @@ controllers:
     pod:
       nodeSelector:
         homelab.io/storage: "true"
+    initContainers:
+      fix-perms:
+        image:
+          repository: busybox
+          tag: latest
+        command:
+          - sh
+          - -c
+          - chmod -R 777 /data/downloads /data/media
+        securityContext:
+          runAsUser: 0
     containers:
       app:
         image:
@@ -71,5 +82,7 @@ persistence:
     path: /mnt/storage
     advancedMounts:
       main:
+        fix-perms:
+          - path: /data
         app:
           - path: /data
