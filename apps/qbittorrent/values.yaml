@@ -24,6 +24,7 @@ controllers:
           FIREWALL_OUTBOUND_SUBNETS: "10.0.0.0/8,192.168.0.0/16"
           FIREWALL_INPUT_PORTS: "8080"
           DNS_ADDRESS: "8.8.8.8"
+          WIREGUARD_ENDPOINT_PORT: "443"
         envFrom:
           - secretRef:
               name: gluetun-vpn-creds
