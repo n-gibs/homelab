@@ -101,13 +101,24 @@ kubectl get secret argocd-initial-admin-secret -n argocd \
 
 ---
 
+## OS Install
+
+Ubuntu 26.04 LTS — installed manually from USB.
+
+1. Download Ubuntu 26.04 LTS Server minimal ISO
+2. Flash to USB: `sudo dd if=ubuntu-26.04-live-server-amd64.iso of=/dev/rdiskN bs=1m status=progress`
+3. Boot node from USB (HP ProDesk: **F10** → select USB)
+4. Follow installer: set hostname, enable OpenSSH, skip snaps
+5. Reboot, remove USB
+
+---
+
 ## Adding a New Node (Repeatable)
 
-1. Flash Ubuntu 26.04 minimal to USB
-2. Install — set hostname, enable OpenSSH, skip snaps
-3. Install Tailscale: `curl -fsSL https://tailscale.com/install.sh | sh && sudo tailscale up`
-4. Add Tailscale IP to `ansible/inventory/hosts.yml`
-5. Run `provision-node.yml` then appropriate k3s playbook
+1. Install Ubuntu per above
+2. Install Tailscale: `curl -fsSL https://tailscale.com/install.sh | sh && sudo tailscale up`
+3. Add Tailscale IP to `ansible/inventory/hosts.yml`
+4. Run `provision-node.yml` then appropriate k3s playbook
 
 ---
 
