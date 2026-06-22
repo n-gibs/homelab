@@ -1,0 +1,13 @@
+---
+apiVersion: bitnami.com/v1alpha1
+kind: SealedSecret
+metadata:
+  name: arr-api-key
+  namespace: prowlarr
+spec:
+  encryptedData:
+    PROWLARR__AUTH__APIKEY: AgABfVWt2PAi1Zw9Wdg11gSGCdD59BdrD38EDT9j5OJW1aiVeu/e+VSmbvvn4sSLZu8FdU6n5tGpVaylmzqkrLDYFx5H3N07iqTtaozdcwGYjkwj4dTN50f0Qw4eY0qxC2bFHUDm7U2Fo4rbm1T5j18tvPozNDOE3pY3wtxlVvA5CG6j85X4FGJbKh3VddGXADYrMWqozjUs4nHQ/AZwZyphxrv+cfbDIbGOqZc83y0gfAYxH6LxSbsf/TzVS99Q/eujqmIgIgUmznkxNxm4jMRts5BGpMXW3GYz874zANfowUjzXGx4TEHrHB4g1JE0sxq5FgFJFiEhIKE8cjlFGCoFqNjUad2QAB82nPl/4svhUW8ymuFvBPum1RLsm0Tp7LjlgkJleQ34XLLOcf9DcxgfPnV+rvg+TVtEPYqDB+LgBkTKBfCMT+bBzFc75kNNgiKlpTEKAbcvvlsdep4RbYyyPFcVBzL5dTnb3F82iwMbk3RJhIj3cassCd1oQ4t76nlSUkmEu4Q7FDUd84tQuxpSyRLjwQCg55tukMiZRUr+hKC3vDxdgnXz6z9FtQ8bhhzj3b8RpWqf9gkLDBQxwaX5+ydHVy/6SV7uoXhRttxz2yoLjZ4AnsG/a6KPfRf9O479cc6vU7Q2+zmeil0DCendReZPetaUmyA0nw/jHBE92iCHyOqdXcuj3MjhdTEYT++Vkr+D56ZWSgj+TpVOzKniKsH+wrTPtJP+WyuMru+E+w==
+  template:
+    metadata:
+      name: arr-api-key
+      namespace: prowlarr

@@ -12,6 +12,9 @@ controllers:
           PUID: "1000"
           PGID: "1000"
           TZ: America/Los_Angeles
+        envFrom:
+          - secretRef:
+              name: arr-api-key
 
 service:
   main:
@@ -38,15 +41,9 @@ persistence:
     accessMode: ReadWriteOnce
     globalMounts:
       - path: /config
-  media:
+  data:
     type: nfs
     server: 192.168.30.194
-    path: /mnt/storage/media
+    path: /mnt/storage
     globalMounts:
-      - path: /media
-  downloads:
-    type: nfs
-    server: 192.168.30.194
-    path: /mnt/storage/downloads
-    globalMounts:
-      - path: /downloads
+      - path: /data

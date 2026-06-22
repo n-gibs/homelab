@@ -12,6 +12,9 @@ controllers:
           PUID: "1000"
           PGID: "1000"
           TZ: America/Los_Angeles
+        envFrom:
+          - secretRef:
+              name: arr-api-key
 
 service:
   main:

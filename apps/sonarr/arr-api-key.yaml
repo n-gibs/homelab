@@ -1,0 +1,13 @@
+---
+apiVersion: bitnami.com/v1alpha1
+kind: SealedSecret
+metadata:
+  name: arr-api-key
+  namespace: sonarr
+spec:
+  encryptedData:
+    SONARR__AUTH__APIKEY: AgAlyBoEmSxU4t6/bOxvn/Z7Cz6MS3Ao3kChXb9uPaO08fVSDaeExx4rIedrt1z8qkcId0nV8PxLUp5v8YQxG2yyAfZpPoR5dfoiO1e8O05/kd79tcW2aLN8MfTbTesGk1fV9lPHVK2ljh1dc5HUc00wmevpERXH1t0Awerc1pePXO5fho3DLi/vEv8pDnV4d0gISF2oSUrP8XBwUNTD4ZJ/W3EQKebZsRcpqVrumzdf4Tx2oN2iqcn/M0ZetbrxoOaZpDYWruz72JZongxnGtrfd5xcC1TcwnDV7BoRWgmOl8DA5yC3wXftp/UoiD2NCDitLUkZFcN+h7U+4IrUEeBAgSO7x6P+7VyclpUUU1qEWz0/Qu9RXnK3N1NjzLw2vGtK/ojy3yfJo65C5AVUv1vdxfmpz/P92jF3InbZ5fe1XdvddhvjsIkszdQoFqd5fao9OC4+/xggvXhijhI9Sr9aoRFYq260//hWbetyveMTlu+plN8AMByBJKEcb6xItKu7thZ6vOwjsVWgcsyN5xx2oidauJL5Llap56626TeV7PDYZXOEjWFO1ErzA2/mNLC7HdnisaOTna/S2lEe06T6h2otBFXvKmQgbgkjwGsJRtN8K0fOBW0oSPSDez/KXdiJaP7FKKtsp1Fye+TZDrNhUQOIBjbX1Wn3tKhffaOjZdeuGRhBHKsJ6vWgfJzup+qHQm5O5NfY9pgkj9z2sVywcO3dczrrbmDKNr/AJiW4tQ==
+  template:
+    metadata:
+      name: arr-api-key
+      namespace: sonarr

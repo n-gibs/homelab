@@ -38,10 +38,10 @@ persistence:
     accessMode: ReadWriteOnce
     globalMounts:
       - path: /config
-  media:
+  data:
     type: nfs
     server: 192.168.30.194
-    path: /mnt/storage/media
+    path: /mnt/storage
     globalMounts:
-      - path: /media
+      - path: /data
         readOnly: true
