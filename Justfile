@@ -209,18 +209,51 @@ seal-arr-api-keys:
     kubeseal --cert pub-cert.pem -o yaml > apps/recyclarr/api-keys.yaml
     echo "Sealed: apps/recyclarr/api-keys.yaml"
 
-# Wire Prowlarr → Sonarr/Radarr via API (run after apps are healthy)
+# Wire Prowlarr → Sonarr/Radarr + set root folders via API (run after apps are healthy)
 # Note: Bazarr → Sonarr/Radarr has no REST API; configure manually at bazarr.nik-homelab.dev → Settings
 wire-media:
     #!/usr/bin/env bash
     source .secrets
-    echo "Port-forwarding Prowlarr..."
+    PF_PIDS=()
+    cleanup() { for p in "${PF_PIDS[@]}"; do kill "$p" 2>/dev/null; done; }
+    trap cleanup EXIT
+
+    echo "Port-forwarding Sonarr, Radarr, Prowlarr..."
+    kubectl port-forward -n sonarr svc/sonarr 8989:8989 &
+    PF_PIDS+=($!)
+    kubectl port-forward -n radarr svc/radarr 7878:7878 &
+    PF_PIDS+=($!)
     kubectl port-forward -n prowlarr svc/prowlarr 9696:9696 &
-    PF_PROWLARR=$!
-    trap "kill $PF_PROWLARR 2>/dev/null" EXIT
+    PF_PIDS+=($!)
     sleep 4
 
+    SONARR="http://localhost:8989"
+    RADARR="http://localhost:7878"
     PROWLARR="http://localhost:9696"
+
+    # Sonarr root folder
+    SONARR_RF=$(curl -sf -H "X-Api-Key: $SONARR_API_KEY" "$SONARR/api/v3/rootFolder" \
+      | python3 -c "import sys,json; print(any(r['path']=='/data/media/tv' for r in json.load(sys.stdin)))" 2>/dev/null || echo False)
+    if [ "$SONARR_RF" = "False" ]; then
+      curl -sf -X POST \
+        -H "X-Api-Key: $SONARR_API_KEY" -H "Content-Type: application/json" \
+        "$SONARR/api/v3/rootFolder" -d '{"path":"/data/media/tv"}' > /dev/null
+      echo "Sonarr root folder: /data/media/tv"
+    else
+      echo "Sonarr root folder: already set"
+    fi
+
+    # Radarr root folder
+    RADARR_RF=$(curl -sf -H "X-Api-Key: $RADARR_API_KEY" "$RADARR/api/v3/rootFolder" \
+      | python3 -c "import sys,json; print(any(r['path']=='/data/media/movies' for r in json.load(sys.stdin)))" 2>/dev/null || echo False)
+    if [ "$RADARR_RF" = "False" ]; then
+      curl -sf -X POST \
+        -H "X-Api-Key: $RADARR_API_KEY" -H "Content-Type: application/json" \
+        "$RADARR/api/v3/rootFolder" -d '{"path":"/data/media/movies"}' > /dev/null
+      echo "Radarr root folder: /data/media/movies"
+    else
+      echo "Radarr root folder: already set"
+    fi
 
     # Prowlarr → Sonarr
     SONARR_EXISTS=$(curl -sf -H "X-Api-Key: $PROWLARR_API_KEY" "$PROWLARR/api/v1/applications" \
@@ -229,7 +262,7 @@ wire-media:
       curl -sf -X POST \
         -H "X-Api-Key: $PROWLARR_API_KEY" -H "Content-Type: application/json" \
         "$PROWLARR/api/v1/applications" \
-        -d "{\"name\":\"Sonarr\",\"syncLevel\":\"fullSync\",\"implementation\":\"Sonarr\",\"configContract\":\"SonarrSettings\",\"fields\":[{\"name\":\"prowlarrUrl\",\"value\":\"http://prowlarr.prowlarr.svc.cluster.local:9696\"},{\"name\":\"baseUrl\",\"value\":\"http://sonarr.sonarr.svc.cluster.local:8989\"},{\"name\":\"apiKey\",\"value\":\"$SONARR_API_KEY\"},{\"name\":\"syncCategories\",\"value\":[5000,5030,5040]}]}"
+        -d "{\"name\":\"Sonarr\",\"syncLevel\":\"fullSync\",\"implementation\":\"Sonarr\",\"configContract\":\"SonarrSettings\",\"fields\":[{\"name\":\"prowlarrUrl\",\"value\":\"http://prowlarr.prowlarr.svc.cluster.local:9696\"},{\"name\":\"baseUrl\",\"value\":\"http://sonarr.sonarr.svc.cluster.local:8989\"},{\"name\":\"apiKey\",\"value\":\"$SONARR_API_KEY\"},{\"name\":\"syncCategories\",\"value\":[5000,5030,5040]}]}" > /dev/null
       echo "Prowlarr → Sonarr: wired"
     else
       echo "Prowlarr → Sonarr: already configured"
@@ -242,15 +275,19 @@ wire-media:
       curl -sf -X POST \
         -H "X-Api-Key: $PROWLARR_API_KEY" -H "Content-Type: application/json" \
         "$PROWLARR/api/v1/applications" \
-        -d "{\"name\":\"Radarr\",\"syncLevel\":\"fullSync\",\"implementation\":\"Radarr\",\"configContract\":\"RadarrSettings\",\"fields\":[{\"name\":\"prowlarrUrl\",\"value\":\"http://prowlarr.prowlarr.svc.cluster.local:9696\"},{\"name\":\"baseUrl\",\"value\":\"http://radarr.radarr.svc.cluster.local:7878\"},{\"name\":\"apiKey\",\"value\":\"$RADARR_API_KEY\"},{\"name\":\"syncCategories\",\"value\":[2000,2010,2020,2030,2040,2045,2050,2060,2070]}]}"
+        -d "{\"name\":\"Radarr\",\"syncLevel\":\"fullSync\",\"implementation\":\"Radarr\",\"configContract\":\"RadarrSettings\",\"fields\":[{\"name\":\"prowlarrUrl\",\"value\":\"http://prowlarr.prowlarr.svc.cluster.local:9696\"},{\"name\":\"baseUrl\",\"value\":\"http://radarr.radarr.svc.cluster.local:7878\"},{\"name\":\"apiKey\",\"value\":\"$RADARR_API_KEY\"},{\"name\":\"syncCategories\",\"value\":[2000,2010,2020,2030,2040,2045,2050,2060,2070]}]}" > /dev/null
       echo "Prowlarr → Radarr: wired"
     else
       echo "Prowlarr → Radarr: already configured"
     fi
 
     echo ""
-    echo "Manual step: Bazarr has no settings API."
-    echo "Go to bazarr.nik-homelab.dev → Settings → Sonarr/Radarr and configure."
+    echo "Done. Manual steps remaining:"
+    echo "  Jellyfin: jellyfin.nik-homelab.dev → Dashboard → Libraries → Add Media Library"
+    echo "    TV:     /data/media/tv"
+    echo "    Movies: /data/media/movies"
+    echo "  Bazarr:  bazarr.nik-homelab.dev → Settings → Sonarr → host: sonarr.sonarr.svc.cluster.local:8989"
+    echo "                                              → Radarr → host: radarr.radarr.svc.cluster.local:7878"
 
 # ── Misc ─────────────────────────────────────────────────────────────────────
 
