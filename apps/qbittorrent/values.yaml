@@ -22,7 +22,7 @@ controllers:
           VPN_TYPE: wireguard
           TZ: America/Los_Angeles
           FIREWALL_OUTBOUND_SUBNETS: "10.0.0.0/8,192.168.0.0/16"
-          FIREWALL_INPUT_PORTS: "8080"
+          FIREWALL_INPUT_PORTS: "8080,6881"
           DNS_KEEP_NAMESERVER: "on"
           WIREGUARD_ENDPOINT_IP: "23.162.40.127"
           WIREGUARD_ENDPOINT_PORT: "51820"
