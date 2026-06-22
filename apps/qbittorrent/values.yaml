@@ -23,7 +23,7 @@ controllers:
           TZ: America/Los_Angeles
           FIREWALL_OUTBOUND_SUBNETS: "10.0.0.0/8,192.168.0.0/16"
           FIREWALL_INPUT_PORTS: "8080,6881"
-          SERVER_COUNTRIES: "USA"
+          SERVER_CITIES: "Los Angeles"
           WIREGUARD_MTU: "1170"
           WIREGUARD_IMPLEMENTATION: userspace
         envFrom:
