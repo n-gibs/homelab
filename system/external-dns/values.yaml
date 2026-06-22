@@ -1,0 +1,24 @@
+sources:
+  - gateway-httproute
+
+provider:
+  name: cloudflare
+
+env:
+  - name: CF_API_TOKEN
+    valueFrom:
+      secretKeyRef:
+        name: cloudflare-api-token
+        key: api-token
+
+extraArgs:
+  - --cloudflare-proxied=false
+  - --gateway-namespace=envoy-gateway-system
+
+policy: sync
+txtOwnerId: homelab
+
+domainFilters:
+  - nik-homelab.dev
+
+logLevel: info

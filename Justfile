@@ -167,6 +167,17 @@ seal-tailscale-oauth:
     kubeseal --cert pub-cert.pem -o yaml > platform/tailscale/operator-oauth.yaml
     echo "Sealed: platform/tailscale/operator-oauth.yaml"
 
+# Seal Cloudflare API token for external-dns (run after bootstrap + kubeseal-fetch-cert)
+seal-cloudflare-token-external-dns:
+    #!/usr/bin/env bash
+    source .secrets
+    kubectl create secret generic cloudflare-api-token \
+      --namespace external-dns \
+      --from-literal=api-token="$CLOUDFLARE_API_TOKEN" \
+      --dry-run=client -o yaml | \
+    kubeseal --cert pub-cert.pem -o yaml > system/external-dns/cloudflare-token.yaml
+    echo "Sealed: system/external-dns/cloudflare-token.yaml"
+
 # ── Misc ─────────────────────────────────────────────────────────────────────
 
 # Show TODOs remaining
