@@ -28,6 +28,7 @@ controllers:
           WIREGUARD_ENDPOINT_PORT: "51820"
           WIREGUARD_PUBLIC_KEY: "8qtzkafLNGJkfgtuYc8bPeKN0apyyZrZ3Pq4tCkqIxc="
           WIREGUARD_ALLOWED_IPS: "0.0.0.0/0"
+          WIREGUARD_MTU: "1220"
         envFrom:
           - secretRef:
               name: gluetun-vpn-creds
