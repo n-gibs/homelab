@@ -22,6 +22,7 @@ controllers:
           VPN_TYPE: wireguard
           TZ: America/Los_Angeles
           FIREWALL_OUTBOUND_SUBNETS: "10.0.0.0/8,192.168.0.0/16"
+          FIREWALL_INPUT_PORTS: "8080"
         envFrom:
           - secretRef:
               name: gluetun-vpn-creds
