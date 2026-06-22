@@ -1,6 +1,6 @@
 # Autoinstall USB
 
-Unattended Ubuntu Server install for homelab nodes.
+> **Not used.** Nodes are installed manually — boot from USB with Ubuntu 26.04 LTS minimal server ISO, follow the installer, set hostname, enable OpenSSH, skip snaps. See main README for the full node provisioning flow.
 
 ## 1. Create secrets file
 
