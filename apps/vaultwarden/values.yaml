@@ -8,6 +8,12 @@ controllers:
         env:
           DOMAIN: "https://vault.nik-homelab.dev"
           WEBSOCKET_ENABLED: "true"
+          # Multi-account: invite-only (no open registration).
+          # Admin adds users via /admin panel (no SMTP = no email invites yet).
+          SIGNUPS_ALLOWED: "false"
+          INVITATIONS_ALLOWED: "true"
+          INVITATION_ORG_NAME: "Homelab"
+          # SMTP not configured — invites added manually via /admin (no email sent).
           ADMIN_TOKEN:
             valueFrom:
               secretKeyRef:
