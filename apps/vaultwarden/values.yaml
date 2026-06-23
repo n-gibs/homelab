@@ -23,6 +23,13 @@ controllers:
 service:
   main:
     controller: main
+    annotations:
+      gethomepage.dev/enabled: "true"
+      gethomepage.dev/name: "Vaultwarden"
+      gethomepage.dev/description: "Password manager"
+      gethomepage.dev/group: "Infrastructure"
+      gethomepage.dev/icon: "bitwarden.png"
+      gethomepage.dev/href: "https://vault.nik-homelab.dev"
     ports:
       http:
         port: 80

@@ -44,6 +44,14 @@ prometheus:
 
 grafana:
   enabled: true
+  service:
+    annotations:
+      gethomepage.dev/enabled: "true"
+      gethomepage.dev/name: "Grafana"
+      gethomepage.dev/description: "Metrics & dashboards"
+      gethomepage.dev/group: "Infrastructure"
+      gethomepage.dev/icon: "grafana.png"
+      gethomepage.dev/href: "https://grafana.nik-homelab.dev"
   adminPassword: changeme  # override via secret in production
   grafana.ini:
     server:

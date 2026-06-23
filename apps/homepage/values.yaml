@@ -10,45 +10,8 @@ config:
     headerStyle: boxed
     target: _blank
 
-  services.yaml: |
-    - Media:
-        - Jellyfin:
-            href: https://jellyfin.nik-homelab.dev
-            description: Media server
-            icon: jellyfin.png
-        - qBittorrent:
-            href: https://qbittorrent.nik-homelab.dev
-            description: Torrent client
-            icon: qbittorrent.png
-        - Sonarr:
-            href: https://sonarr.nik-homelab.dev
-            description: TV shows
-            icon: sonarr.png
-        - Radarr:
-            href: https://radarr.nik-homelab.dev
-            description: Movies
-            icon: radarr.png
-        - Bazarr:
-            href: https://bazarr.nik-homelab.dev
-            description: Subtitles
-            icon: bazarr.png
-        - Prowlarr:
-            href: https://prowlarr.nik-homelab.dev
-            description: Indexer manager
-            icon: prowlarr.png
-    - Infrastructure:
-        - ArgoCD:
-            href: https://argocd.nik-homelab.dev
-            description: GitOps CD
-            icon: argocd.png
-        - Grafana:
-            href: https://grafana.nik-homelab.dev
-            description: Metrics & dashboards
-            icon: grafana.png
-        - Vaultwarden:
-            href: https://vault.nik-homelab.dev
-            description: Password manager
-            icon: bitwarden.png
+  kubernetes.yaml: |
+    mode: cluster
 
   widgets.yaml: |
     - resources:

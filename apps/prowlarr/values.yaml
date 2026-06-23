@@ -19,6 +19,13 @@ controllers:
 service:
   main:
     controller: main
+    annotations:
+      gethomepage.dev/enabled: "true"
+      gethomepage.dev/name: "Prowlarr"
+      gethomepage.dev/description: "Indexer manager"
+      gethomepage.dev/group: "Media"
+      gethomepage.dev/icon: "prowlarr.png"
+      gethomepage.dev/href: "https://prowlarr.nik-homelab.dev"
     ports:
       http:
         port: 9696
