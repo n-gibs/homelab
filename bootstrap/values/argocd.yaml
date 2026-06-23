@@ -14,6 +14,19 @@ configs:
     server.insecure: true  # TLS terminated at gateway
   cm:
     users.anonymous.enabled: "true"
-    server-side-apply: "true"
+    resource.customizations.ignoreDifferences.gateway.networking.k8s.io_HTTPRoute: |
+      jqPathExpressions:
+        - .status
+        - .spec.parentRefs[]?.group
+        - .spec.parentRefs[]?.kind
+        - .spec.rules[]?.backendRefs[]?.group
+        - .spec.rules[]?.backendRefs[]?.kind
+        - .spec.rules[]?.backendRefs[]?.weight
+        - .spec.rules[]?.matches
+    resource.customizations.ignoreDifferences.gateway.networking.k8s.io_Gateway: |
+      jqPathExpressions:
+        - .status
+        - .spec.listeners[]?.tls?.certificateRefs[]?.group
+        - .spec.listeners[]?.tls?.certificateRefs[]?.kind
   rbac:
     policy.default: "role:admin"
