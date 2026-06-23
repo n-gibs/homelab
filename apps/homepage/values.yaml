@@ -9,6 +9,8 @@ config:
     color: slate
     headerStyle: boxed
     target: _blank
+    allowedHosts:
+      - home.nik-homelab.dev
 
   kubernetes.yaml: |
     mode: cluster
