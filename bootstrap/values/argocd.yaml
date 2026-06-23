@@ -12,6 +12,7 @@ server:
 configs:
   params:
     server.insecure: true  # TLS terminated at gateway
+    controller.diff.server.side: "true"  # cancel CRD-defaulted fields (Gateway API drift)
   cm:
     users.anonymous.enabled: "true"
   rbac:
