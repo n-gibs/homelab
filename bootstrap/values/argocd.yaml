@@ -1,4 +1,12 @@
 server:
+  service:
+    annotations:
+      gethomepage.dev/enabled: "true"
+      gethomepage.dev/name: "ArgoCD"
+      gethomepage.dev/description: "GitOps CD"
+      gethomepage.dev/group: "Infrastructure"
+      gethomepage.dev/icon: "argocd.png"
+      gethomepage.dev/href: "https://argocd.nik-homelab.dev"
   ingress:
     enabled: false
   httproute:

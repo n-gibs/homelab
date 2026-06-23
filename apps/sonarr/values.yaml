@@ -19,6 +19,13 @@ controllers:
 service:
   main:
     controller: main
+    annotations:
+      gethomepage.dev/enabled: "true"
+      gethomepage.dev/name: "Sonarr"
+      gethomepage.dev/description: "TV shows"
+      gethomepage.dev/group: "Media"
+      gethomepage.dev/icon: "sonarr.png"
+      gethomepage.dev/href: "https://sonarr.nik-homelab.dev"
     ports:
       http:
         port: 8989
