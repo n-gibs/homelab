@@ -2,6 +2,9 @@ enableRbac: true
 serviceAccount:
   create: true
 
+env:
+  HOMEPAGE_ALLOWED_HOSTS: "home.nik-homelab.dev"
+
 config:
   settings.yaml: |
     title: Homelab
