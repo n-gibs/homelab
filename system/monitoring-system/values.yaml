@@ -49,3 +49,6 @@ grafana:
     server:
       root_url: "%(protocol)s://grafana.nik-homelab.dev"
       serve_from_sub_path: false
+    auth.anonymous:
+      enabled: true
+      org_role: Admin
