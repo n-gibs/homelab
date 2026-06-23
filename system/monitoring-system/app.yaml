@@ -1,4 +1,3 @@
 chartName: kube-prometheus-stack
 chartRepo: https://prometheus-community.github.io/helm-charts
 chartVersion: 86.2.0
-replace: "true"

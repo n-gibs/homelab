@@ -2,4 +2,3 @@ chartName: gateway-helm
 chartRepo: docker.io/envoyproxy
 chartVersion: v1.8.1
 syncWave: "1"
-replace: "true"
