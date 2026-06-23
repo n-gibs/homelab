@@ -8,6 +8,7 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: {{ $stack.syncWave | default "0" | quote }}
 spec:
+  goTemplate: true
   generators:
     - git:
         repoURL: {{ $.Values.gitops.repo }}
@@ -16,27 +17,27 @@ spec:
           - path: "{{ $stack.name }}/*/app.yaml"
   template:
     metadata:
-      name: '{{`{{path.basename}}`}}'
+      name: '{{`{{.path.basename}}`}}'
       annotations:
-        argocd.argoproj.io/sync-wave: '{{`{{syncWave | default "0"}}`}}'
+        argocd.argoproj.io/sync-wave: '{{`{{default "0" .syncWave}}`}}'
     spec:
       destination:
         name: in-cluster
-        namespace: '{{`{{path.basename}}`}}'
+        namespace: '{{`{{.path.basename}}`}}'
       project: default
       sources:
-        - repoURL: '{{`{{chartRepo}}`}}'
-          chart: '{{`{{chartName}}`}}'
-          targetRevision: '{{`{{chartVersion}}`}}'
+        - repoURL: '{{`{{.chartRepo}}`}}'
+          chart: '{{`{{.chartName}}`}}'
+          targetRevision: '{{`{{.chartVersion}}`}}'
           helm:
             valueFiles:
-              - $values/{{`{{path}}`}}/values.yaml
+              - $values/{{`{{.path.path}}`}}/values.yaml
         - repoURL: {{ $.Values.gitops.repo }}
           targetRevision: {{ $.Values.gitops.revision }}
           ref: values
         - repoURL: {{ $.Values.gitops.repo }}
           targetRevision: {{ $.Values.gitops.revision }}
-          path: '{{`{{path}}`}}'
+          path: '{{`{{.path.path}}`}}'
           directory:
             exclude: '{app.yaml,values.yaml}'
       syncPolicy:
@@ -46,4 +47,9 @@ spec:
         syncOptions:
           - CreateNamespace=true
           - ApplyOutOfSyncOnly=true
+          {{`{{- if .replace}}`}}
+          - Replace=true
+          {{`{{- else}}`}}
+          - ServerSideApply=true
+          {{`{{- end}}`}}
 {{- end }}
