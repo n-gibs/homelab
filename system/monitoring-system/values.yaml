@@ -47,5 +47,5 @@ grafana:
   adminPassword: changeme  # override via secret in production
   grafana.ini:
     server:
-      root_url: "%(protocol)s://%(domain)s/grafana"
-      serve_from_sub_path: true
+      root_url: "%(protocol)s://grafana.nik-homelab.dev"
+      serve_from_sub_path: false
