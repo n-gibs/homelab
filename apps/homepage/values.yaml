@@ -3,23 +3,24 @@ serviceAccount:
   create: true
 
 env:
-  HOMEPAGE_ALLOWED_HOSTS: "home.nik-homelab.dev"
+  - name: HOMEPAGE_ALLOWED_HOSTS
+    value: "home.nik-homelab.dev"
 
 config:
-  settings.yaml: |
+  settings:
     title: Homelab
     theme: dark
     color: slate
     headerStyle: boxed
     target: _blank
-    allowedHosts:
-      - home.nik-homelab.dev
 
-  kubernetes.yaml: |
+  kubernetes:
     mode: cluster
 
-  widgets.yaml: |
+  widgets:
     - resources:
+        backend: kubernetes
+        expanded: true
         cpu: true
         memory: true
     - search:
@@ -29,5 +30,6 @@ config:
         text_size: xl
         text: Homelab
 
-  bookmarks.yaml: |
-    []
+  services: []
+
+  bookmarks: []
