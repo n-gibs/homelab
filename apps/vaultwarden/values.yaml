@@ -23,6 +23,12 @@ controllers:
 service:
   main:
     controller: main
+    ports:
+      http:
+        port: 80
+
+route:
+  main:
     annotations:
       gethomepage.dev/enabled: "true"
       gethomepage.dev/name: "Vaultwarden"
@@ -30,12 +36,6 @@ service:
       gethomepage.dev/group: "Infrastructure"
       gethomepage.dev/icon: "bitwarden.png"
       gethomepage.dev/href: "https://vault.nik-homelab.dev"
-    ports:
-      http:
-        port: 80
-
-route:
-  main:
     enabled: true
     kind: HTTPRoute
     hostnames:

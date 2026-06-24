@@ -16,6 +16,12 @@ controllers:
 service:
   main:
     controller: main
+    ports:
+      http:
+        port: 8096
+
+route:
+  main:
     annotations:
       gethomepage.dev/enabled: "true"
       gethomepage.dev/name: "Jellyfin"
@@ -23,12 +29,6 @@ service:
       gethomepage.dev/group: "Media"
       gethomepage.dev/icon: "jellyfin.png"
       gethomepage.dev/href: "https://jellyfin.nik-homelab.dev"
-    ports:
-      http:
-        port: 8096
-
-route:
-  main:
     enabled: true
     kind: HTTPRoute
     hostnames:

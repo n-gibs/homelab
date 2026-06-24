@@ -19,6 +19,12 @@ controllers:
 service:
   main:
     controller: main
+    ports:
+      http:
+        port: 8989
+
+route:
+  main:
     annotations:
       gethomepage.dev/enabled: "true"
       gethomepage.dev/name: "Sonarr"
@@ -26,12 +32,6 @@ service:
       gethomepage.dev/group: "Media"
       gethomepage.dev/icon: "sonarr.png"
       gethomepage.dev/href: "https://sonarr.nik-homelab.dev"
-    ports:
-      http:
-        port: 8989
-
-route:
-  main:
     enabled: true
     kind: HTTPRoute
     hostnames:

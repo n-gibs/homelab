@@ -7,14 +7,21 @@ serviceAccount:
 
 extraClusterRoles:
   - apiGroups:
-      - ""
+      - gateway.networking.k8s.io
     resources:
-      - services
-      - endpoints
+      - httproutes
+      - gateways
     verbs:
       - get
       - list
-      - watch
+  - apiGroups:
+      - metrics.k8s.io
+    resources:
+      - nodes
+      - pods
+    verbs:
+      - get
+      - list
 
 env:
   - name: HOMEPAGE_ALLOWED_HOSTS
@@ -30,6 +37,7 @@ config:
 
   kubernetes:
     mode: cluster
+    gateway: true
 
   widgets:
     - resources:
