@@ -47,8 +47,6 @@ route:
 persistence:
   data:
     type: persistentVolumeClaim
-    storageClass: local-path
-    size: 1Gi
-    accessMode: ReadWriteOnce
+    existingClaim: vaultwarden-nfs
     globalMounts:
       - path: /data
