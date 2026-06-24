@@ -36,7 +36,9 @@ route:
 persistence:
   config:
     type: persistentVolumeClaim
-    existingClaim: sonarr-nfs
+    storageClass: nfs
+    size: 2Gi
+    accessMode: ReadWriteMany
     globalMounts:
       - path: /config
   data:
