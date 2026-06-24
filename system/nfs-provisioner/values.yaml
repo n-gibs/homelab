@@ -8,3 +8,4 @@ storageClass:
   reclaimPolicy: Retain
   archiveOnDelete: false
   accessModes: ReadWriteMany
+  pathPattern: "${.PVC.namespace}/${.PVC.name}"
