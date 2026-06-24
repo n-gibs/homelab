@@ -19,6 +19,12 @@ controllers:
 service:
   main:
     controller: main
+    ports:
+      http:
+        port: 9696
+
+route:
+  main:
     annotations:
       gethomepage.dev/enabled: "true"
       gethomepage.dev/name: "Prowlarr"
@@ -26,12 +32,6 @@ service:
       gethomepage.dev/group: "Media"
       gethomepage.dev/icon: "prowlarr.png"
       gethomepage.dev/href: "https://prowlarr.nik-homelab.dev"
-    ports:
-      http:
-        port: 9696
-
-route:
-  main:
     enabled: true
     kind: HTTPRoute
     hostnames:

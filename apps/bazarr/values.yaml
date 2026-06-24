@@ -16,6 +16,12 @@ controllers:
 service:
   main:
     controller: main
+    ports:
+      http:
+        port: 6767
+
+route:
+  main:
     annotations:
       gethomepage.dev/enabled: "true"
       gethomepage.dev/name: "Bazarr"
@@ -23,12 +29,6 @@ service:
       gethomepage.dev/group: "Media"
       gethomepage.dev/icon: "bazarr.png"
       gethomepage.dev/href: "https://bazarr.nik-homelab.dev"
-    ports:
-      http:
-        port: 6767
-
-route:
-  main:
     enabled: true
     kind: HTTPRoute
     hostnames:

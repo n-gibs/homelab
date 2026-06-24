@@ -19,6 +19,12 @@ controllers:
 service:
   main:
     controller: main
+    ports:
+      http:
+        port: 7878
+
+route:
+  main:
     annotations:
       gethomepage.dev/enabled: "true"
       gethomepage.dev/name: "Radarr"
@@ -26,12 +32,6 @@ service:
       gethomepage.dev/group: "Media"
       gethomepage.dev/icon: "radarr.png"
       gethomepage.dev/href: "https://radarr.nik-homelab.dev"
-    ports:
-      http:
-        port: 7878
-
-route:
-  main:
     enabled: true
     kind: HTTPRoute
     hostnames:
