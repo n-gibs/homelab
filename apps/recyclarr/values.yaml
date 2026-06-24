@@ -59,9 +59,7 @@ configMaps:
 persistence:
   config:
     type: persistentVolumeClaim
-    storageClass: local-path
-    size: 1Gi
-    accessMode: ReadWriteOnce
+    existingClaim: recyclarr-nfs-config
     globalMounts:
       - path: /config
   recyclarr-yml:
