@@ -1,0 +1,10 @@
+nfs:
+  server: 192.168.30.194
+  path: /mnt/storage
+
+storageClass:
+  name: nfs
+  defaultClass: false
+  reclaimPolicy: Retain
+  archiveOnDelete: false
+  accessModes: ReadWriteMany
