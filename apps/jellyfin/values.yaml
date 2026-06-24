@@ -40,9 +40,7 @@ route:
 persistence:
   config:
     type: persistentVolumeClaim
-    storageClass: local-path
-    size: 10Gi
-    accessMode: ReadWriteOnce
+    existingClaim: jellyfin-nfs
     globalMounts:
       - path: /config
   data:
