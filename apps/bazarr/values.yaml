@@ -40,9 +40,7 @@ route:
 persistence:
   config:
     type: persistentVolumeClaim
-    storageClass: local-path
-    size: 2Gi
-    accessMode: ReadWriteOnce
+    existingClaim: bazarr-nfs-config
     globalMounts:
       - path: /config
   data:
