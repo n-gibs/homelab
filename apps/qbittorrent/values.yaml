@@ -76,9 +76,7 @@ route:
 persistence:
   config:
     type: persistentVolumeClaim
-    storageClass: nfs
-    size: 1Gi
-    accessMode: ReadWriteMany
+    existingClaim: qbittorrent-nfs
     advancedMounts:
       main:
         app:
