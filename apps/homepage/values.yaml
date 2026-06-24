@@ -1,6 +1,20 @@
+image:
+  tag: v1.13.2
+
 enableRbac: true
 serviceAccount:
   create: true
+
+extraClusterRoles:
+  - apiGroups:
+      - ""
+    resources:
+      - services
+      - endpoints
+    verbs:
+      - get
+      - list
+      - watch
 
 env:
   - name: HOMEPAGE_ALLOWED_HOSTS
