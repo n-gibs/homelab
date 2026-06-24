@@ -42,6 +42,7 @@ route:
 
 persistence:
   config:
+    type: persistentVolumeClaim
     existingClaim: prowlarr-nfs-config
     globalMounts:
       - path: /config
