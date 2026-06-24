@@ -36,9 +36,9 @@ route:
 persistence:
   config:
     type: persistentVolumeClaim
-    storageClass: local-path
+    storageClass: nfs
     size: 2Gi
-    accessMode: ReadWriteOnce
+    accessMode: ReadWriteMany
     globalMounts:
       - path: /config
   data:
