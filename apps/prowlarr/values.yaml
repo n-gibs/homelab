@@ -42,9 +42,6 @@ route:
 
 persistence:
   config:
-    type: persistentVolumeClaim
-    storageClass: local-path
-    size: 1Gi
-    accessMode: ReadWriteOnce
+    existingClaim: prowlarr-nfs-config
     globalMounts:
       - path: /config
