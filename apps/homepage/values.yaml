@@ -27,6 +27,10 @@ env:
   - name: HOMEPAGE_ALLOWED_HOSTS
     value: "home.nik-homelab.dev"
 
+envFrom:
+  - secretRef:
+      name: arr-api-keys
+
 config:
   settings:
     title: Homelab
@@ -40,18 +44,59 @@ config:
     gateway: true
 
   widgets:
+    - datetime:
+        text_size: xl
+        format:
+          dateStyle: long
+          timeStyle: short
+          hourCycle: h23
+    - openmeteo:
+        label: Home
+        latitude: 32.80626271655686
+        longitude: -117.2240939981718
+        timezone: America/Los_Angeles
+        units: imperial
+        cache: 5
     - resources:
         backend: kubernetes
         expanded: true
         cpu: true
         memory: true
+    - calendar:
+        view: agenda
+        maxEvents: 10
+        showTime: true
+        timezone: America/Los_Angeles
+        integrations:
+          - type: sonarr
+            service_group: Media
+            service_name: Sonarr
+            color: teal
+          - type: radarr
+            service_group: Media
+            service_name: Radarr
+            color: amber
     - search:
         provider: duckduckgo
         target: _blank
-    - greeting:
-        text_size: xl
-        text: Homelab
 
-  services: []
+  services:
+    - Media:
+        - Sonarr:
+            href: https://sonarr.nik-homelab.dev
+            description: TV shows
+            icon: sonarr.png
+            widget:
+              type: sonarr
+              url: http://sonarr.sonarr.svc.cluster.local:8989
+              key: "{{SONARR_API_KEY}}"
+        - Radarr:
+            href: https://radarr.nik-homelab.dev
+            description: Movies
+            icon: radarr.png
+            widget:
+              type: radarr
+              url: http://radarr.radarr.svc.cluster.local:7878
+              key: "{{RADARR_API_KEY}}"
 
   bookmarks: []

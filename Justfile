@@ -208,6 +208,13 @@ seal-arr-api-keys:
       --dry-run=client -o yaml | \
     kubeseal --cert pub-cert.pem -o yaml > apps/recyclarr/api-keys.yaml
     echo "Sealed: apps/recyclarr/api-keys.yaml"
+    kubectl create secret generic arr-api-keys \
+      --namespace homepage \
+      --from-literal=SONARR_API_KEY="$SONARR_API_KEY" \
+      --from-literal=RADARR_API_KEY="$RADARR_API_KEY" \
+      --dry-run=client -o yaml | \
+    kubeseal --cert pub-cert.pem -o yaml > apps/homepage/arr-api-keys.yaml
+    echo "Sealed: apps/homepage/arr-api-keys.yaml"
 
 # Wire Prowlarr → Sonarr/Radarr + set root folders via API (run after apps are healthy)
 # Note: Bazarr → Sonarr/Radarr has no REST API; configure manually at bazarr.nik-homelab.dev → Settings
