@@ -1,0 +1,4 @@
+chartName: nfs-subdir-external-provisioner
+chartRepo: https://kubernetes-sigs.github.io/nfs-subdir-external-provisioner/
+chartVersion: 4.0.18
+syncWave: "1"
