@@ -189,3 +189,4 @@ just todos              # Show remaining TODOs in repo
 - Never commit `.secrets`, `.vault_pass`, `pub-cert.pem`, or anything in `config/` (gitignored).
 - Chart versions in `app.yaml` are managed by Renovate — don't pin to `latest`.
 - Server-side apply only for ArgoCD managed resources (avoids annotation conflicts).
+- Never add `Co-Authored-By` lines to commit messages.
