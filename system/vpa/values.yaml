@@ -3,6 +3,8 @@ recommender:
 
 updater:
   enabled: true
+  extraArgs:
+    min-replicas: 1
 
 admissionController:
   enabled: true
