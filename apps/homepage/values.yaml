@@ -36,6 +36,11 @@ env:
       secretKeyRef:
         name: arr-api-keys
         key: RADARR_API_KEY
+  - name: HOMEPAGE_VAR_ARGOCD_API_KEY
+    valueFrom:
+      secretKeyRef:
+        name: argocd-api-key
+        key: ARGOCD_API_KEY
 
 config:
   settings:
@@ -108,5 +113,14 @@ config:
                   service_group: Media
                   service_name: Radarr
                   color: amber
+    - Infrastructure:
+        - ArgoCD:
+            href: https://argocd.nik-homelab.dev
+            description: GitOps CD
+            icon: argocd.png
+            widget:
+              type: argocd
+              url: http://argocd-server.argocd.svc.cluster.local
+              key: "{{HOMEPAGE_VAR_ARGOCD_API_KEY}}"
 
   bookmarks: []

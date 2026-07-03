@@ -23,5 +23,7 @@ configs:
     controller.diff.server.side: "true"  # cancel CRD-defaulted fields (Gateway API drift)
   cm:
     users.anonymous.enabled: "true"
+    accounts.readonly: apiKey
   rbac:
     policy.default: "role:admin"
+    policy.csv: "g, readonly, role:readonly"

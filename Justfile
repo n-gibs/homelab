@@ -216,6 +216,29 @@ seal-arr-api-keys:
     kubeseal --cert pub-cert.pem -o yaml > apps/homepage/arr-api-keys.yaml
     echo "Sealed: apps/homepage/arr-api-keys.yaml"
 
+# Generate a fresh ArgoCD readonly API token for the Homepage widget and seal it
+# (run after bootstrap-argocd has applied the `readonly` account/RBAC in bootstrap/values/argocd.yaml)
+seal-argocd-token:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    kubectl port-forward svc/argocd-server -n argocd 8443:443 >/tmp/argocd-pf.log 2>&1 &
+    PF_PID=$!
+    trap 'kill $PF_PID 2>/dev/null || true' EXIT
+    for i in $(seq 1 15); do
+      nc -z localhost 8443 2>/dev/null && break
+      sleep 1
+    done
+    ADMIN_PW=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d)
+    argocd login localhost:8443 --username admin --password "$ADMIN_PW" --insecure --grpc-web >/dev/null
+    TOKEN=$(argocd account generate-token --account readonly)
+    argocd logout localhost:8443 >/dev/null 2>&1 || true
+    kubectl create secret generic argocd-api-key \
+      --namespace homepage \
+      --from-literal=ARGOCD_API_KEY="$TOKEN" \
+      --dry-run=client -o yaml | \
+    kubeseal --cert pub-cert.pem -o yaml > apps/homepage/argocd-api-key.yaml
+    echo "Sealed: apps/homepage/argocd-api-key.yaml"
+
 # Wire Prowlarr → Sonarr/Radarr + set root folders via API (run after apps are healthy)
 # Note: Bazarr → Sonarr/Radarr has no REST API; configure manually at bazarr.nik-homelab.dev → Settings
 wire-media:
