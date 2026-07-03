@@ -97,7 +97,7 @@ config:
               key: "{{HOMEPAGE_VAR_RADARR_API_KEY}}"
         - Calendar:
             description: Upcoming releases
-            icon: calendar.png
+            icon: mdi-calendar
             widget:
               type: calendar
               view: agenda
@@ -117,7 +117,7 @@ config:
         - ArgoCD:
             href: https://argocd.nik-homelab.dev
             description: GitOps CD
-            icon: argocd.png
+            icon: argo-cd.png
             widget:
               type: argocd
               url: http://argocd-server.argocd.svc.cluster.local
