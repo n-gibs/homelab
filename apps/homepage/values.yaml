@@ -129,5 +129,13 @@ config:
               type: argocd
               url: http://argocd-server.argocd.svc.cluster.local
               key: "{{HOMEPAGE_VAR_ARGOCD_API_KEY}}"
+        - Grafana:
+            href: https://grafana.nik-homelab.dev
+            description: Metrics & dashboards
+            icon: grafana.png
+            widget:
+              type: grafana
+              version: 2
+              url: http://monitoring-system-grafana.monitoring-system.svc.cluster.local
 
   bookmarks: []
