@@ -26,10 +26,16 @@ extraClusterRoles:
 env:
   - name: HOMEPAGE_ALLOWED_HOSTS
     value: "home.nik-homelab.dev"
-
-envFrom:
-  - secretRef:
-      name: arr-api-keys
+  - name: HOMEPAGE_VAR_SONARR_API_KEY
+    valueFrom:
+      secretKeyRef:
+        name: arr-api-keys
+        key: SONARR_API_KEY
+  - name: HOMEPAGE_VAR_RADARR_API_KEY
+    valueFrom:
+      secretKeyRef:
+        name: arr-api-keys
+        key: RADARR_API_KEY
 
 config:
   settings:
@@ -89,7 +95,7 @@ config:
             widget:
               type: sonarr
               url: http://sonarr.sonarr.svc.cluster.local:8989
-              key: "{{SONARR_API_KEY}}"
+              key: "{{HOMEPAGE_VAR_SONARR_API_KEY}}"
         - Radarr:
             href: https://radarr.nik-homelab.dev
             description: Movies
@@ -97,6 +103,6 @@ config:
             widget:
               type: radarr
               url: http://radarr.radarr.svc.cluster.local:7878
-              key: "{{RADARR_API_KEY}}"
+              key: "{{HOMEPAGE_VAR_RADARR_API_KEY}}"
 
   bookmarks: []
