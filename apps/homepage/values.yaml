@@ -68,20 +68,6 @@ config:
         expanded: true
         cpu: true
         memory: true
-    - calendar:
-        view: agenda
-        maxEvents: 10
-        showTime: true
-        timezone: America/Los_Angeles
-        integrations:
-          - type: sonarr
-            service_group: Media
-            service_name: Sonarr
-            color: teal
-          - type: radarr
-            service_group: Media
-            service_name: Radarr
-            color: amber
     - search:
         provider: duckduckgo
         target: _blank
@@ -104,5 +90,23 @@ config:
               type: radarr
               url: http://radarr.radarr.svc.cluster.local:7878
               key: "{{HOMEPAGE_VAR_RADARR_API_KEY}}"
+        - Calendar:
+            description: Upcoming releases
+            icon: calendar.png
+            widget:
+              type: calendar
+              view: agenda
+              maxEvents: 10
+              showTime: true
+              timezone: America/Los_Angeles
+              integrations:
+                - type: sonarr
+                  service_group: Media
+                  service_name: Sonarr
+                  color: teal
+                - type: radarr
+                  service_group: Media
+                  service_name: Radarr
+                  color: amber
 
   bookmarks: []
