@@ -16,6 +16,14 @@ kubelet:
         sourceLabels: []
         targetLabel: cluster
         replacement: homelab
+    cAdvisorRelabelings:
+      - action: replace
+        sourceLabels: [__metrics_path__]
+        targetLabel: metrics_path
+      - action: replace
+        sourceLabels: []
+        targetLabel: cluster
+        replacement: homelab
 
 kube-state-metrics:
   prometheus:
@@ -41,6 +49,14 @@ prometheus:
     serviceMonitorSelectorNilUsesHelmValues: false
     podMonitorSelectorNilUsesHelmValues: false
     probeSelectorNilUsesHelmValues: false
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: nfs
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 20Gi
 
 grafana:
   enabled: true
