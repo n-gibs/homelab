@@ -24,6 +24,11 @@ controllers:
           PGID: "1000"
           TZ: America/Los_Angeles
           WEBUI_PORT: "8080"
+        resources:
+          requests:
+            cpu: 200m
+          limits:
+            cpu: "2"
       gluetun:
         image:
           repository: qmcgaw/gluetun

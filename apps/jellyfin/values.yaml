@@ -12,6 +12,11 @@ controllers:
           PUID: "1000"
           PGID: "1000"
           TZ: America/Los_Angeles
+        resources:
+          requests:
+            cpu: 250m
+          limits:
+            cpu: "4"
 
 service:
   main:
