@@ -4,7 +4,7 @@
 
 | Node | Hardware | Role |
 |------|----------|------|
-| control-plane-01 | HP ProDesk Mini G4 | k3s server only (control-plane taint, no workloads) |
+| worker-00 | HP ProDesk Mini G4 | k3s server only (control-plane taint, no workloads) |
 | worker-01 | HP ProDesk Mini G9 — i5 12th gen, 16GB RAM, 12TB USB | k3s agent, NFS server, all media workloads |
 | control-plane-02 | HP ProDesk Mini G6 | **Ordered — not yet provisioned** |
 

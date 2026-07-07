@@ -7,7 +7,7 @@ k3s homelab on HP ProDesk Mini G4 nodes. Ansible provisioning, ArgoCD GitOps.
 | Hostname | Role | Tailscale IP |
 |----------|------|--------------|
 | worker-01 | k3s worker | 100.107.51.48 |
-| control-plane-01 | k3s server | TBD |
+| worker-00 | k3s server | TBD |
 
 ## Prerequisites
 
