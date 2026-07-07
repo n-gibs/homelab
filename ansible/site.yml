@@ -18,7 +18,7 @@
     - cert_manager_issuers
 
 # Uncomment when G6 is provisioned
-# - name: Configure NFS client on control-plane-02
-#   hosts: control-plane-02
+# - name: Configure NFS client on worker-02
+#   hosts: worker-02
 #   roles:
 #     - nfs_client

@@ -8,7 +8,7 @@ When G6 arrives, convert all 3 nodes to k3s server+worker (HA control plane) and
 |------|------|-------|
 | worker-00 (G4) | k3s server + worker | none |
 | worker-01 (G9) | k3s server + worker | `homelab.io/storage=true:PreferNoSchedule` |
-| control-plane-02 (G6) | k3s server + worker | none |
+| worker-02 (G6) | k3s server + worker | none |
 
 **Scheduling intent:**
 - Media apps → always land on G9 (nodeSelector + toleration)
@@ -21,19 +21,19 @@ When G6 arrives, convert all 3 nodes to k3s server+worker (HA control plane) and
 
 ```bash
 # Add G6 IP to ansible/inventory.yml under k3s_cluster and k3s_server groups
-just provision --limit control-plane-02
+just provision --limit worker-02
 ```
 
 ### 2. Join G6 as k3s server+worker
 
-In `ansible/host_vars/control-plane-02.yml`, ensure no control-plane taint:
+In `ansible/host_vars/worker-02.yml`, ensure no control-plane taint:
 ```yaml
 k3s_server_args: ""   # no --node-taint k3s.io/role=control-plane:NoSchedule
 ```
 
 ```bash
-just provision --limit control-plane-02
-kubectl get nodes  # verify control-plane-02 Ready
+just provision --limit worker-02
+kubectl get nodes  # verify worker-02 Ready
 ```
 
 ### 3. Remove control-plane taint from G4
