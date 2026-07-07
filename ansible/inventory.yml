@@ -3,7 +3,7 @@ k3s_cluster:
   children:
     server:
       hosts:
-        control-plane-01:
+        worker-00:
           ansible_host: 192.168.30.129
         # control-plane-02:
         #   ansible_host: 192.168.1.TODO  # TODO: fill in G6 IP (server + worker, no control-plane taint)

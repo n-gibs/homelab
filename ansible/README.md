@@ -6,7 +6,7 @@ Provisions a 3-node k3s cluster on HP ProDesk Mini PCs using [k3s-ansible](https
 
 | Role | Host | IP |
 |------|------|----|
-| Control plane | control-plane-01 (G4) | 192.168.1.TODO |
+| Control plane | worker-00 (G4) | 192.168.1.TODO |
 | Worker 1 | worker-01 (G9) | 192.168.1.28 |
 | Worker 2 | worker-02 (G6) | 192.168.1.TODO |
 
@@ -43,7 +43,7 @@ just deps
 just todos
 ```
 
-Edit `ansible/inventory.yml` with real IPs for control-plane-01 and worker-02.
+Edit `ansible/inventory.yml` with real IPs for worker-00 and worker-02.
 
 ### 3. Set up vault
 

@@ -13,7 +13,7 @@
     - nfs_server
 
 - name: Configure cert-manager ClusterIssuers on control-plane
-  hosts: worker00
+  hosts: worker-00
   roles:
     - cert_manager_issuers
 

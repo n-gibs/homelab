@@ -6,7 +6,7 @@ When G6 arrives, convert all 3 nodes to k3s server+worker (HA control plane) and
 
 | Node | Role | Taint |
 |------|------|-------|
-| control-plane-01 (G4) | k3s server + worker | none |
+| worker-00 (G4) | k3s server + worker | none |
 | worker-01 (G9) | k3s server + worker | `homelab.io/storage=true:PreferNoSchedule` |
 | control-plane-02 (G6) | k3s server + worker | none |
 
@@ -38,13 +38,13 @@ kubectl get nodes  # verify control-plane-02 Ready
 
 ### 3. Remove control-plane taint from G4
 
-In `ansible/host_vars/control-plane-01.yml`:
+In `ansible/host_vars/worker-00.yml`:
 ```yaml
 k3s_server_args: ""   # remove --node-taint line
 ```
 
 ```bash
-kubectl taint node control-plane-01 node-role.kubernetes.io/control-plane:NoSchedule-
+kubectl taint node worker-00 node-role.kubernetes.io/control-plane:NoSchedule-
 kubectl get nodes  # G4 should now show as schedulable
 ```
 
@@ -82,8 +82,8 @@ Apps to update: jellyfin, sonarr, radarr, qbittorrent, prowlarr, bazarr, recycla
 
 ```bash
 # Drain G4 to evict pods, then uncordon — scheduler redistributes to G4/G6
-kubectl drain control-plane-01 --ignore-daemonsets --delete-emptydir-data
-kubectl uncordon control-plane-01
+kubectl drain worker-00 --ignore-daemonsets --delete-emptydir-data
+kubectl uncordon worker-00
 
 kubectl get pods -A -o wide  # verify media on G9, system spread across G4/G6
 ```
@@ -93,7 +93,7 @@ kubectl get pods -A -o wide  # verify media on G9, system spread across G4/G6
 If anything goes wrong before step 6:
 ```bash
 # Re-add control-plane taint to G4
-kubectl taint node control-plane-01 node-role.kubernetes.io/control-plane:NoSchedule
+kubectl taint node worker-00 node-role.kubernetes.io/control-plane:NoSchedule
 
 # Remove G9 taint
 kubectl taint node worker-01 homelab.io/storage=true:PreferNoSchedule-
