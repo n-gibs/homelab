@@ -1,0 +1,10 @@
+---
+# G6: k3s server + worker (schedulable — no control-plane taint)
+extra_server_args: >-
+  --disable traefik
+  --disable servicelb
+  --disable metrics-server
+  --flannel-backend=none
+  --disable-network-policy
+  --write-kubeconfig-mode=644
+  --resolv-conf /run/systemd/resolve/resolv.conf
