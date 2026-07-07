@@ -6,9 +6,9 @@ Provisions a 3-node k3s cluster on HP ProDesk Mini PCs using [k3s-ansible](https
 
 | Role | Host | IP |
 |------|------|----|
-| Control plane | worker-00 (G4) | 192.168.1.TODO |
-| Worker 1 | worker-01 (G9) | 192.168.1.28 |
-| Worker 2 | worker-02 (G6) | 192.168.1.TODO |
+| Control plane | worker-00 (G4) | 192.168.30.129 |
+| Worker 1 | worker-01 (G9) | 192.168.30.194 |
+| Worker 2 | worker-02 (G6) | TBD |
 
 SSH user: `homelab`
 
@@ -24,9 +24,9 @@ pip3 install passlib --break-system-packages
 Deploy SSH key to all nodes:
 
 ```bash
-ssh-copy-id homelab@192.168.1.28
-ssh-copy-id homelab@<control-plane-ip>
-ssh-copy-id homelab@<worker-02-ip>
+ssh-copy-id homelab@192.168.30.194
+ssh-copy-id homelab@192.168.30.129
+ssh-copy-id homelab@192.168.30.130
 ```
 
 ## First-time setup
@@ -43,7 +43,7 @@ just deps
 just todos
 ```
 
-Edit `ansible/inventory.yml` with real IPs for worker-00 and worker-02.
+Edit `ansible/inventory.yml` with the real IP for worker-02 (worker-00 and worker-01 are already filled in).
 
 ### 3. Set up vault
 

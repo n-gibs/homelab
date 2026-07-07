@@ -12,13 +12,12 @@
   roles:
     - nfs_server
 
-- name: Configure cert-manager ClusterIssuers on control-plane
-  hosts: worker-00
+- name: Configure NFS client on worker-00 and worker-02
+  hosts: worker-00,worker-02
+  roles:
+    - nfs_client
+
+- name: Configure cert-manager ClusterIssuers on all server nodes
+  hosts: k3s_cluster
   roles:
     - cert_manager_issuers
-
-# Uncomment when G6 is provisioned
-# - name: Configure NFS client on worker-02
-#   hosts: worker-02
-#   roles:
-#     - nfs_client

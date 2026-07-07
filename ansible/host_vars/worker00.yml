@@ -1,0 +1,10 @@
+---
+# G4: k3s server + worker (schedulable — control-plane taint removed for G6 migration)
+extra_server_args: >-
+  --disable traefik
+  --disable servicelb
+  --disable metrics-server
+  --flannel-backend=none
+  --disable-network-policy
+  --write-kubeconfig-mode=644
+  --resolv-conf /run/systemd/resolve/resolv.conf

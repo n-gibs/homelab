@@ -26,10 +26,7 @@ just provision --limit worker-02
 
 ### 2. Join G6 as k3s server+worker
 
-In `ansible/host_vars/worker-02.yml`, ensure no control-plane taint:
-```yaml
-k3s_server_args: ""   # no --node-taint k3s.io/role=control-plane:NoSchedule
-```
+`ansible/host_vars/worker-02.yml` is already staged with `extra_server_args: "{{ common_server_flags }}"` (no control-plane taint). Just fill in its real IP in `ansible/inventory.yml` and provision:
 
 ```bash
 just provision --limit worker-02
@@ -38,25 +35,28 @@ kubectl get nodes  # verify worker-02 Ready
 
 ### 3. Remove control-plane taint from G4
 
-In `ansible/host_vars/worker-00.yml`:
-```yaml
-k3s_server_args: ""   # remove --node-taint line
-```
+Already staged: `ansible/host_vars/worker00.yml` overrides `extra_server_args` to `{{ common_server_flags }}` (no `--node-taint` line).
 
 ```bash
-kubectl taint node worker-00 node-role.kubernetes.io/control-plane:NoSchedule-
+just provision --limit worker-00
 kubectl get nodes  # G4 should now show as schedulable
 ```
 
-### 4. Add PreferNoSchedule taint to G9
+### 4. Promote G9 to server + add its taint
+
+Already staged: `ansible/inventory.yml` moves worker-01 into the `server` group, and its `extra_server_args` includes `--node-label homelab.io/media=true --node-taint homelab.io/media=true:PreferNoSchedule`.
+
+worker-01 is currently running as a k3s **agent** — moving it to the `server` group does not stop that. `k3s-agent.service` and `k3s.service` (server) would conflict if both run. Cleanly uninstall the agent first:
 
 ```bash
+ansible worker-01 -i ansible/inventory.yml -b -m command -a "k3s-agent-uninstall.sh"
+just provision --limit worker-01
+# k3s only applies --node-label on every agent/server restart, but --node-taint
+# only takes effect at *initial* node registration — since worker-01 already
+# exists, the taint needs to be applied manually after provisioning:
 kubectl taint node worker-01 homelab.io/media=true:PreferNoSchedule
-```
-
-Add to Ansible so it survives reprovisioning (`host_vars/worker-01.yml`):
-```yaml
-k3s_agent_args: "--node-taint homelab.io/media=true:PreferNoSchedule"
+kubectl get nodes --show-labels | grep worker-01  # verify label applied
+kubectl describe node worker-01 | grep -A2 Taints  # verify taint applied
 ```
 
 ### 5. Add tolerations to all media apps
