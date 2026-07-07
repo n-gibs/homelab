@@ -1,142 +1,65 @@
 # Homelab
 
-k3s homelab on HP ProDesk Mini G4 nodes. Ansible provisioning, ArgoCD GitOps.
+k3s homelab on HP ProDesk Mini PCs. Ansible provisioning, ArgoCD GitOps.
+
+## Stack
+
+k3s + Cilium (VXLAN) + ArgoCD (GitOps) + Envoy Gateway + cert-manager + sealed-secrets + Tailscale (remote admin access)
 
 ## Nodes
 
-| Hostname | Role | Tailscale IP |
-|----------|------|--------------|
-| worker-01 | k3s worker | 100.107.51.48 |
-| worker-00 | k3s server | TBD |
+| Hostname | Hardware | Role | IP |
+|----------|----------|------|-----|
+| worker-00 | HP ProDesk Mini G4 | k3s server | 192.168.30.129 |
+| worker-01 | HP ProDesk Mini G9 — i5 12th gen, 16GB RAM, 12TB USB | k3s server + NFS server + media workloads | 192.168.30.194 |
+| worker-02 | HP ProDesk Mini G6 | **not yet provisioned** | — |
 
-## Prerequisites
-
-On your Mac:
-
-```bash
-brew install ansible
-```
-
-Add your SSH key to each node (skip if using password auth):
-
-```bash
-ssh-copy-id homelab@<tailscale-ip>
-```
+See `.claude/g6-migration.md` for the plan to bring `worker-02` online and convert the cluster to a 3-node HA control plane.
 
 ---
 
-## 1. Provision a New Node
+## Provisioning Nodes
 
-After installing Ubuntu Server 26.04 (minimal) and Tailscale:
+See [`ansible/README.md`](ansible/README.md) for full setup: inventory, vault, and `just provision`.
 
-1. Add node to `ansible/inventory/hosts.yml` under the correct group
-2. Run base provisioning:
+## Bootstrapping the Cluster
 
-```bash
-cd ansible
-ansible-playbook -i inventory/hosts.yml playbooks/provision-node.yml --limit <hostname>
-```
-
-This installs: system updates, curl/git/htop, Tailscale.
-
-> Tailscale `up` must still be run manually on the node to authenticate.
-
----
-
-## 2. Install k3s Control Plane
+After nodes are provisioned and k3s is up, bootstrap Cilium, ArgoCD, and the root ApplicationSets:
 
 ```bash
-ansible-playbook -i inventory/hosts.yml playbooks/k3s-server.yml
+just bootstrap-diff    # dry-run
+just bootstrap         # applies bootstrap/helmfile.yaml
 ```
 
-After completion, grab the node token and kubeconfig from the server:
+This installs, in order: Cilium (CNI), Gateway API CRDs, ArgoCD, and the root chart that generates ArgoCD `ApplicationSet`s for `system/`, `platform/`, and `apps/`. From there, ArgoCD auto-syncs everything else from `main`.
 
-```bash
-ssh homelab@<server-tailscale-ip>
-sudo cat /var/lib/rancher/k3s/server/node-token
-sudo cat /etc/rancher/k3s/k3s.yaml
-```
-
-Copy `k3s.yaml` to `~/.kube/config` on your Mac. Replace `127.0.0.1` with the server's Tailscale IP.
-
----
-
-## 3. Join Worker Nodes
-
-Set vars in `ansible/inventory/hosts.yml` or pass on CLI:
-
-```bash
-ansible-playbook -i inventory/hosts.yml playbooks/k3s-agents.yml \
-  -e "k3s_server_url=https://100.x.x.x:6443" \
-  -e "k3s_node_token=<token-from-step-2>"
-```
-
-Verify nodes joined:
-
-```bash
-kubectl get nodes
-```
-
----
-
-## 4. Bootstrap ArgoCD
-
-```bash
-kubectl create namespace argocd
-kubectl apply -n argocd -f gitops/bootstrap/argocd/install.yaml
-```
-
-Wait for ArgoCD to be ready:
-
-```bash
-kubectl wait --for=condition=available --timeout=120s deployment/argocd-server -n argocd
-```
-
-Get initial admin password:
-
-```bash
-kubectl get secret argocd-initial-admin-secret -n argocd \
-  -o jsonpath="{.data.password}" | base64 -d
-```
+See `just --list` for the full set of commands (sealing secrets, wiring up media apps, etc.).
 
 ---
 
 ## OS Install
 
-Ubuntu 26.04 LTS — installed manually from USB.
+Ubuntu Server 26.04 LTS — installed manually from USB.
 
-1. Download Ubuntu 26.04 LTS Server minimal ISO
+1. Download the Ubuntu 26.04 LTS Server minimal ISO
 2. Flash to USB: `sudo dd if=ubuntu-26.04-live-server-amd64.iso of=/dev/rdiskN bs=1m status=progress`
-3. Boot node from USB (HP ProDesk: **F10** → select USB)
-4. Follow installer: set hostname, enable OpenSSH, skip snaps
-5. Reboot, remove USB
-
----
-
-## Adding a New Node (Repeatable)
-
-1. Install Ubuntu per above
-2. Install Tailscale: `curl -fsSL https://tailscale.com/install.sh | sh && sudo tailscale up`
-3. Add Tailscale IP to `ansible/inventory/hosts.yml`
-4. Run `provision-node.yml` then appropriate k3s playbook
+3. Boot the node from USB (HP ProDesk: **F10** → select USB)
+4. Follow the installer: set hostname, enable OpenSSH, skip snaps
+5. Reboot, remove USB, then install Tailscale for remote access: `curl -fsSL https://tailscale.com/install.sh | sh && sudo tailscale up`
 
 ---
 
 ## Repo Structure
 
 ```
-ansible/
-  inventory/hosts.yml        # all nodes
-  playbooks/
-    provision-node.yml       # base setup
-    k3s-server.yml           # control plane install
-    k3s-agents.yml           # worker join
-  roles/
-    common/                  # apt update + base packages
-    tailscale/               # Tailscale install
-    k3s-server/              # k3s server install + token fetch
-    k3s-agent/               # k3s agent join
-gitops/
-  bootstrap/argocd/          # ArgoCD install manifests
-  apps/                      # ArgoCD Application definitions
+apps/           # user-facing applications (arr stack, jellyfin, vaultwarden, etc.)
+platform/       # cluster platform services (external-secrets, sealed-secrets, tailscale)
+system/         # low-level cluster infrastructure (cilium, cert-manager, nfs-provisioner, vpa)
+bootstrap/      # one-time helmfile bootstrap (Cilium, ArgoCD, root ApplicationSet)
+ansible/        # node provisioning (Ubuntu install, k3s setup) — see ansible/README.md
+config/         # sealed secrets that live outside app dirs (gitignored)
 ```
+
+ArgoCD sync waves: `system` (wave 1) → `platform` (wave 2) → `apps` (wave 3). ArgoCD auto-syncs from `main` — merge to main = deploy.
+
+See [`CLAUDE.md`](CLAUDE.md) for full conventions (adding an app, storage, secrets, networking).

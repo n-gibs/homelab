@@ -87,22 +87,27 @@ just todos         # show remaining TODOs
 
 ```
 ansible/
-├── inventory.yml          # Node inventory (server/agent groups)
+├── inventory.yml          # Node inventory (server group — all 3 nodes are k3s server+worker)
 ├── site.yml               # Main playbook
 ├── requirements.yml       # k3s-ansible galaxy role
 ├── vault.yml              # Encrypted secrets (committed)
 ├── vault.yml.example      # Example vault structure
 ├── group_vars/
-│   └── k3s_cluster.yml    # k3s version, flags, token ref
+│   └── k3s_cluster.yml    # k3s version, shared flags, token ref
+├── host_vars/
+│   ├── worker-00.yml      # G4: drop control-plane taint (post-migration)
+│   ├── worker-01.yml      # G9: storage label + PreferNoSchedule taint
+│   └── worker-02.yml      # G6: no control-plane taint (not yet provisioned)
 └── roles/
-    ├── common/            # SSH hardening, UFW, unattended-upgrades
-    ├── nfs_server/        # NFS export of 12TB drive on worker-01
-    └── nfs_client/        # NFS mount on worker-02
+    ├── common/               # SSH hardening, UFW, unattended-upgrades
+    ├── nfs_server/            # NFS export of 12TB drive on worker-01
+    ├── nfs_client/            # NFS mount on worker-00 and worker-02
+    └── cert_manager_issuers/  # Apply ClusterIssuer manifests
 ```
 
 ## k3s Configuration
 
 - CNI: Cilium (flannel disabled)
 - Ingress: Envoy Gateway (traefik + servicelb disabled)
-- Control plane tainted: no workloads scheduled on it
-- k3s version: v1.36.1+k3s1 (Kubernetes v1.36.1)
+- HA control plane: all 3 nodes are k3s server+worker, no control-plane taint; worker-01 carries a `PreferNoSchedule` storage taint so media apps land on G9 (see `.claude/g6-migration.md`)
+- k3s version: v1.36.2+k3s1 (Kubernetes v1.36.2)
