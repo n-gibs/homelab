@@ -5,7 +5,7 @@ metadata:
 spec:
   nodeSelector:
     matchLabels:
-      homelab.io/storage: "true"
+      homelab.io/media: "true"
   interfaces:
     - ^enp2s0$
     - ^eno1$

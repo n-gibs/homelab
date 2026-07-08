@@ -8,7 +8,7 @@
 | worker-01 | HP ProDesk Mini G9 — i5 12th gen, 16GB RAM, 12TB USB | k3s agent, NFS server, all media workloads |
 | worker-02 | HP ProDesk Mini G6 | **Ordered — not yet provisioned** |
 
-When G6 arrives, all 3 nodes convert to k3s server+worker with G9 tainted `homelab.io/storage=true:PreferNoSchedule`. See `.claude/g6-migration.md` for full plan.
+When G6 arrives, all 3 nodes convert to k3s server+worker with G9 tainted `homelab.io/media=true:PreferNoSchedule`. See `.claude/g6-migration.md` for full plan.
 
 ## Stack
 
@@ -111,13 +111,18 @@ NFS path layout on worker-01:
 - `/data/media/tv` — Sonarr managed library
 - `/data/media/movies` — Radarr managed library
 
-Media apps must pin to G9 via nodeSelector:
+Media apps must pin to G9 via nodeSelector (and tolerate its `PreferNoSchedule` taint once G6 lands):
 ```yaml
 controllers:
   main:
     pod:
       nodeSelector:
-        homelab.io/storage: "true"
+        homelab.io/media: "true"
+      tolerations:
+        - key: homelab.io/media
+          operator: Equal
+          value: "true"
+          effect: PreferNoSchedule
 ```
 
 ## Media Stack — qBittorrent / Gluetun VPN

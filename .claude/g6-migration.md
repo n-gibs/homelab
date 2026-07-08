@@ -7,7 +7,7 @@ When G6 arrives, convert all 3 nodes to k3s server+worker (HA control plane) and
 | Node | Role | Taint |
 |------|------|-------|
 | worker-00 (G4) | k3s server + worker | none |
-| worker-01 (G9) | k3s server + worker | `homelab.io/storage=true:PreferNoSchedule` |
+| worker-01 (G9) | k3s server + worker | `homelab.io/media=true:PreferNoSchedule` |
 | worker-02 (G6) | k3s server + worker | none |
 
 **Scheduling intent:**
@@ -51,26 +51,26 @@ kubectl get nodes  # G4 should now show as schedulable
 ### 4. Add PreferNoSchedule taint to G9
 
 ```bash
-kubectl taint node worker-01 homelab.io/storage=true:PreferNoSchedule
+kubectl taint node worker-01 homelab.io/media=true:PreferNoSchedule
 ```
 
 Add to Ansible so it survives reprovisioning (`host_vars/worker-01.yml`):
 ```yaml
-k3s_agent_args: "--node-taint homelab.io/storage=true:PreferNoSchedule"
+k3s_agent_args: "--node-taint homelab.io/media=true:PreferNoSchedule"
 ```
 
 ### 5. Add tolerations to all media apps
 
-Every app in `apps/` that has `nodeSelector: homelab.io/storage=true` needs a matching toleration in `values.yaml`:
+Every app in `apps/` that has `nodeSelector: homelab.io/media=true` needs a matching toleration in `values.yaml`:
 
 ```yaml
 controllers:
   main:
     pod:
       nodeSelector:
-        homelab.io/storage: "true"
+        homelab.io/media: "true"
       tolerations:
-        - key: homelab.io/storage
+        - key: homelab.io/media
           operator: Equal
           value: "true"
           effect: PreferNoSchedule
@@ -96,5 +96,5 @@ If anything goes wrong before step 6:
 kubectl taint node worker-00 node-role.kubernetes.io/control-plane:NoSchedule
 
 # Remove G9 taint
-kubectl taint node worker-01 homelab.io/storage=true:PreferNoSchedule-
+kubectl taint node worker-01 homelab.io/media=true:PreferNoSchedule-
 ```

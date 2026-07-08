@@ -2,7 +2,12 @@ controllers:
   main:
     pod:
       nodeSelector:
-        homelab.io/storage: "true"
+        homelab.io/media: "true"
+      tolerations:
+        - key: homelab.io/media
+          operator: Equal
+          value: "true"
+          effect: PreferNoSchedule
     containers:
       app:
         image:

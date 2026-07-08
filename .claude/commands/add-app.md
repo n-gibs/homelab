@@ -126,13 +126,18 @@ persistence:
       - path: /config
 ```
 
-For media apps that need the shared data volume, add the nodeSelector and NFS mount:
+For media apps that need the shared data volume, add the nodeSelector, toleration, and NFS mount:
 ```yaml
 controllers:
   main:
     pod:
       nodeSelector:
-        homelab.io/storage: "true"
+        homelab.io/media: "true"
+      tolerations:
+        - key: homelab.io/media
+          operator: Equal
+          value: "true"
+          effect: PreferNoSchedule
     containers:
       ...
 
@@ -208,6 +213,6 @@ Watch sync: `kubectl get application -n argocd` or check ArgoCD UI at `argocd.ni
 - [ ] Homepage annotations on the route
 - [ ] `vpa.yaml` present
 - [ ] NFS StorageClass for any PVCs (not local-path)
-- [ ] nodeSelector `homelab.io/storage: "true"` if accessing `/data` on NFS
+- [ ] nodeSelector `homelab.io/media: "true"` + matching `PreferNoSchedule` toleration if accessing `/data` on NFS
 - [ ] Secrets sealed and committed, plaintext added to `.secrets.example`
 - [ ] `just seal-*` target in Justfile if secrets needed
