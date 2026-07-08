@@ -137,5 +137,7 @@ config:
               type: grafana
               version: 2
               url: http://monitoring-system-grafana.monitoring-system.svc.cluster.local
+              username: admin
+              password: changeme
 
   bookmarks: []
