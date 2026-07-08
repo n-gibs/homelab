@@ -105,4 +105,4 @@ ansible/
 - CNI: Cilium (flannel disabled)
 - Ingress: Envoy Gateway (traefik + servicelb disabled)
 - Control plane tainted: no workloads scheduled on it
-- k3s version: v1.36.1+k3s1 (Kubernetes v1.36.1)
+- k3s version: v1.36.2+k3s1 (Kubernetes v1.36.2)
