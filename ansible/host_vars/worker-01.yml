@@ -1,3 +1,3 @@
 ---
-# G9: label node so media apps schedule here
-extra_agent_args: "--node-label homelab.io/storage=true"
+# G9: label + PreferNoSchedule taint keep it media-priority overflow
+extra_agent_args: "--node-label homelab.io/media=true --node-taint homelab.io/media=true:PreferNoSchedule"
