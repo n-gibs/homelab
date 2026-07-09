@@ -5,8 +5,8 @@ k3s_cluster:
       hosts:
         worker-00:
           ansible_host: 192.168.30.129
-        # worker-02:
-        #   ansible_host: 192.168.1.TODO  # TODO: fill in G6 IP (server + worker, no control-plane taint)
+        worker-02:
+          ansible_host: 192.168.30.136  # G6: server + worker, no control-plane taint
         worker-01:
           ansible_host: 192.168.30.194  # G9: i5 12th gen, 16GB RAM, 12TB USB drive — server + worker, PreferNoSchedule media taint
 
