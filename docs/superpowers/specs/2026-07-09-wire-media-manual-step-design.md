@@ -1,4 +1,4 @@
-# wire-media: replace the manual step with a self-healing CronJob
+# wire-media: keep it manual, tighten docs and reliability
 
 ## Context
 
@@ -6,114 +6,61 @@
 
 ## Research
 
-**Why not just leave it manual?** Root folders and Prowlarr application links live in each app's own SQLite config, on the NFS-backed `config` PVC — they persist across restarts/redeploys and don't drift on their own. An earlier pass concluded this makes the manual step low-cost to keep. But: these apps have no native config-file mechanism for this data (API + SQLite only), which is *why* it looked stuck as a manual/imperative script — every option was going to involve calling the REST API somehow.
+Root folders and Prowlarr application links live in each app's own SQLite config, on the NFS-backed `config` PVC. That config persists across pod restarts, redeploys, and node moves — it is not tied to the ArgoCD sync lifecycle at all. It's only lost if the PVC itself is deleted or the NFS share (`192.168.30.194:/mnt/storage`) is lost outright, and the latter is a repo-wide disaster (every app's config lives there) requiring a full restore-from-backup, not something `wire-media` addresses in isolation. So `wire-media` fires once per cluster lifetime (bootstrap), rarely again.
 
-**Configarr** (`raydak-labs/configarr`, a Recyclarr fork already YAML+CronJob-shaped like `apps/recyclarr` in this repo): supports declarative `root_folders` for Sonarr/Radarr (experimental, since v1.14.0). It does not manage Prowlarr as an instance or support Prowlarr "applications" (indexer sync links) — so it could only ever cover half the problem. Rejected: doesn't fully replace `wire-media`, and adds a second config-sync tool alongside Recyclarr for a subset of what's needed.
+Several alternatives were investigated before settling on "keep it manual":
 
-**DevOpsArr Terraform providers** (`terraform-provider-sonarr`, `-radarr`, `-prowlarr`) have purpose-built resources for exactly this — `prowlarr_application_sonarr`/`prowlarr_application_radarr` (confirmed fields: `name`, `sync_level`, `base_url`, `prowlarr_url`, `api_key`, `sync_categories`) plus root-folder resources. Genuinely the most "correct" declarative fit. Rejected for this repo: introduces Terraform into a stack that is currently 100% Ansible + Helm/ArgoCD, with no existing state-backend story and no answer to "what applies it" that doesn't re-add either a human step (`terraform apply`) or a CI pipeline this repo doesn't have.
+- **ArgoCD PostSync hook Job**: rejected — hook ordering isn't guaranteed across three separate `apps/` Applications in the same sync wave, so it would still need its own readiness-polling retry loop, plus a maintained image and RBAC, for a task that's an idempotent no-op almost every time it fires.
+- **Configarr** (`raydak-labs/configarr`, a Recyclarr fork already YAML+CronJob-shaped like `apps/recyclarr` in this repo): supports declarative `root_folders` for Sonarr/Radarr (experimental, since v1.14.0), but doesn't manage Prowlarr as an instance or support Prowlarr "applications" (indexer sync links) at all — only covers half the problem.
+- **DevOpsArr Terraform providers** (`terraform-provider-sonarr`/`-radarr`/`-prowlarr`): has purpose-built resources for exactly this (`prowlarr_application_sonarr`, root-folder resources), the most "correct" declarative fit found — but introduces Terraform into a repo that is currently 100% Ansible + Helm/ArgoCD, with no state-backend story and no answer to "what applies it" that doesn't just re-add a human/CI step.
+- **`bjw-s-labs/helm-charts` `app-template`'s `cronjob` controller** (the pattern `apps/recyclarr` already uses): a custom `apps/wire-media` CronJob running the existing idempotent script in-cluster on a schedule was designed in detail and would have worked — no port-forward, no hook-ordering problem, reuses an existing pattern. Set aside below in favor of the simpler option, not because it was flawed.
+- **`haijeploeg/arr-helm` (`piratestack` chart)**: a monolithic chart bundling Sonarr/Radarr/Bazarr/Prowlarr/Sabnzbd/Tautulli/Maintainerr into one release. Deployment-only (images, ingress, storage, security context) — no wiring automation, and adopting it means abandoning this repo's per-app `app-template` convention. Not applicable.
+- **Community precedent check**: examined `pando85/homelab` (`apps/prowlarr`, `apps/sonarr` — notably also built on `app-template`) and `joryirving/home-ops`, plus TRaSH-Guides and the Servarr wiki. None of them automate Prowlarr application-linking or root-folder setup — every one treats it as a one-time manual UI/API step. Configarr's root-folder support is brand new and experimental; nothing found anywhere covers the Prowlarr-application half. This repo's existing idempotent curl+jq script is already ahead of the community norm (most setups are a one-time UI click-through, not even scripted).
 
-**`bjw-s-labs/helm-charts` `app-template`** (already the chart backing every `apps/` entry, including `apps/recyclarr` today): supports a `type: cronjob` controller — exactly what `apps/recyclarr` already uses to run a scheduled sync via `envFrom: secretRef` and in-cluster service DNS, no port-forward. This is the pattern adopted below: it needs no new chart, no new tool, no Terraform state, and no ArgoCD-hook cross-Application ordering (a `CronJob` isn't sync-triggered, so there's nothing to order against — it just runs on a schedule and no-ops or fixes on each run).
+**Conclusion**: there is no established pattern to catch up to, and the task's actual recurrence (once per cluster lifetime) doesn't justify a CronJob, hook, or new tool's ongoing maintenance cost. Keep it manual, and spend the effort tightening what's already there instead.
 
-## Decision: `apps/wire-media`, a CronJob shaped exactly like `apps/recyclarr`
+## Changes
 
-New app directory, same pattern as `apps/recyclarr`:
+### 1. `Justfile` — `wire-media` recipe: real readiness check
 
-```
-apps/wire-media/
-  app.yaml          # chartName: app-template, chartRepo, chartVersion (resolve latest per add-app.md)
-  values.yaml        # cronjob controller + configmap script + envFrom secret
-  limitrange.yaml     # same shape as apps/recyclarr/limitrange.yaml
-  api-keys.yaml       # sealed secret (generated by `just seal wire-media-api-keys`)
-```
-
-### `values.yaml`
-
-```yaml
-controllers:
-  main:
-    type: cronjob
-    cronjob:
-      schedule: "15 4 * * *"   # offset from recyclarr's 0 4 * * * so they don't hit sonarr/radarr in the same minute
-    containers:
-      app:
-        image:
-          repository: alpine
-          tag: "3.21"   # ponytail: apk add curl+jq at container start rather than a custom image; ~2s overhead is fine for a job that runs once a day
-        command: ["/bin/sh", "/config/wire-media.sh"]
-        env:
-          TZ: America/Los_Angeles
-        envFrom:
-          - secretRef:
-              name: wire-media-api-keys
-
-configMaps:
-  config:
-    data:
-      wire-media.sh: |
-        #!/bin/sh
-        set -eu
-        apk add --no-cache curl jq >/dev/null
-
-        SONARR="http://sonarr.sonarr.svc.cluster.local:8989"
-        RADARR="http://radarr.radarr.svc.cluster.local:7878"
-        PROWLARR="http://prowlarr.prowlarr.svc.cluster.local:9696"
-
-        ensure_root_folder() { ... }      # unchanged from Justfile
-        ensure_prowlarr_app() { ... }     # unchanged from Justfile
-
-        ensure_root_folder "$SONARR" "$SONARR_API_KEY" "/data/media/tv" "Sonarr"
-        ensure_root_folder "$RADARR" "$RADARR_API_KEY" "/data/media/movies" "Radarr"
-        ensure_prowlarr_app "Sonarr" "Sonarr" "SonarrSettings" \
-          "$SONARR" "$SONARR_API_KEY" '[5000,5030,5040]'
-        ensure_prowlarr_app "Radarr" "Radarr" "RadarrSettings" \
-          "$RADARR" "$RADARR_API_KEY" '[2000,2010,2020,2030,2040,2045,2050,2060,2070]'
-
-persistence:
-  script:
-    type: configMap
-    identifier: config
-    globalMounts:
-      - path: /config/wire-media.sh
-        subPath: wire-media.sh
-        readOnly: true
-```
-
-The `ensure_root_folder`/`ensure_prowlarr_app` bodies are copied verbatim from the current `Justfile` recipe — same idempotent check-then-POST logic, no behavior change. Desired state (paths, Prowlarr sync categories) lives right here in `values.yaml`, versioned like everything else — this is what actually answers "shouldn't this be in config somewhere."
-
-No `kubectl wait` / readiness polling needed: `curl -sf` already fails hard on an unreachable or not-yet-ready service, which fails the Job for that run. There's no human waiting on it, so the fix is just "let it retry on the next scheduled run" — no retry loop to write.
-
-### Secrets
-
-Add to `secrets/registry.tsv`, reusing the same cached `generate:` values already used by `recyclarr-api-keys` and `arr-api-keys` (homepage) — no new plaintext, no new generation:
-
-```
-wire-media-api-keys   wire-media   apps/wire-media/api-keys.yaml   SONARR_API_KEY=generate:SONARR_API_KEY,RADARR_API_KEY=generate:RADARR_API_KEY,PROWLARR_API_KEY=generate:PROWLARR_API_KEY
-```
-
-### First run after bootstrap
-
-A freshly-created `CronJob` doesn't fire immediately — it waits for its next scheduled time. To wire things up right after initial bootstrap instead of waiting up to 24h, trigger one run manually:
+Replace the blind `sleep 4` after starting port-forwards with an explicit wait, before port-forwarding begins:
 
 ```bash
-kubectl create job --from=cronjob/wire-media -n wire-media wire-media-init
+kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=sonarr   -n sonarr   --timeout=60s
+kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=radarr   -n radarr   --timeout=60s
+kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=prowlarr -n prowlarr --timeout=60s
 ```
 
-Documented in `README.md`'s post-bootstrap section (see below). Not worth a `just` recipe — it's a generic one-liner, not repo-specific logic.
+Rationale: `sleep 4` is a fixed guess that races on a slow image pull or crash-looping pod, and on failure produces an opaque curl timeout deep in the helper functions. `kubectl wait` fails fast with a clear "pod never became ready" message, and matches the pattern the repo already requires elsewhere (`CLAUDE.md`: no `sleep`, use `kubectl wait` / `--timeout` / readiness probes). Pod label is `app.kubernetes.io/name=<app>` (confirmed via `kubectl get pods -n sonarr --show-labels`).
 
-## Changes to existing files
+Port-forwarding and the existing `ensure_root_folder` / `ensure_prowlarr_app` helper functions are unchanged.
 
-- **`Justfile`**: delete the `wire-media` recipe entirely (`Justfile:150-215`). No replacement recipe needed — see "First run" above.
-- **`README.md`**: replace the vague `just --list` pointer with a short note that root folders / Prowlarr wiring are handled automatically by the `wire-media` CronJob (self-healing, no manual step), plus the one-time `kubectl create job --from=cronjob/...` command to trigger it immediately after first bootstrap. Keep the Bazarr → Sonarr/Radarr and Jellyfin library manual-step instructions here (previously printed by the Justfile recipe at the end) — those remain genuinely manual and unaffected by this change.
-- **`.claude/commands/add-app.md`**: update the arr-stack note (added in the earlier version of this spec) to point at `apps/wire-media/values.yaml`'s script instead of a `Justfile` recipe: "If this app is part of the arr stack (Sonarr/Radarr/Lidarr/etc.) and needs root folders or Prowlarr wiring, add it to `apps/wire-media/values.yaml`'s script and to `secrets/registry.tsv`." Checklist item updated to match.
-- **`CLAUDE.md`**: no changes needed — "Adding an App" and secrets sections already describe the general pattern this follows.
+### 2. `README.md` — make the step discoverable
+
+After the "Bootstrapping the Cluster" section, add a short "Post-Bootstrap: Wire Media Apps" note:
+
+> Once `apps/` (wave 3) has synced and Sonarr/Radarr/Prowlarr are healthy in ArgoCD, run `just wire-media` to set root folders and wire Prowlarr → Sonarr/Radarr. This is a one-time step — the config it writes lives in each app's NFS-backed PVC and persists across redeploys — not a recurring operational task.
+
+Placed right where the existing vague pointer ("see `just --list` ... wiring up media apps") already lives, replacing it with something explicit and sequenced.
+
+### 3. `.claude/commands/add-app.md` — don't let a future arr app skip wiring
+
+Add a note under Step 4 (Seal any secrets):
+
+> If this app is part of the arr stack (Sonarr/Radarr/Lidarr/etc.) and needs root folders or Prowlarr wiring, also add it to the `wire-media` recipe in `Justfile` (an `ensure_root_folder` and/or `ensure_prowlarr_app` call, plus the readiness wait).
+
+Add a checklist item at the bottom:
+
+> - [ ] If arr-stack app: added to `wire-media` recipe in `Justfile`
+
+This is the only gap in the "keep it manual" decision: neither `CLAUDE.md` nor `add-app.md` currently mentions the arr-stack wiring convention, so adding e.g. Lidarr later could silently skip it until someone notices root folders are missing in the UI.
 
 ## Out of scope
 
-- Bazarr → Sonarr/Radarr wiring and Jellyfin library setup remain manual (no REST API for the former; not worth automating the latter) — unchanged, just relocated into `README.md`.
-- Configarr and the DevOpsArr Terraform providers are not adopted — see Research above for why.
-- No RBAC/ServiceAccount changes — the Job only makes HTTP calls to in-cluster services, no Kubernetes API access needed.
+- No new `apps/` directory entry, container image, ArgoCD hook, or RBAC — architecture is unchanged.
+- Bazarr → Sonarr/Radarr wiring and Jellyfin library setup remain manual and are unaffected — `wire-media`'s existing end-of-run printout of those manual steps stays as-is.
+- No changes to `secrets/README.md` or the `secrets/registry.tsv` pattern — already accurate.
 
 ## Testing
 
-- After implementing, `kubectl create job --from=cronjob/wire-media -n wire-media wire-media-test` and check logs: expect either idempotent no-ops (if already wired from a prior manual run) or successful root-folder/Prowlarr-link creation on a clean stack.
-- Confirm the scheduled run recovers gracefully if a target service is down: manually scale a target (e.g. `prowlarr`) to 0 replicas, trigger a run, confirm the Job fails (non-zero exit) rather than hanging, then scale back up and confirm the next run succeeds.
+- Run `just wire-media` against the live cluster after the `kubectl wait` change; confirm it still succeeds (idempotent no-op path, since root folders/Prowlarr links already exist) and that a deliberately-wrong label/namespace produces a clear `kubectl wait` timeout error rather than a curl failure.
