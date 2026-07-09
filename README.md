@@ -4,23 +4,23 @@ k3s homelab on HP ProDesk Mini PCs. Ansible provisioning, ArgoCD GitOps.
 
 ## Stack
 
-k3s + Cilium (VXLAN) + ArgoCD (GitOps) + Envoy Gateway + cert-manager + sealed-secrets + Tailscale (remote admin access)
+k3s + Cilium (VXLAN) + ArgoCD (GitOps) + Envoy Gateway + cert-manager + sealed-secrets + Tailscale (in-cluster subnet router for remote access to services — not used for node SSH)
 
 ## Nodes
 
 | Hostname | Hardware | Role | IP |
 |----------|----------|------|-----|
-| worker-00 | HP ProDesk Mini G4 | k3s server | 192.168.30.129 |
-| worker-01 | HP ProDesk Mini G9 — i5 12th gen, 16GB RAM, 12TB USB | k3s server + NFS server + media workloads | 192.168.30.194 |
-| worker-02 | HP ProDesk Mini G6 | **not yet provisioned** | — |
+| worker-00 | HP ProDesk Mini G4 | k3s server + worker (schedulable) | 192.168.30.129 |
+| worker-01 | HP ProDesk Mini G9 — i5 12th gen, 16GB RAM, 12TB USB | k3s server + worker, NFS server, media workloads (`PreferNoSchedule`) | 192.168.30.194 |
+| worker-02 | HP ProDesk Mini G6 | k3s server + worker (schedulable) | 192.168.30.136 |
 
-See `.claude/g6-migration.md` for the plan to bring `worker-02` online and convert the cluster to a 3-node HA control plane.
+All 3 nodes are k3s server+worker (HA etcd control plane). G9 (worker-01) carries a `homelab.io/media=true:PreferNoSchedule` taint so media apps land there and other workloads prefer G4/G6. See `.claude/g6-migration.md` for the migration details.
 
 ---
 
 ## Provisioning Nodes
 
-See [`ansible/README.md`](ansible/README.md) for full setup: inventory, vault, and `just provision`.
+See [`ansible/README.md`](ansible/README.md) for full setup: inventory, vault, and `just provision`. SSH access is over the LAN IP directly (`192.168.30.0/24`).
 
 ## Bootstrapping the Cluster
 
@@ -45,7 +45,7 @@ Ubuntu Server 26.04 LTS — installed manually from USB.
 2. Flash to USB: `sudo dd if=ubuntu-26.04-live-server-amd64.iso of=/dev/rdiskN bs=1m status=progress`
 3. Boot the node from USB (HP ProDesk: **F10** → select USB)
 4. Follow the installer: set hostname, enable OpenSSH, skip snaps
-5. Reboot, remove USB, then install Tailscale for remote access: `curl -fsSL https://tailscale.com/install.sh | sh && sudo tailscale up`
+5. Reboot, remove USB
 
 ---
 
