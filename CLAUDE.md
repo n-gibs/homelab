@@ -4,15 +4,15 @@
 
 | Node | Hardware | Role |
 |------|----------|------|
-| worker-00 | HP ProDesk Mini G4 | k3s server only (control-plane taint, no workloads) |
-| worker-01 | HP ProDesk Mini G9 — i5 12th gen, 16GB RAM, 12TB USB | k3s agent, NFS server, all media workloads |
-| worker-02 | HP ProDesk Mini G6 | **Ordered — not yet provisioned** |
+| worker-00 | HP ProDesk Mini G4 | k3s server + worker (schedulable) |
+| worker-01 | HP ProDesk Mini G9 — i5 12th gen, 16GB RAM, 12TB USB | k3s server + worker, NFS server, media workloads (`homelab.io/media=true:PreferNoSchedule`) |
+| worker-02 | HP ProDesk Mini G6 | k3s server + worker (schedulable) |
 
-When G6 arrives, all 3 nodes convert to k3s server+worker with G9 tainted `homelab.io/media=true:PreferNoSchedule`. See `.claude/g6-migration.md` for full plan.
+All 3 nodes are k3s server+worker (HA etcd control plane). G9 (worker-01) carries a `homelab.io/media=true:PreferNoSchedule` taint + label so media apps land there and other workloads prefer G4/G6. See `.claude/g6-migration.md` for full plan.
 
 ## Stack
 
-k3s (currently 2-node, 3-node when G6 arrives) + Cilium (VXLAN) + ArgoCD (GitOps) + Envoy Gateway + cert-manager + sealed-secrets + Tailscale
+k3s (3-node HA) + Cilium (VXLAN) + ArgoCD (GitOps) + Envoy Gateway + cert-manager + sealed-secrets + Tailscale
 
 ## Network
 

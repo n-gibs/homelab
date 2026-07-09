@@ -50,3 +50,14 @@
     enabled: true
     state: started
   become: true
+
+- name: Allow NFS through UFW
+  community.general.ufw:
+    rule: allow
+    port: "2049"
+    proto: "{{ item }}"
+    src: "{{ nfs_allowed_clients }}"
+  become: true
+  loop:
+    - tcp
+    - udp
