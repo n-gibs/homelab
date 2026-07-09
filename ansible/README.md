@@ -8,7 +8,7 @@ Provisions a 3-node k3s cluster on HP ProDesk Mini PCs using [k3s-ansible](https
 |------|------|----|
 | Control plane | worker-00 (G4) | 192.168.30.129 |
 | Worker 1 | worker-01 (G9) | 192.168.30.194 |
-| Worker 2 | worker-02 (G6) | TBD |
+| Worker 2 | worker-02 (G6) | 192.168.30.136 |
 
 SSH user: `homelab`
 
@@ -26,7 +26,7 @@ Deploy SSH key to all nodes:
 ```bash
 ssh-copy-id homelab@192.168.30.194
 ssh-copy-id homelab@192.168.30.129
-ssh-copy-id homelab@192.168.30.130
+ssh-copy-id homelab@192.168.30.136
 ```
 
 ## First-time setup
@@ -43,7 +43,7 @@ just deps
 just todos
 ```
 
-Edit `ansible/inventory.yml` with the real IP for worker-02 (worker-00 and worker-01 are already filled in).
+All node IPs are already filled in in `ansible/inventory.yml`.
 
 ### 3. Set up vault
 
@@ -97,7 +97,7 @@ ansible/
 ├── host_vars/
 │   ├── worker-00.yml      # G4: drop control-plane taint (post-migration)
 │   ├── worker-01.yml      # G9: storage label + PreferNoSchedule taint
-│   └── worker-02.yml      # G6: no control-plane taint (not yet provisioned)
+│   └── worker-02.yml      # G6: no control-plane taint (schedulable)
 └── roles/
     ├── common/               # SSH hardening, UFW, unattended-upgrades
     ├── nfs_server/            # NFS export of 12TB drive on worker-01
