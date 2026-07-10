@@ -1,0 +1,64 @@
+# Secrets
+
+How secrets get from plaintext on your machine to sealed manifests in git.
+
+## Pieces
+
+| Path | Committed? | What it holds |
+|------|------------|----------------|
+| `secrets/.secrets` | No (gitignored) | Plaintext values, `KEY=value` per line, sourced by `just` recipes |
+| `secrets/.secrets.generated` | No (gitignored) | Auto-generated values (see `generate:` below), cached so they don't rotate every reseal |
+| `pub-cert.pem` (repo root, gitignored) | No | sealed-secrets controller's public cert, used to encrypt |
+| `secrets/registry.tsv` | Yes | Which secrets exist: name, namespace, output path, which keys pull from which vars |
+| `secrets/seal.sh` | Yes | Reads the registry, does the `kubectl create secret \| kubeseal` work. Called by `just seal`, not run directly |
+| `apps/**/*.yaml`, `platform/**/*.yaml`, etc. | Yes | The sealed (encrypted) `SealedSecret` manifests ArgoCD actually applies |
+
+`kubeseal` encrypts with the cluster's public cert, so only that cluster's controller can decrypt — sealed output is safe to commit.
+
+## First-time setup
+
+```bash
+just kubeseal-fetch-cert   # fetch pub-cert.pem from the cluster (run after bootstrap)
+cp secrets/.secrets.example secrets/.secrets  # if starting fresh — otherwise fill in secrets/.secrets yourself
+```
+
+Fill in the values `secrets/registry.tsv` references (see below).
+
+## Sealing a secret
+
+```bash
+just seal                          # reseal everything in the registry
+just seal vaultwarden-admin-token  # reseal just one
+```
+
+Both call `secrets/seal.sh`, which reads `secrets/registry.tsv`, pulls the referenced vars out of `secrets/.secrets` (or auto-generates them — see below), and writes the sealed manifest to the registry's `outfile` column. The script assumes it's run from the repo root (as `just` does) — don't run it directly from elsewhere.
+
+An `ENVVAR` in the registry can be prefixed `generate:` instead of requiring a value in `secrets/.secrets` — use this for arbitrary internal shared secrets (e.g. the arr stack's API keys), never for credentials that must match an external system. The first `just seal` invents the value and caches it in `secrets/.secrets.generated`; later runs reuse it instead of rotating it.
+
+## Adding a new secret
+
+1. Add the plaintext value(s) to `secrets/.secrets` (or use `generate:VAR` in the row below if it's an arbitrary internal secret, not one from an external system).
+2. Add a row to `secrets/registry.tsv`:
+   ```
+   my-secret-name    my-namespace    apps/myapp/my-secret.yaml    key=MY_ENV_VAR
+   ```
+   Multiple keys on one secret: comma-separate them — `key1=VAR1,key2=VAR2`.
+3. `just seal my-secret-name`
+4. Reference the resulting `SealedSecret` manifest from your app's kustomization/values as usual, commit, push — ArgoCD applies it.
+
+## What's *not* in the registry
+
+Two recipes stay hand-written in the `Justfile` because they don't fit the static table shape:
+
+- `seal-argocd-token` — generates a fresh ArgoCD API token at seal-time (port-forward + login), not a static value from `secrets/.secrets`.
+- `seal-secret <file>` — seals an arbitrary existing plain `Secret` YAML file directly, for one-offs that don't go through `secrets/.secrets` at all.
+
+## Rotating the cluster's cert
+
+If sealed-secrets is redeployed and generates a new keypair, re-fetch and reseal everything:
+
+```bash
+just kubeseal-fetch-cert
+just seal
+git add -A && git commit -m "reseal secrets after cert rotation"
+```
