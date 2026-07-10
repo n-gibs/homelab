@@ -46,6 +46,21 @@ env:
       secretKeyRef:
         name: argocd-api-key
         key: ARGOCD_API_KEY
+  - name: HOMEPAGE_VAR_NAVIDROME_USER
+    valueFrom:
+      secretKeyRef:
+        name: navidrome-homepage-token
+        key: user
+  - name: HOMEPAGE_VAR_NAVIDROME_TOKEN
+    valueFrom:
+      secretKeyRef:
+        name: navidrome-homepage-token
+        key: token
+  - name: HOMEPAGE_VAR_NAVIDROME_SALT
+    valueFrom:
+      secretKeyRef:
+        name: navidrome-homepage-token
+        key: salt
 
 config:
   settings:
@@ -115,6 +130,16 @@ config:
               type: lidarr
               url: http://lidarr.lidarr.svc.cluster.local:8686
               key: "{{HOMEPAGE_VAR_LIDARR_API_KEY}}"
+        - Navidrome:
+            href: https://navidrome.nik-homelab.dev
+            description: Music streaming
+            icon: navidrome.png
+            widget:
+              type: navidrome
+              url: http://navidrome.navidrome.svc.cluster.local:4533
+              user: "{{HOMEPAGE_VAR_NAVIDROME_USER}}"
+              token: "{{HOMEPAGE_VAR_NAVIDROME_TOKEN}}"
+              salt: "{{HOMEPAGE_VAR_NAVIDROME_SALT}}"
         - Calendar:
             description: Upcoming releases
             icon: mdi-calendar
