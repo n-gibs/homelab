@@ -36,6 +36,11 @@ env:
       secretKeyRef:
         name: arr-api-keys
         key: RADARR_API_KEY
+  - name: HOMEPAGE_VAR_LIDARR_API_KEY
+    valueFrom:
+      secretKeyRef:
+        name: arr-api-keys
+        key: LIDARR_API_KEY
   - name: HOMEPAGE_VAR_ARGOCD_API_KEY
     valueFrom:
       secretKeyRef:
@@ -102,6 +107,14 @@ config:
               type: radarr
               url: http://radarr.radarr.svc.cluster.local:7878
               key: "{{HOMEPAGE_VAR_RADARR_API_KEY}}"
+        - Lidarr:
+            href: https://lidarr.nik-homelab.dev
+            description: Music
+            icon: lidarr.png
+            widget:
+              type: lidarr
+              url: http://lidarr.lidarr.svc.cluster.local:8686
+              key: "{{HOMEPAGE_VAR_LIDARR_API_KEY}}"
         - Calendar:
             description: Upcoming releases
             icon: mdi-calendar
@@ -120,6 +133,10 @@ config:
                   service_group: Media
                   service_name: Radarr
                   color: amber
+                - type: lidarr
+                  service_group: Media
+                  service_name: Lidarr
+                  color: purple
     - Infrastructure:
         - ArgoCD:
             href: https://argocd.nik-homelab.dev
