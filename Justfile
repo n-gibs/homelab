@@ -95,7 +95,7 @@ seal-secret file:
 # Render templates with injected secrets into config/ (gitignored, apply from here)
 build-config:
     #!/usr/bin/env bash
-    source .secrets
+    source secrets/.secrets
     mkdir -p config/cert-manager
     envsubst < system/cert-manager/cluster-issuer.yaml > config/cert-manager/cluster-issuer.yaml
     echo "Built: config/cert-manager/cluster-issuer.yaml"
@@ -105,7 +105,7 @@ build-config:
 # Register private GitHub repo with ArgoCD (run after bootstrap-argocd, before bootstrap-root)
 register-repo:
     #!/usr/bin/env bash
-    source .secrets
+    source secrets/.secrets
     kubectl create secret generic homelab-repo \
       --namespace argocd \
       --from-literal=type=git \
@@ -119,102 +119,10 @@ register-repo:
 
 # ── Post-Bootstrap Secrets ───────────────────────────────────────────────────
 
-# Seal Cloudflare API token (run after bootstrap + kubeseal-fetch-cert)
-seal-cloudflare-token:
-    #!/usr/bin/env bash
-    source .secrets
-    kubectl create secret generic cloudflare-api-token \
-      --namespace cert-manager \
-      --from-literal=api-token="$CLOUDFLARE_API_TOKEN" \
-      --dry-run=client -o yaml | \
-    kubeseal --cert pub-cert.pem -o yaml > config/cert-manager/cloudflare-api-token.yaml
-    echo "Sealed: config/cert-manager/cloudflare-api-token.yaml"
-
-# Seal Vaultwarden admin token (run after bootstrap + kubeseal-fetch-cert)
-seal-vaultwarden-token:
-    #!/usr/bin/env bash
-    source .secrets
-    kubectl create secret generic vaultwarden-admin-token \
-      --namespace vaultwarden \
-      --from-literal=token="$VAULTWARDEN_ADMIN_TOKEN" \
-      --dry-run=client -o yaml | \
-    kubeseal --cert pub-cert.pem -o yaml > apps/vaultwarden/admin-token.yaml
-    echo "Sealed: apps/vaultwarden/admin-token.yaml"
-
-# Seal gluetun VPN credentials (run after bootstrap + kubeseal-fetch-cert)
-seal-gluetun-creds:
-    #!/usr/bin/env bash
-    source .secrets
-    kubectl create secret generic gluetun-vpn-creds \
-      --namespace qbittorrent \
-      --from-literal=WIREGUARD_PRIVATE_KEY="$WIREGUARD_PRIVATE_KEY" \
-      --from-literal=WIREGUARD_ADDRESSES="$WIREGUARD_ADDRESSES" \
-      --dry-run=client -o yaml | \
-    kubeseal --cert pub-cert.pem -o yaml > apps/qbittorrent/gluetun-vpn-creds.yaml
-    echo "Sealed: apps/qbittorrent/gluetun-vpn-creds.yaml"
-
-# Seal Tailscale operator OAuth credentials (run after bootstrap + kubeseal-fetch-cert)
-# Get clientId/clientSecret from: https://login.tailscale.com/admin/settings/oauth
-# Required scopes: devices:write (for operator to manage devices)
-seal-tailscale-oauth:
-    #!/usr/bin/env bash
-    source .secrets
-    kubectl create secret generic operator-oauth \
-      --namespace tailscale \
-      --from-literal=client_id="$TAILSCALE_CLIENT_ID" \
-      --from-literal=client_secret="$TAILSCALE_CLIENT_SECRET" \
-      --dry-run=client -o yaml | \
-    kubeseal --cert pub-cert.pem -o yaml > platform/tailscale/operator-oauth.yaml
-    echo "Sealed: platform/tailscale/operator-oauth.yaml"
-
-# Seal Cloudflare API token for external-dns (run after bootstrap + kubeseal-fetch-cert)
-seal-cloudflare-token-external-dns:
-    #!/usr/bin/env bash
-    source .secrets
-    kubectl create secret generic cloudflare-api-token \
-      --namespace external-dns \
-      --from-literal=api-token="$CLOUDFLARE_API_TOKEN" \
-      --dry-run=client -o yaml | \
-    kubeseal --cert pub-cert.pem -o yaml > system/external-dns/cloudflare-token.yaml
-    echo "Sealed: system/external-dns/cloudflare-token.yaml"
-
-# Seal arr stack API keys (run after bootstrap + kubeseal-fetch-cert)
-# Add to .secrets: SONARR_API_KEY, RADARR_API_KEY, PROWLARR_API_KEY (use `uuidgen | tr -d '-' | tr '[:upper:]' '[:lower:]'`)
-seal-arr-api-keys:
-    #!/usr/bin/env bash
-    source .secrets
-    kubectl create secret generic arr-api-key \
-      --namespace sonarr \
-      --from-literal=SONARR__AUTH__APIKEY="$SONARR_API_KEY" \
-      --dry-run=client -o yaml | \
-    kubeseal --cert pub-cert.pem -o yaml > apps/sonarr/arr-api-key.yaml
-    echo "Sealed: apps/sonarr/arr-api-key.yaml"
-    kubectl create secret generic arr-api-key \
-      --namespace radarr \
-      --from-literal=RADARR__AUTH__APIKEY="$RADARR_API_KEY" \
-      --dry-run=client -o yaml | \
-    kubeseal --cert pub-cert.pem -o yaml > apps/radarr/arr-api-key.yaml
-    echo "Sealed: apps/radarr/arr-api-key.yaml"
-    kubectl create secret generic arr-api-key \
-      --namespace prowlarr \
-      --from-literal=PROWLARR__AUTH__APIKEY="$PROWLARR_API_KEY" \
-      --dry-run=client -o yaml | \
-    kubeseal --cert pub-cert.pem -o yaml > apps/prowlarr/arr-api-key.yaml
-    echo "Sealed: apps/prowlarr/arr-api-key.yaml"
-    kubectl create secret generic recyclarr-api-keys \
-      --namespace recyclarr \
-      --from-literal=SONARR_API_KEY="$SONARR_API_KEY" \
-      --from-literal=RADARR_API_KEY="$RADARR_API_KEY" \
-      --dry-run=client -o yaml | \
-    kubeseal --cert pub-cert.pem -o yaml > apps/recyclarr/api-keys.yaml
-    echo "Sealed: apps/recyclarr/api-keys.yaml"
-    kubectl create secret generic arr-api-keys \
-      --namespace homepage \
-      --from-literal=SONARR_API_KEY="$SONARR_API_KEY" \
-      --from-literal=RADARR_API_KEY="$RADARR_API_KEY" \
-      --dry-run=client -o yaml | \
-    kubeseal --cert pub-cert.pem -o yaml > apps/homepage/arr-api-keys.yaml
-    echo "Sealed: apps/homepage/arr-api-keys.yaml"
+# Seal one secret by name from secrets/registry.tsv, or all of them if omitted:
+# just seal | just seal vaultwarden-admin-token  (run after bootstrap + kubeseal-fetch-cert)
+seal name="":
+    ./secrets/seal.sh {{name}}
 
 # Generate a fresh ArgoCD readonly API token for the Homepage widget and seal it
 # (run after bootstrap-argocd has applied the `readonly` account/RBAC in bootstrap/values/argocd.yaml)
@@ -243,7 +151,7 @@ seal-argocd-token:
 # Note: Bazarr → Sonarr/Radarr has no REST API; configure manually at bazarr.nik-homelab.dev → Settings
 wire-media:
     #!/usr/bin/env bash
-    source .secrets
+    source secrets/.secrets
     PF_PIDS=()
     cleanup() { for p in "${PF_PIDS[@]}"; do kill "$p" 2>/dev/null; done; }
     trap cleanup EXIT
@@ -269,55 +177,42 @@ wire-media:
     RADARR="http://localhost:7878"
     PROWLARR="http://localhost:9696"
 
-    # Sonarr root folder
-    SONARR_RF=$(curl -sf -H "X-Api-Key: $SONARR_API_KEY" "$SONARR/api/v3/rootFolder" \
-      | python3 -c "import sys,json; print(any(r['path']=='/data/media/tv' for r in json.load(sys.stdin)))" 2>/dev/null || echo False)
-    if [ "$SONARR_RF" = "False" ]; then
-      curl -sf -X POST \
-        -H "X-Api-Key: $SONARR_API_KEY" -H "Content-Type: application/json" \
-        "$SONARR/api/v3/rootFolder" -d '{"path":"/data/media/tv"}' > /dev/null
-      echo "Sonarr root folder: /data/media/tv"
-    else
-      echo "Sonarr root folder: already set"
-    fi
+    ensure_root_folder() {
+      local url="$1" api_key="$2" path="$3" label="$4"
+      if curl -sf -H "X-Api-Key: $api_key" "$url/api/v3/rootFolder" \
+          | jq -e --arg p "$path" 'any(.[]; .path == $p)' >/dev/null 2>&1; then
+        echo "$label root folder: already set"
+      else
+        curl -sf -X POST -H "X-Api-Key: $api_key" -H "Content-Type: application/json" \
+          "$url/api/v3/rootFolder" -d "$(jq -n --arg p "$path" '{path:$p}')" > /dev/null
+        echo "$label root folder: $path"
+      fi
+    }
 
-    # Radarr root folder
-    RADARR_RF=$(curl -sf -H "X-Api-Key: $RADARR_API_KEY" "$RADARR/api/v3/rootFolder" \
-      | python3 -c "import sys,json; print(any(r['path']=='/data/media/movies' for r in json.load(sys.stdin)))" 2>/dev/null || echo False)
-    if [ "$RADARR_RF" = "False" ]; then
-      curl -sf -X POST \
-        -H "X-Api-Key: $RADARR_API_KEY" -H "Content-Type: application/json" \
-        "$RADARR/api/v3/rootFolder" -d '{"path":"/data/media/movies"}' > /dev/null
-      echo "Radarr root folder: /data/media/movies"
-    else
-      echo "Radarr root folder: already set"
-    fi
+    ensure_prowlarr_app() {
+      local name="$1" impl="$2" contract="$3" base_url="$4" api_key="$5" categories="$6"
+      if curl -sf -H "X-Api-Key: $PROWLARR_API_KEY" "$PROWLARR/api/v1/applications" \
+          | jq -e --arg n "$name" 'any(.[]; .name == $n)' >/dev/null 2>&1; then
+        echo "Prowlarr → $name: already configured"
+      else
+        curl -sf -X POST -H "X-Api-Key: $PROWLARR_API_KEY" -H "Content-Type: application/json" \
+          "$PROWLARR/api/v1/applications" \
+          -d "$(jq -n --arg name "$name" --arg impl "$impl" --arg contract "$contract" \
+                 --arg purl "http://prowlarr.prowlarr.svc.cluster.local:9696" --arg burl "$base_url" \
+                 --arg key "$api_key" --argjson cats "$categories" \
+                 '{name:$name, syncLevel:"fullSync", implementation:$impl, configContract:$contract,
+                   fields:[{name:"prowlarrUrl",value:$purl},{name:"baseUrl",value:$burl},
+                           {name:"apiKey",value:$key},{name:"syncCategories",value:$cats}]}')" > /dev/null
+        echo "Prowlarr → $name: wired"
+      fi
+    }
 
-    # Prowlarr → Sonarr
-    SONARR_EXISTS=$(curl -sf -H "X-Api-Key: $PROWLARR_API_KEY" "$PROWLARR/api/v1/applications" \
-      | python3 -c "import sys,json; print(any(a['name']=='Sonarr' for a in json.load(sys.stdin)))" 2>/dev/null || echo False)
-    if [ "$SONARR_EXISTS" = "False" ]; then
-      curl -sf -X POST \
-        -H "X-Api-Key: $PROWLARR_API_KEY" -H "Content-Type: application/json" \
-        "$PROWLARR/api/v1/applications" \
-        -d "{\"name\":\"Sonarr\",\"syncLevel\":\"fullSync\",\"implementation\":\"Sonarr\",\"configContract\":\"SonarrSettings\",\"fields\":[{\"name\":\"prowlarrUrl\",\"value\":\"http://prowlarr.prowlarr.svc.cluster.local:9696\"},{\"name\":\"baseUrl\",\"value\":\"http://sonarr.sonarr.svc.cluster.local:8989\"},{\"name\":\"apiKey\",\"value\":\"$SONARR_API_KEY\"},{\"name\":\"syncCategories\",\"value\":[5000,5030,5040]}]}" > /dev/null
-      echo "Prowlarr → Sonarr: wired"
-    else
-      echo "Prowlarr → Sonarr: already configured"
-    fi
-
-    # Prowlarr → Radarr
-    RADARR_EXISTS=$(curl -sf -H "X-Api-Key: $PROWLARR_API_KEY" "$PROWLARR/api/v1/applications" \
-      | python3 -c "import sys,json; print(any(a['name']=='Radarr' for a in json.load(sys.stdin)))" 2>/dev/null || echo False)
-    if [ "$RADARR_EXISTS" = "False" ]; then
-      curl -sf -X POST \
-        -H "X-Api-Key: $PROWLARR_API_KEY" -H "Content-Type: application/json" \
-        "$PROWLARR/api/v1/applications" \
-        -d "{\"name\":\"Radarr\",\"syncLevel\":\"fullSync\",\"implementation\":\"Radarr\",\"configContract\":\"RadarrSettings\",\"fields\":[{\"name\":\"prowlarrUrl\",\"value\":\"http://prowlarr.prowlarr.svc.cluster.local:9696\"},{\"name\":\"baseUrl\",\"value\":\"http://radarr.radarr.svc.cluster.local:7878\"},{\"name\":\"apiKey\",\"value\":\"$RADARR_API_KEY\"},{\"name\":\"syncCategories\",\"value\":[2000,2010,2020,2030,2040,2045,2050,2060,2070]}]}" > /dev/null
-      echo "Prowlarr → Radarr: wired"
-    else
-      echo "Prowlarr → Radarr: already configured"
-    fi
+    ensure_root_folder "$SONARR" "$SONARR_API_KEY" "/data/media/tv" "Sonarr"
+    ensure_root_folder "$RADARR" "$RADARR_API_KEY" "/data/media/movies" "Radarr"
+    ensure_prowlarr_app "Sonarr" "Sonarr" "SonarrSettings" \
+      "http://sonarr.sonarr.svc.cluster.local:8989" "$SONARR_API_KEY" '[5000,5030,5040]'
+    ensure_prowlarr_app "Radarr" "Radarr" "RadarrSettings" \
+      "http://radarr.radarr.svc.cluster.local:7878" "$RADARR_API_KEY" '[2000,2010,2020,2030,2040,2045,2050,2060,2070]'
 
     echo ""
     echo "Done. Manual steps remaining:"
