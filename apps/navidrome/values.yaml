@@ -1,0 +1,71 @@
+controllers:
+  main:
+    pod:
+      nodeSelector:
+        homelab.io/media: "true"
+      tolerations:
+        - key: homelab.io/media
+          operator: Equal
+          value: "true"
+          effect: PreferNoSchedule
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+    containers:
+      app:
+        image:
+          repository: deluan/navidrome
+          tag: "0.63.1"
+        env:
+          ND_MUSICFOLDER: /data/media/music
+          ND_DATAFOLDER: /config
+          ND_SCANSCHEDULE: 1h
+          ND_LOGLEVEL: info
+          ND_SESSIONTIMEOUT: 24h
+          ND_AUTOIMPORTPLAYLISTS: "true"
+        resources:
+          requests:
+            cpu: 50m
+          limits:
+            cpu: "1"
+
+service:
+  main:
+    controller: main
+    ports:
+      http:
+        port: 4533
+
+route:
+  main:
+    annotations:
+      gethomepage.dev/enabled: "true"
+      gethomepage.dev/name: "Navidrome"
+      gethomepage.dev/description: "Music streaming server"
+      gethomepage.dev/group: "Media"
+      gethomepage.dev/icon: "navidrome.png"
+      gethomepage.dev/href: "https://navidrome.nik-homelab.dev"
+    enabled: true
+    kind: HTTPRoute
+    hostnames:
+      - navidrome.nik-homelab.dev
+    parentRefs:
+      - name: homelab
+        namespace: envoy-gateway-system
+
+persistence:
+  config:
+    type: persistentVolumeClaim
+    storageClass: nfs
+    size: 1Gi
+    accessMode: ReadWriteMany
+    globalMounts:
+      - path: /config
+  data:
+    type: nfs
+    server: 192.168.30.194
+    path: /mnt/storage
+    globalMounts:
+      - path: /data
+        readOnly: true
