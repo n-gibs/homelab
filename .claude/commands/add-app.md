@@ -186,6 +186,10 @@ If the app needs secrets, add a row to `secrets/registry.tsv`:
 
 Add the plaintext value to `secrets/.secrets` (and the var name to `secrets/.secrets.example`) — or use `key=generate:ENV_VAR` instead if it's an arbitrary internal value with no external source (e.g. an API key the app itself will consume). Then run `just seal <secret-name>`. See `secrets/README.md` for details.
 
+### Arr-stack apps: wire root folders / Prowlarr links
+
+If this app is part of the arr stack (Sonarr, Radarr, Lidarr, etc.) and needs a root folder set or to be linked into Prowlarr as an application, add it to the `wire-media` recipe in `Justfile`: an `ensure_root_folder` call (root folder path) and/or an `ensure_prowlarr_app` call (implementation name, config contract, base URL, sync categories) — follow the existing Sonarr/Radarr calls in that recipe as the pattern. This is a manual, one-time step per app (see `secrets/README.md` and the `wire-media` recipe itself for context) — it won't run automatically just because the app directory exists.
+
 ## Step 5 — Verify ArgoCD will pick it up
 
 The root ApplicationSet in `bootstrap/root/values.yaml` auto-discovers directories in `system/`, `platform/`, and `apps/`. No registration needed — ArgoCD syncs automatically when merged to `main`.
@@ -212,3 +216,4 @@ Watch sync: `kubectl get application -n argocd` or check ArgoCD UI at `argocd.ni
 - [ ] nodeSelector `homelab.io/media: "true"` + matching `PreferNoSchedule` toleration if accessing `/data` on NFS
 - [ ] Secrets sealed and committed, var name added to `secrets/.secrets.example`
 - [ ] Row added to `secrets/registry.tsv` if secrets needed
+- [ ] If arr-stack app: added to `wire-media` recipe in `Justfile` (root folder and/or Prowlarr application link)
