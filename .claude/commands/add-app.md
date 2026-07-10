@@ -178,17 +178,13 @@ spec:
 
 ## Step 4 — Seal any secrets
 
-If the app needs secrets, add a `just seal-<appname>-*` target in `Justfile` following the existing pattern:
+If the app needs secrets, add a row to `secrets/registry.tsv`:
 
-```bash
-kubectl create secret generic <secret-name> \
-  --namespace <appname> \
-  --from-literal=key="$ENV_VAR" \
-  --dry-run=client -o yaml | \
-kubeseal --cert pub-cert.pem -o yaml > <stack>/<appname>/<secret-name>.yaml
+```
+<secret-name>    <appname>    <stack>/<appname>/<secret-name>.yaml    key=ENV_VAR
 ```
 
-Add the required variable name to `.secrets.example`. Run `just seal-<appname>-*` after adding the value to `.secrets`.
+Add the plaintext value to `secrets/.secrets` (and the var name to `secrets/.secrets.example`) — or use `key=generate:ENV_VAR` instead if it's an arbitrary internal value with no external source (e.g. an API key the app itself will consume). Then run `just seal <secret-name>`. See `secrets/README.md` for details.
 
 ## Step 5 — Verify ArgoCD will pick it up
 
@@ -214,5 +210,5 @@ Watch sync: `kubectl get application -n argocd` or check ArgoCD UI at `argocd.ni
 - [ ] `vpa.yaml` present
 - [ ] NFS StorageClass for any PVCs (not local-path)
 - [ ] nodeSelector `homelab.io/media: "true"` + matching `PreferNoSchedule` toleration if accessing `/data` on NFS
-- [ ] Secrets sealed and committed, plaintext added to `.secrets.example`
-- [ ] `just seal-*` target in Justfile if secrets needed
+- [ ] Secrets sealed and committed, var name added to `secrets/.secrets.example`
+- [ ] Row added to `secrets/registry.tsv` if secrets needed

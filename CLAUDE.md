@@ -166,15 +166,7 @@ Add Homepage dashboard annotations to the route for service discovery:
 
 Secrets are sealed with `kubeseal` using `pub-cert.pem` in repo root. Never commit plaintext secrets.
 
-```bash
-kubectl create secret generic my-secret \
-  --namespace myapp \
-  --from-literal=key="$VALUE" \
-  --dry-run=client -o yaml | \
-kubeseal --cert pub-cert.pem -o yaml > apps/myapp/my-secret.yaml
-```
-
-Source values from `.secrets` (gitignored). Add new `just seal-*` targets in `Justfile` for repeatability.
+Sealing is table-driven — see `secrets/README.md`. To add a secret: add its plaintext value to `secrets/.secrets` (or mark it `generate:VAR` in the registry if it's an arbitrary internal value, not one from an external system), add a row to `secrets/registry.tsv`, then run `just seal <secret-name>`. No new Justfile recipe needed.
 
 ## Common Commands
 
@@ -182,7 +174,7 @@ Source values from `.secrets` (gitignored). Add new `just seal-*` targets in `Ju
 just provision          # Run Ansible against all nodes
 just bootstrap          # Bootstrap Cilium + ArgoCD + root ApplicationSet
 just bootstrap-diff     # Dry-run bootstrap
-just seal-<app>-token   # Seal a secret for an app
+just seal <name>        # Seal a secret from secrets/registry.tsv (omit name to reseal all)
 just todos              # Show remaining TODOs in repo
 ```
 
@@ -191,7 +183,7 @@ just todos              # Show remaining TODOs in repo
 - **No `sleep` commands** in scripts or manifests. Use `kubectl wait`, `--timeout`, or readiness probes instead.
 - **Never use `Ingress`**. All routing uses Gateway API `HTTPRoute` only.
 - Never use `local-path` StorageClass for new PVCs.
-- Never commit `.secrets`, `.vault_pass`, `pub-cert.pem`, or anything in `config/` (gitignored).
+- Never commit `secrets/.secrets`, `secrets/.secrets.generated`, `.vault_pass`, `pub-cert.pem`, or anything in `config/` (gitignored).
 - Chart versions in `app.yaml` are managed by Renovate — don't pin to `latest`.
 - Server-side apply only for ArgoCD managed resources (avoids annotation conflicts).
 - Never add `Co-Authored-By` lines to commit messages.
