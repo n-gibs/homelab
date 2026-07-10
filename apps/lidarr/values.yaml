@@ -1,0 +1,66 @@
+controllers:
+  main:
+    pod:
+      nodeSelector:
+        homelab.io/media: "true"
+      tolerations:
+        - key: homelab.io/media
+          operator: Equal
+          value: "true"
+          effect: PreferNoSchedule
+    containers:
+      app:
+        image:
+          repository: lscr.io/linuxserver/lidarr
+          tag: latest
+        env:
+          PUID: "1000"
+          PGID: "1000"
+          TZ: America/Los_Angeles
+        envFrom:
+          - secretRef:
+              name: arr-api-key
+        resources:
+          requests:
+            cpu: 100m
+          limits:
+            cpu: "1"
+
+service:
+  main:
+    controller: main
+    ports:
+      http:
+        port: 8686
+
+route:
+  main:
+    annotations:
+      gethomepage.dev/enabled: "true"
+      gethomepage.dev/name: "Lidarr"
+      gethomepage.dev/description: "Music collection manager"
+      gethomepage.dev/group: "Media"
+      gethomepage.dev/icon: "lidarr.png"
+      gethomepage.dev/href: "https://lidarr.nik-homelab.dev"
+    enabled: true
+    kind: HTTPRoute
+    hostnames:
+      - lidarr.nik-homelab.dev
+    parentRefs:
+      - name: homelab
+        namespace: envoy-gateway-system
+
+persistence:
+  config:
+    type: persistentVolumeClaim
+    storageClass: nfs
+    size: 2Gi
+    accessMode: ReadWriteMany
+    globalMounts:
+      - path: /config
+  data:
+    type: nfs
+    server: 192.168.30.194
+    path: /mnt/storage
+    globalMounts:
+      - path: /data

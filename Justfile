@@ -147,7 +147,7 @@ seal-argocd-token:
     kubeseal --cert pub-cert.pem -o yaml > apps/homepage/argocd-api-key.yaml
     echo "Sealed: apps/homepage/argocd-api-key.yaml"
 
-# Wire Prowlarr → Sonarr/Radarr + set root folders via API (run after apps are healthy)
+# Wire Prowlarr → Sonarr/Radarr/Lidarr + set root folders via API (run after apps are healthy)
 # Note: Bazarr → Sonarr/Radarr has no REST API; configure manually at bazarr.nik-homelab.dev → Settings
 wire-media:
     #!/usr/bin/env bash
@@ -156,25 +156,29 @@ wire-media:
     cleanup() { for p in "${PF_PIDS[@]}"; do kill "$p" 2>/dev/null; done; }
     trap cleanup EXIT
 
-    echo "Waiting for Sonarr, Radarr, Prowlarr pods to be ready..."
+    echo "Waiting for Sonarr, Radarr, Lidarr, Prowlarr pods to be ready..."
     kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=sonarr   -n sonarr   --timeout=60s
     kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=radarr   -n radarr   --timeout=60s
+    kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=lidarr   -n lidarr   --timeout=60s
     kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=prowlarr -n prowlarr --timeout=60s
 
-    echo "Port-forwarding Sonarr, Radarr, Prowlarr..."
+    echo "Port-forwarding Sonarr, Radarr, Lidarr, Prowlarr..."
     kubectl port-forward -n sonarr svc/sonarr 8989:8989 &
     PF_PIDS+=($!)
     kubectl port-forward -n radarr svc/radarr 7878:7878 &
     PF_PIDS+=($!)
+    kubectl port-forward -n lidarr svc/lidarr 8686:8686 &
+    PF_PIDS+=($!)
     kubectl port-forward -n prowlarr svc/prowlarr 9696:9696 &
     PF_PIDS+=($!)
     for i in $(seq 1 20); do
-      nc -z localhost 8989 && nc -z localhost 7878 && nc -z localhost 9696 && break
+      nc -z localhost 8989 && nc -z localhost 7878 && nc -z localhost 8686 && nc -z localhost 9696 && break
       sleep 0.2
     done
 
     SONARR="http://localhost:8989"
     RADARR="http://localhost:7878"
+    LIDARR="http://localhost:8686"
     PROWLARR="http://localhost:9696"
 
     ensure_root_folder() {
@@ -209,16 +213,20 @@ wire-media:
 
     ensure_root_folder "$SONARR" "$SONARR_API_KEY" "/data/media/tv" "Sonarr"
     ensure_root_folder "$RADARR" "$RADARR_API_KEY" "/data/media/movies" "Radarr"
+    ensure_root_folder "$LIDARR" "$LIDARR_API_KEY" "/data/media/music" "Lidarr"
     ensure_prowlarr_app "Sonarr" "Sonarr" "SonarrSettings" \
       "http://sonarr.sonarr.svc.cluster.local:8989" "$SONARR_API_KEY" '[5000,5030,5040]'
     ensure_prowlarr_app "Radarr" "Radarr" "RadarrSettings" \
       "http://radarr.radarr.svc.cluster.local:7878" "$RADARR_API_KEY" '[2000,2010,2020,2030,2040,2045,2050,2060,2070]'
+    ensure_prowlarr_app "Lidarr" "Lidarr" "LidarrSettings" \
+      "http://lidarr.lidarr.svc.cluster.local:8686" "$LIDARR_API_KEY" '[3000,3010,3020,3030,3040]'
 
     echo ""
     echo "Done. Manual steps remaining:"
     echo "  Jellyfin: jellyfin.nik-homelab.dev → Dashboard → Libraries → Add Media Library"
     echo "    TV:     /data/media/tv"
     echo "    Movies: /data/media/movies"
+    echo "    Music:  /data/media/music"
     echo "  Bazarr:  bazarr.nik-homelab.dev → Settings → Sonarr → host: sonarr.sonarr.svc.cluster.local:8989"
     echo "                                              → Radarr → host: radarr.radarr.svc.cluster.local:7878"
 
