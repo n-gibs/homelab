@@ -229,6 +229,111 @@ wire-media:
     echo "    Music:  /data/media/music"
     echo "  Bazarr:  bazarr.nik-homelab.dev → Settings → Sonarr → host: sonarr.sonarr.svc.cluster.local:8989"
     echo "                                              → Radarr → host: radarr.radarr.svc.cluster.local:7878"
+    echo "  Lidarr:  run 'just tune-lidarr-quality' to apply recommended FLAC quality/custom-format tuning"
+
+# Tunes Lidarr's FLAC quality thresholds and custom formats (run once, after wire-media).
+# Recommendations from https://wiki.servarr.com/lidarr/tips-and-tricks#custom-formats
+tune-lidarr-quality:
+    #!/usr/bin/env bash
+    source secrets/.secrets
+    PF_PIDS=()
+    cleanup() { for p in "${PF_PIDS[@]}"; do kill "$p" 2>/dev/null; done; }
+    trap cleanup EXIT
+
+    echo "Waiting for Lidarr pod to be ready..."
+    kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=lidarr -n lidarr --timeout=60s
+
+    echo "Port-forwarding Lidarr..."
+    kubectl port-forward -n lidarr svc/lidarr 8686:8686 &
+    PF_PIDS+=($!)
+    for i in $(seq 1 20); do
+      nc -z localhost 8686 && break
+      sleep 0.2
+    done
+
+    LIDARR="http://localhost:8686"
+
+    # Tightens the FLAC quality definition to reject single-file CUE+FLAC rips.
+    ensure_quality_definition() {
+      local url="$1" api_key="$2" title="$3" min="$4" preferred="$5" max="$6"
+      local current id
+      current="$(curl -sf -H "X-Api-Key: $api_key" "$url/api/v1/qualitydefinition" \
+        | jq -e --arg t "$title" '.[] | select(.title == $t)')"
+      if echo "$current" | jq -e --argjson min "$min" --argjson pref "$preferred" --argjson max "$max" \
+          '.minSize == $min and .preferredSize == $pref and .maxSize == $max' >/dev/null 2>&1; then
+        echo "$title quality definition: already set"
+      else
+        id="$(echo "$current" | jq -r '.id')"
+        echo "$current" | jq --argjson min "$min" --argjson pref "$preferred" --argjson max "$max" \
+            '.minSize = $min | .preferredSize = $pref | .maxSize = $max' \
+          | curl -sf -X PUT -H "X-Api-Key: $api_key" -H "Content-Type: application/json" \
+              "$url/api/v1/qualitydefinition/$id" -d @- > /dev/null
+        echo "$title quality definition: set min=$min preferred=$preferred max=$max"
+      fi
+    }
+
+    # Creates a custom format if missing. Note: the API's `fields` is an array of
+    # {name,value} pairs, not the {value: ...} shorthand shown on the wiki's import UI.
+    ensure_custom_format() {
+      local url="$1" api_key="$2" name="$3" specs="$4"
+      if curl -sf -H "X-Api-Key: $api_key" "$url/api/v1/customformat" \
+          | jq -e --arg n "$name" 'any(.[]; .name == $n)' >/dev/null 2>&1; then
+        echo "Custom format $name: already exists"
+      else
+        jq -n --arg name "$name" --argjson specs "$specs" \
+            '{name:$name, includeCustomFormatWhenRenaming:false, specifications:$specs}' \
+          | curl -sf -X POST -H "X-Api-Key: $api_key" -H "Content-Type: application/json" \
+              "$url/api/v1/customformat" -d @- > /dev/null
+        echo "Custom format $name: created"
+      fi
+    }
+
+    # Scores custom formats in a quality profile and sets minFormatScore so releases
+    # matching none of them are skipped entirely.
+    ensure_format_scores() {
+      local url="$1" api_key="$2" profile_name="$3" min_format_score="$4"; shift 4
+      local profile id updated pair fname score
+      profile="$(curl -sf -H "X-Api-Key: $api_key" "$url/api/v1/qualityprofile" \
+        | jq -e --arg p "$profile_name" '.[] | select(.name == $p)')"
+      id="$(echo "$profile" | jq -r '.id')"
+      updated="$profile"
+      for pair in "$@"; do
+        fname="${pair%%=*}"
+        score="${pair#*=}"
+        updated="$(echo "$updated" | jq --arg n "$fname" --argjson s "$score" \
+          '.formatItems = (.formatItems | map(if .name == $n then .score = $s else . end))')"
+      done
+      updated="$(echo "$updated" | jq --argjson m "$min_format_score" '.minFormatScore = $m')"
+      if [[ "$(echo "$profile" | jq -S .)" == "$(echo "$updated" | jq -S .)" ]]; then
+        echo "Lidarr '$profile_name' profile format scores: already set"
+      else
+        echo "$updated" | curl -sf -X PUT -H "X-Api-Key: $api_key" -H "Content-Type: application/json" \
+          "$url/api/v1/qualityprofile/$id" -d @- > /dev/null
+        echo "Lidarr '$profile_name' profile format scores: updated"
+      fi
+    }
+
+    ensure_quality_definition "$LIDARR" "$LIDARR_API_KEY" "FLAC" 0 895 1400
+    ensure_quality_definition "$LIDARR" "$LIDARR_API_KEY" "FLAC 24bit" 0 895 1495
+
+    ensure_custom_format "$LIDARR" "$LIDARR_API_KEY" "Preferred Groups" \
+      '[{"name":"DeVOiD","implementation":"ReleaseGroupSpecification","negate":false,"required":false,"fields":[{"name":"value","value":"\\bDeVOiD\\b"}]},
+        {"name":"PERFECT","implementation":"ReleaseGroupSpecification","negate":false,"required":false,"fields":[{"name":"value","value":"\\bPERFECT\\b"}]},
+        {"name":"ENRiCH","implementation":"ReleaseGroupSpecification","negate":false,"required":false,"fields":[{"name":"value","value":"\\bENRiCH\\b"}]}]'
+    ensure_custom_format "$LIDARR" "$LIDARR_API_KEY" "CD" \
+      '[{"name":"CD","implementation":"ReleaseTitleSpecification","negate":false,"required":false,"fields":[{"name":"value","value":"\\bCD\\b"}]}]'
+    ensure_custom_format "$LIDARR" "$LIDARR_API_KEY" "WEB" \
+      '[{"name":"WEB","implementation":"ReleaseTitleSpecification","negate":false,"required":false,"fields":[{"name":"value","value":"\\bWEB\\b"}]}]'
+    ensure_custom_format "$LIDARR" "$LIDARR_API_KEY" "Lossless" \
+      '[{"name":"Lossless","implementation":"ReleaseTitleSpecification","negate":false,"required":false,"fields":[{"name":"value","value":"\\blossless\\b"}]}]'
+    ensure_custom_format "$LIDARR" "$LIDARR_API_KEY" "Vinyl" \
+      '[{"name":"Vinyl","implementation":"ReleaseTitleSpecification","negate":false,"required":false,"fields":[{"name":"value","value":"\\bVinyl\\b"}]}]'
+
+    ensure_format_scores "$LIDARR" "$LIDARR_API_KEY" "Any" 1 \
+      "Preferred Groups=100" "CD=10" "Lossless=10" "WEB=5" "Vinyl=-10000"
+
+    echo ""
+    echo "Done."
 
 # ── Misc ─────────────────────────────────────────────────────────────────────
 
