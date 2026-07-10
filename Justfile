@@ -248,6 +248,11 @@ wire-media:
     cleanup() { for p in "${PF_PIDS[@]}"; do kill "$p" 2>/dev/null; done; }
     trap cleanup EXIT
 
+    echo "Waiting for Sonarr, Radarr, Prowlarr pods to be ready..."
+    kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=sonarr   -n sonarr   --timeout=60s
+    kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=radarr   -n radarr   --timeout=60s
+    kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=prowlarr -n prowlarr --timeout=60s
+
     echo "Port-forwarding Sonarr, Radarr, Prowlarr..."
     kubectl port-forward -n sonarr svc/sonarr 8989:8989 &
     PF_PIDS+=($!)
@@ -255,7 +260,10 @@ wire-media:
     PF_PIDS+=($!)
     kubectl port-forward -n prowlarr svc/prowlarr 9696:9696 &
     PF_PIDS+=($!)
-    sleep 4
+    for i in $(seq 1 20); do
+      nc -z localhost 8989 && nc -z localhost 7878 && nc -z localhost 9696 && break
+      sleep 0.2
+    done
 
     SONARR="http://localhost:8989"
     RADARR="http://localhost:7878"
