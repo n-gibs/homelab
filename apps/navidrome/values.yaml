@@ -20,10 +20,14 @@ controllers:
         env:
           ND_MUSICFOLDER: /data/media/music
           ND_DATAFOLDER: /config
-          ND_SCANSCHEDULE: 1h
+          ND_SCANNER_SCHEDULE: 1h
           ND_LOGLEVEL: info
           ND_SESSIONTIMEOUT: 24h
           ND_AUTOIMPORTPLAYLISTS: "true"
+          # Group albums by folder instead of tags: Lidarr always keeps an album's
+          # tracks in one directory, but per-track musicbrainz_albumid can differ
+          # when tracks come from different releases, splitting the album in two.
+          ND_PID_ALBUM: folder
         resources:
           requests:
             cpu: 50m
