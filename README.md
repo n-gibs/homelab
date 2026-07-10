@@ -35,6 +35,20 @@ This installs, in order: Cilium (CNI), Gateway API CRDs, ArgoCD, and the root ch
 
 See `just --list` for the full set of commands (sealing secrets, wiring up media apps, etc.).
 
+### Post-Bootstrap: Wire Media Apps
+
+Once `apps/` (wave 3) has synced and Sonarr, Radarr, and Prowlarr show healthy in ArgoCD, run:
+
+```bash
+just wire-media
+```
+
+This sets Sonarr/Radarr root folders and wires Prowlarr → Sonarr/Radarr as linked applications, via each app's REST API. It's a **one-time step** — the config it writes lives in each app's NFS-backed PVC and persists across redeploys and node moves — not a recurring operational task. Safe to re-run any time; it checks before it writes.
+
+Two remaining steps stay fully manual (`just wire-media` prints these as a reminder when it finishes):
+- **Jellyfin**: add TV (`/data/media/tv`) and Movies (`/data/media/movies`) libraries via `jellyfin.nik-homelab.dev` → Dashboard → Libraries.
+- **Bazarr**: point it at Sonarr (`sonarr.sonarr.svc.cluster.local:8989`) and Radarr (`radarr.radarr.svc.cluster.local:7878`) via `bazarr.nik-homelab.dev` → Settings — Bazarr has no REST API for this, so it can't be scripted.
+
 ---
 
 ## OS Install
