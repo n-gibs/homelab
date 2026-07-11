@@ -1,0 +1,42 @@
+controllers:
+  main:
+    pod:
+      nodeSelector:
+        homelab.io/media: "true"
+      tolerations:
+        - key: homelab.io/media
+          operator: Equal
+          value: "true"
+          effect: PreferNoSchedule
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+    containers:
+      app:
+        image:
+          repository: golift/unpackerr
+          tag: "0.15.2"
+        env:
+          TZ: America/Los_Angeles
+          UN_SONARR_0_URL: http://sonarr.sonarr.svc.cluster.local:8989
+          UN_RADARR_0_URL: http://radarr.radarr.svc.cluster.local:7878
+          UN_LIDARR_0_URL: http://lidarr.lidarr.svc.cluster.local:8686
+        envFrom:
+          - secretRef:
+              name: unpackerr-api-keys
+        resources:
+          requests:
+            cpu: 25m
+            memory: 64Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+
+persistence:
+  data:
+    type: nfs
+    server: 192.168.30.194
+    path: /mnt/storage
+    globalMounts:
+      - path: /data
