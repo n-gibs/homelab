@@ -103,3 +103,8 @@ grafana:
     auth.anonymous:
       enabled: true
       org_role: Admin
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      access: proxy
+      url: http://loki.loki.svc.cluster.local:3100
