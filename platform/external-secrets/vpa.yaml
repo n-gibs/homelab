@@ -9,7 +9,7 @@ spec:
     kind: Deployment
     name: external-secrets
   updatePolicy:
-    updateMode: "Auto"
+    updateMode: "Recreate"
   resourcePolicy:
     containerPolicies:
       - containerName: "*"
@@ -31,7 +31,7 @@ spec:
     kind: Deployment
     name: external-secrets-cert-controller
   updatePolicy:
-    updateMode: "Auto"
+    updateMode: "Recreate"
   resourcePolicy:
     containerPolicies:
       - containerName: "*"
@@ -53,7 +53,7 @@ spec:
     kind: Deployment
     name: external-secrets-webhook
   updatePolicy:
-    updateMode: "Auto"
+    updateMode: "Recreate"
   resourcePolicy:
     containerPolicies:
       - containerName: "*"

@@ -69,7 +69,7 @@ spec:
     kind: Deployment
     name: <app>
   updatePolicy:
-    updateMode: "Auto"
+    updateMode: "Recreate"
   resourcePolicy:
     containerPolicies:
       - containerName: "*"
