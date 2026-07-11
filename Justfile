@@ -152,6 +152,7 @@ seal-argocd-token:
 wire-media:
     #!/usr/bin/env bash
     source secrets/.secrets
+    source secrets/.secrets.generated
     PF_PIDS=()
     cleanup() { for p in "${PF_PIDS[@]}"; do kill "$p" 2>/dev/null; done; }
     trap cleanup EXIT
@@ -236,6 +237,7 @@ wire-media:
 tune-lidarr-quality:
     #!/usr/bin/env bash
     source secrets/.secrets
+    source secrets/.secrets.generated
     PF_PIDS=()
     cleanup() { for p in "${PF_PIDS[@]}"; do kill "$p" 2>/dev/null; done; }
     trap cleanup EXIT
