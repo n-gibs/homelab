@@ -7,6 +7,17 @@ metadata:
     cert-manager.io/cluster-issuer: letsencrypt-prod
 spec:
   gatewayClassName: envoy
+  # Bind the EnvoyProxy override to THIS gateway's proxy directly, not only via
+  # the GatewayClass. On a fresh resync the Service was created with the default
+  # externalTrafficPolicy (Local) before the GatewayClass-attached EnvoyProxy was
+  # processed, and the controller never re-derived it — a Gateway-level ref makes
+  # the proxy re-evaluate the EnvoyProxy for this Gateway. EnvoyProxy is in the
+  # same namespace, so no namespace field here.
+  infrastructure:
+    parametersRef:
+      group: gateway.envoyproxy.io
+      kind: EnvoyProxy
+      name: homelab
   listeners:
     - name: http
       protocol: HTTP
