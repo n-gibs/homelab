@@ -9,7 +9,7 @@ spec:
     kind: Deployment
     name: cert-manager
   updatePolicy:
-    updateMode: "Auto"
+    updateMode: "Recreate"
   resourcePolicy:
     containerPolicies:
       - containerName: "*"
@@ -31,7 +31,7 @@ spec:
     kind: Deployment
     name: cert-manager-cainjector
   updatePolicy:
-    updateMode: "Auto"
+    updateMode: "Recreate"
   resourcePolicy:
     containerPolicies:
       - containerName: "*"
@@ -53,7 +53,7 @@ spec:
     kind: Deployment
     name: cert-manager-webhook
   updatePolicy:
-    updateMode: "Auto"
+    updateMode: "Recreate"
   resourcePolicy:
     containerPolicies:
       - containerName: "*"

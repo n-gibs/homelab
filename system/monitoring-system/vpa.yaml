@@ -9,7 +9,7 @@ spec:
     kind: Deployment
     name: monitoring-system-grafana
   updatePolicy:
-    updateMode: "Auto"
+    updateMode: "Recreate"
   resourcePolicy:
     containerPolicies:
       - containerName: "*"
@@ -31,7 +31,7 @@ spec:
     kind: Deployment
     name: monitoring-system-kube-pro-operator
   updatePolicy:
-    updateMode: "Auto"
+    updateMode: "Recreate"
   resourcePolicy:
     containerPolicies:
       - containerName: "*"
@@ -53,7 +53,7 @@ spec:
     kind: Deployment
     name: monitoring-system-kube-state-metrics
   updatePolicy:
-    updateMode: "Auto"
+    updateMode: "Recreate"
   resourcePolicy:
     containerPolicies:
       - containerName: "*"

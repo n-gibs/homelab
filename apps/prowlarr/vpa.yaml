@@ -9,7 +9,7 @@ spec:
     kind: Deployment
     name: prowlarr
   updatePolicy:
-    updateMode: "Auto"
+    updateMode: "Recreate"
   resourcePolicy:
     containerPolicies:
       - containerName: "*"
