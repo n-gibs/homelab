@@ -35,13 +35,6 @@ service:
 
 route:
   main:
-    annotations:
-      gethomepage.dev/enabled: "true"
-      gethomepage.dev/name: "Lidarr"
-      gethomepage.dev/description: "Music collection manager"
-      gethomepage.dev/group: "Media"
-      gethomepage.dev/icon: "lidarr.png"
-      gethomepage.dev/href: "https://lidarr.nik-homelab.dev"
     enabled: true
     kind: HTTPRoute
     hostnames:
