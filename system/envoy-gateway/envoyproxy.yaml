@@ -3,6 +3,11 @@ kind: EnvoyProxy
 metadata:
   name: homelab
   namespace: envoy-gateway-system
+  annotations:
+    # Apply before the Gateway/GatewayClass (default wave 0) so the proxy Service
+    # is created WITH externalTrafficPolicy Cluster from the start, not defaulted
+    # to Local and left un-reconciled. See gateway.yaml for the failure mode.
+    argocd.argoproj.io/sync-wave: "-1"
 spec:
   # The Cilium L2 policy announces the gateway IP only from worker-01, but the
   # data-plane proxy is free to schedule on any node. With externalTrafficPolicy
