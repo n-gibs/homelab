@@ -65,6 +65,11 @@ singleBinary:
     accessModes:
       - ReadWriteOnce
     size: 20Gi
+  resources:
+    requests:
+      cpu: 100m
+    limits:
+      cpu: "1"
 
 gateway:
   enabled: false
@@ -113,6 +118,11 @@ controller:
   replicas: 1
 
 alloy:
+  resources:
+    requests:
+      cpu: 100m
+    limits:
+      cpu: "1"
   configMap:
     content: |-
       discovery.kubernetes "pods" {
