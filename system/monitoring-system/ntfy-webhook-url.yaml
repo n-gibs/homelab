@@ -1,0 +1,13 @@
+---
+apiVersion: bitnami.com/v1alpha1
+kind: SealedSecret
+metadata:
+  name: ntfy-webhook-url
+  namespace: monitoring-system
+spec:
+  encryptedData:
+    url: AgA+i5rW5oLsIvL5653yJOgRRSAS2e36O8qkIZ3KjK85xE+92inBZ7xIWIaDJincva/d5TDhbkMPENVQEDzrefvjOvtKQwAmSZAm+P/wynfvFNBh2BVR25bNocy4OH0xx2GxPHHMZiylwH932wBOhp+ioIDeK8nEB1lQIVg5BgSd85ko8/GAyPrYMHaCkP1QmcogiriAndBzIPi2nXulO6J2PHsLmYoMF43ysAweO+2Zn5q0F/YdJXHKuqzdvUzwgA0mW/ziCpv2TJT5qf2YC5nhd3CS9MiTqOkCyswQUOobb9O/3RkAWVGOkEtH64BO0vggxIlM1uEGjT+XSQpJ+uOVZPLLDfuJMQllMEBYs5NtHfke+Xd05VIEaHQsaBBIFfzZ8m0yKyOdnDH9XOtKbGuo6ARsf7tbZxMhM7GFc3aho4uSxjFrGYJmVG6BGOC42NqP0Dfm66hGQY8rlXg4ntmPtX+lH86xohP3JllqjGZf3NdXy7feXr6LN5QhGLAcqnryxFJok13P8WuO1LgIrcUH7W6Re3TavbG1mY/v+hY/LpSE5TIap9YwwsSf5Z/LrhpnDvt7PC0r1HH2GMP34J+xZBcOgwgyO8cGDOUT9oo7aKaLYY/5T7fx3AGWcr5uQNAu5Jklz2nFg56xiQ3GGM6sWUipYcrbVRWmXhhtXT7a0NGjghAMAgFtBQRxaD0+JETyl1Wk5JfXEFeGqYtVgYDHSLic+bK6RQAIt62+Le6fy40aFPaAxFDolF/QiYO56PE+ibRwIlQte4bBbFTWZgY1CNKn1l4=
+  template:
+    metadata:
+      name: ntfy-webhook-url
+      namespace: monitoring-system
