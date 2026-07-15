@@ -17,31 +17,13 @@ This wires Alertmanager to send push notifications via [ntfy](https://ntfy.sh) f
 
 - ntfy has a **built-in Alertmanager template** (`?template=alertmanager` query param, or `X-Template: alertmanager` header) that formats Alertmanager's native webhook JSON into a readable title/message — confirmed via `docs.ntfy.sh/publish/`. No bridge/adapter service required; Alertmanager's stock `webhook_configs` receiver posts directly to `https://ntfy.sh/<topic>?template=alertmanager`.
 
-- ntfy access tokens authenticate via standard Bearer auth (`Authorization: Bearer tk_...`), which Alertmanager's `http_config.authorization` block supports natively via `type: Bearer` + `credentials_file`.
-
-- kube-prometheus-stack's `alertmanager.alertmanagerSpec.secrets: [<secret-name>]` mounts a same-namespace Kubernetes Secret into the Alertmanager pod at `/etc/alertmanager/secrets/<secret-name>/<key>` — this repo's existing sealed-secret pattern (`secrets/registry.tsv` + `just seal`) plugs in directly, same as `vaultwarden-admin-token`.
+- **Reserved (access-controlled) topics on ntfy.sh require a Pro subscription** — confirmed via ntfy's docs/FAQ. On the free tier, a topic is public: anyone who knows the exact topic string can publish or subscribe to it. A free-tier access token authenticates *you* to your own ntfy.sh account; it does **not** restrict who else can use a topic name they've discovered. So there's no real security difference between "free-tier token" and "no auth" for this use case — the topic name itself is the only protection either way. This means: no access token, no `http_config.authorization` block, and no secret to seal — the design is simpler than originally planned.
 
 - `alertmanager.config` in `values.yaml` is a Helm values map merged with the chart's default config. Helm deep-merges maps but **replaces lists wholesale** — so overriding `route.routes`, `receivers`, or `inhibit_rules` means restating the chart's existing defaults (the `Watchdog -> null` route, the severity inhibition rules) in full alongside the new `ntfy` addition, not just appending to them.
 
 ## Changes
 
-### 1. Secret: ntfy access token
-
-Add to `secrets/registry.tsv`:
-```
-ntfy-alertmanager-token  monitoring-system  system/monitoring-system/ntfy-token.yaml  token=NTFY_ACCESS_TOKEN
-```
-Value comes from an ntfy.sh access token (created via the ntfy web app or `ntfy token` CLI against ntfy.sh), scoped read-write to one reserved topic. Added to `secrets/.secrets`, then `just seal ntfy-alertmanager-token`.
-
-### 2. `system/monitoring-system/values.yaml`
-
-Mount the secret into Alertmanager:
-```yaml
-alertmanager:
-  alertmanagerSpec:
-    secrets:
-      - ntfy-alertmanager-token
-```
+### 1. `system/monitoring-system/values.yaml`
 
 Rewrite `alertmanager.config` to add the `ntfy` receiver and a severity-based route, preserving the chart's existing `Watchdog` null-route and inhibit_rules:
 ```yaml
@@ -76,19 +58,15 @@ alertmanager:
       - name: 'null'
       - name: 'ntfy'
         webhook_configs:
-          - url: 'https://ntfy.sh/<reserved-topic-name>?template=alertmanager'
+          - url: 'https://ntfy.sh/<topic-name>?template=alertmanager'
             send_resolved: true
-            http_config:
-              authorization:
-                type: Bearer
-                credentials_file: /etc/alertmanager/secrets/ntfy-alertmanager-token/token
     templates:
       - '/etc/alertmanager/config/*.tmpl'
 ```
 
-Topic name (`<reserved-topic-name>`): a private, human-picked string (e.g. `homelab-alerts-nik`), created/reserved via the ntfy.sh account tied to the access token. It doesn't need to be unguessable since the topic is access-controlled, but there's no reason to make it easy to find either.
+Topic name (`<topic-name>`): a long, random, unguessable string (e.g. `homelab-alerts-x7k2p9qz`). Since the topic is public on the free tier, this string is the *only* protection — anyone who knows it can publish or subscribe. No secret to seal, nothing sensitive checked into git (the topic name itself can live in `values.yaml` in plaintext, same as any other config value, but pick something with enough entropy that it can't be guessed or brute-forced).
 
-### 3. Verification
+### 2. Verification
 
 - `helm template` the chart locally with the updated values to confirm the rendered Alertmanager config secret is valid YAML and the receiver/route show up as expected.
 - After deploy, trigger a real alert (e.g. temporarily cordon/drain a node, or `kubectl delete` a pod repeatedly to trip `KubePodCrashLooping`) and confirm a push notification arrives on phone/desktop via the ntfy app/web subscribed to the topic.
