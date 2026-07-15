@@ -93,3 +93,6 @@ alertmanager:
 - No new `PrometheusRule` resources (existing default rules cover all three target failure modes).
 - No self-hosted ntfy instance, no bridge/adapter service.
 - No additional alert categories (memory/CPU pressure, ArgoCD sync failures, cert expiry) — can be added later by adding more routes to the same `ntfy` receiver.
+- **No external dead-man's-switch.** `Watchdog` still routes to `null` (unchanged from the chart default), so nothing here notices if Alertmanager or Prometheus itself dies — only alerts that Alertmanager successfully evaluates and routes reach ntfy. Closing that gap needs an external heartbeat service (e.g. `Watchdog` -> healthchecks.io ping), which is separate infra outside this design.
+- **Notification timing left at chart defaults**: `group_wait: 30s`, `group_interval: 5m`, `repeat_interval: 12h`. First push arrives within ~30s of an alert firing, but an alert that's still firing won't renotify for 12h. Fine as a starting point; revisit if that cadence turns out to be wrong in practice.
+- **ntfy.sh free-tier message rate limits not verified.** ntfy's Pro tier is marketed with "higher rate limits," implying the free tier caps daily message volume, but the exact number wasn't checked. Not expected to matter for a starter 3-alert setup; worth checking `docs.ntfy.sh` if alert volume grows.
