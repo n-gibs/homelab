@@ -247,7 +247,7 @@ Install the ntfy app (iOS/Android) or use the web app at `https://ntfy.sh/homela
 kubectl run crashloop-test --image=busybox -n default -- /bin/false
 ```
 
-This creates a pod that exits immediately and crashloops, which should fire `KubePodCrashLooping` (severity `warning`) within a few minutes once Prometheus scrapes and Alertmanager's `group_wait`/`for` duration elapses.
+This creates a pod that exits immediately and crashloops, which fires `KubePodCrashLooping` (severity `warning`) once it's been in `CrashLoopBackOff` continuously for the rule's `for: 15m` duration (confirmed live via `kubectl get prometheusrules ... -o json` — longer than this step originally assumed; budget ~15-20 minutes, not "a few").
 
 - [ ] **Step 3: Confirm the alert reached Alertmanager**
 
