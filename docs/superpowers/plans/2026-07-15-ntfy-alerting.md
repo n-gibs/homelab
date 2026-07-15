@@ -253,12 +253,12 @@ This creates a pod that exits immediately and crashloops, which should fire `Kub
 
 ```bash
 kubectl port-forward -n monitoring-system svc/monitoring-system-kube-pro-alertmanager 9093:9093 &
-sleep 2
-curl -s http://localhost:9093/api/v2/alerts | grep -o '"alertname":"KubePodCrashLooping"'
-kill %1
+PF_PID=$!
+curl -s --retry 5 --retry-delay 1 --retry-connrefused http://localhost:9093/api/v2/alerts | grep -o '"alertname":"KubePodCrashLooping"'
+kill "$PF_PID"
 ```
 
-Expected: at least one match once the alert has fired (may take 2-5 minutes — check again if empty on first try, this is polling for external state, not a `sleep` in a script).
+`curl --retry-connrefused` handles the port-forward's brief startup window without a fixed wait. Expected: at least one match once the alert has fired (may take 2-5 minutes — if empty, the port-forward is up but the alert hasn't fired yet; re-run the `curl` line alone, don't restart the port-forward).
 
 - [ ] **Step 4: Confirm the push notification arrived**
 
