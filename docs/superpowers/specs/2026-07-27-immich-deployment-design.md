@@ -309,15 +309,34 @@ both claim the same file.
 
 ## Pre-checks
 
-These run before writing manifests, because either can invalidate a decision
-above:
+**1. Free disk on all three nodes — RESOLVED, with a prerequisite task.**
 
-1. **Free disk on all three nodes.** `local-path` volumes live on the node root
-   filesystem and the mini PCs' disk sizes are unknown. If worker-00 or worker-02
-   is tight, the DB volume size or the replica count has to change.
-2. **The generated server deployment name.** VPA's `targetRef` needs the exact
-   name. Confirm it from a rendered template (`helm template`), not from a guess
-   about how the chart composes `{{ .Release.Name }}-server`.
+Measured: worker-01 has 400GB free and worker-02 has 174GB free, both fine.
+worker-00 had only **13GB free of 57GB**, which would have put a 20Gi `local-path`
+volume past the kubelet's 10% disk-pressure eviction threshold and started
+evicting Grafana, Envoy, and Cilium.
+
+The cause is not a full disk. Ubuntu's installer allocated only half the 116GB
+NVMe to the root logical volume, leaving **58GB unallocated in the volume group**.
+The node also looks fuller than it is because `common` configures containerd's
+native snapshotter, which stores a full copy of every image layer instead of
+sharing them via overlayfs — 23 images occupy 32GB.
+
+Resolution: extend the root LV to claim the whole volume group (`lvextend` +
+`resize2fs`, online, no data movement, no reboot), taking worker-00 to ~114GB with
+~71GB free. This becomes Task 1 of the implementation plan and is added to the
+Ansible `common` role guarded on available free extents, so it is idempotent and
+survives a node rebuild. Image pruning was rejected as a temporary fix.
+
+The 3-instance decision therefore stands as made, and volume sizing is 20Gi per
+instance. This matters because `local-path` has `ALLOWVOLUMEEXPANSION=false` —
+undersizing cannot be corrected in place later.
+
+**2. The generated server deployment name — deferred to execution.**
+
+VPA's `targetRef` needs the exact name. It is captured from a rendered template
+(`helm template`) during the plan rather than guessed from how the chart composes
+`{{ .Release.Name }}-server`.
 
 ## Rollout
 
