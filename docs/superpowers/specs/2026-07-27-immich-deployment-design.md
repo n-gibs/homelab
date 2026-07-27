@@ -56,8 +56,11 @@ Placed in `platform/` (wave 2) rather than `system/` so it is reconciled before
 anything in `apps/` (wave 3) tries to create a `Cluster`. It is shared
 infrastructure: the parked AFFiNE and n8n designs both want Postgres.
 
-Operator 1.30.0 is required, not incidental — the declarative extension-image
-support used below landed in 1.27+.
+Operator 1.30.0 is required, not incidental — it provides the declarative
+extension-image support used below. Verified directly against the `Cluster` and
+`Database` CRDs shipped in chart `0.29.0`: `postgresql.extensions[].image`,
+`.extension_control_path`, and `.dynamic_library_path` all exist and are not
+feature-gated.
 
 ### Component 2 — `apps/immich/` (sync wave 3)
 
@@ -106,6 +109,19 @@ explicitly in `values.yaml` at that point and add a Renovate `docker` manager fo
 `spec.instances: 3`, each with a `local-path` PVC on its own node. Streaming
 replication provides the durability the volume does not.
 
+**Why 3 and not 2.** Two instances would give Immich alone the same node-failure
+survival for two-thirds the footprint, and on mini PCs that is a real
+consideration. Three is chosen deliberately: this cluster is getting a database
+platform, not just a database for a photo app. The parked AFFiNE and n8n designs
+both want Postgres, and building the quorum now means they attach to a cluster
+that is already correctly sized rather than triggering a resize of live
+infrastructure. The cost — three Postgres pods before a second consumer exists —
+is accepted with that in mind.
+
+This is a platform decision and does not follow from the storage choice below.
+If it is ever revisited, dropping to `instances: 2` is a one-line change and the
+`local-path` rationale still holds.
+
 This contradicts the current `CLAUDE.md` rule, so **the rule gets amended as part
 of this work** rather than silently violated:
 
@@ -145,6 +161,13 @@ A companion `Database` resource declares the extensions Immich needs — `vector
 Benefit over the older `cloudnative-vectorchord` image approach: the base Postgres
 image stays stock and CNPG-supported, and the extension version is bumped
 independently.
+
+**Cluster prerequisite.** CNPG mounts these extension images as Kubernetes *image
+volumes*, so the kubelet must support that volume source. All three nodes run
+`v1.36.2+k3s1`, well past the point where image volumes are available by default —
+verified against the live cluster, not assumed. If this were an older cluster the
+fallback would be a Postgres image with vchord baked in
+(`tensorchord/cloudnative-vectorchord`); that fallback is not needed here.
 
 ### Credentials — none sealed
 
@@ -247,8 +270,15 @@ Consequence for mobile backup: the phone uploads on home wifi, or off-network on
 while Tailscale is connected. Session history notes phone Tailscale is unreliable
 behind Visible's CGNAT, so off-network backups may stall until it reconnects.
 Photos queue locally and upload later — nothing is lost, but backup is not
-continuous. Making this one hostname genuinely public (Cloudflare Tunnel, or an
-OPNsense port-forward) is deliberately out of scope and belongs in its own spec.
+continuous.
+
+This is a known, accepted gap in the app's primary purpose. The decision is to
+ship private and find out whether backups actually stall in practice before
+building anything: the route change is small either way, and putting a photo
+library on the internet deserves its own design pass — public-exposure pattern,
+tunnel credentials, registration lockout, rate limiting — not a bullet in this
+spec. Expect a follow-up spec for Cloudflare Tunnel if real use shows the
+Tailscale path is too unreliable.
 
 ### VPA — server only
 
