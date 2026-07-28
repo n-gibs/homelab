@@ -24,9 +24,16 @@
       "customType": "regex",
       "fileMatch": ["(^|/)app\\.yaml$"],
       "matchStrings": [
-        "chartName: (?<depName>[^\\n]+)\\nchartRepo: (?<registryUrl>[^\\n]+)\\nchartVersion: (?<currentValue>[^\\n]+)"
+        "chartName: (?<depName>[^\\n]+)\\nchartRepo: (?<registryUrl>https://[^\\n]+)\\nchartVersion: (?<currentValue>[^\\n]+)"
       ],
       "datasourceTemplate": "helm"
+    },
+    {
+      "customType": "regex",
+      "fileMatch": ["(^|/)app\\.yaml$"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>[^\\s]+)\\nchartName: [^\\n]+\\nchartRepo: [^\\n]+\\nchartVersion: (?<currentValue>[^\\n]+)"
+      ]
     },
     {
       "customType": "regex",
