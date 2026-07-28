@@ -6,3 +6,4 @@ nfs_mount_options: "defaults,nofail,x-systemd.automount"
 nfs_subdirs:
   - downloads
   - media
+  - photos
