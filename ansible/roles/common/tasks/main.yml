@@ -146,3 +146,26 @@
   community.general.ufw:
     state: enabled
   become: true
+
+# The Ubuntu installer allocates only part of the volume group to the root LV.
+# k3s uses containerd's native snapshotter (configured above), which stores a
+# full copy of every image layer rather than sharing them via overlayfs, so
+# nodes consume disk faster than image counts suggest. Claim the whole VG.
+- name: Check for unallocated space in the root volume group
+  ansible.builtin.command: vgs --noheadings --nosuffix --units b -o vg_free ubuntu-vg
+  register: root_vg_free
+  changed_when: false
+  failed_when: false
+  check_mode: false        # read-only; must run under --check for the guard below to evaluate
+  become: true
+
+- name: Extend root logical volume to use all free volume group space
+  community.general.lvol:
+    vg: ubuntu-vg
+    lv: ubuntu-lv
+    size: +100%FREE
+    resizefs: true
+  become: true
+  when:
+    - root_vg_free.rc == 0
+    - (root_vg_free.stdout | trim | int) > 1073741824
