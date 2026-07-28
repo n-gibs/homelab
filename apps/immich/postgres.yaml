@@ -25,6 +25,19 @@ spec:
         extension_control_path:
           - /usr/share/postgresql/18/
 
+  # worker-01 carries a PreferNoSchedule media taint, which outweighed CNPG's
+  # default "preferred" anti-affinity and put two instances on worker-02. The
+  # toleration removes that penalty; "required" then guarantees one instance per
+  # node. local-path PVCs already pin each instance to its node permanently, so
+  # "required" adds no constraint that local-path has not already imposed.
+  affinity:
+    podAntiAffinityType: required
+    tolerations:
+      - key: homelab.io/media
+        operator: Equal
+        value: "true"
+        effect: PreferNoSchedule
+
   resources:
     requests:
       cpu: 100m
