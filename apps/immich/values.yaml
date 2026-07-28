@@ -1,5 +1,13 @@
 controllers:
   main:
+    pod:
+      nodeSelector:
+        homelab.io/media: "true"
+      tolerations:
+        - key: homelab.io/media
+          operator: Equal
+          value: "true"
+          effect: PreferNoSchedule
     containers:
       main:
         env:
