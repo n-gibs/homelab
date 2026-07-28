@@ -1,0 +1,45 @@
+controllers:
+  main:
+    containers:
+      main:
+        env:
+          DB_HOSTNAME: immich-database-rw
+          DB_USERNAME: app
+          DB_DATABASE_NAME: app
+          DB_PASSWORD:
+            valueFrom:
+              secretKeyRef:
+                name: immich-database-app
+                key: password
+
+immich:
+  metrics:
+    enabled: false
+  persistence:
+    library:
+      existingClaim: immich-library
+
+valkey:
+  enabled: true
+
+machine-learning:
+  enabled: false
+
+server:
+  enabled: true
+  route:
+    main:
+      annotations:
+        gethomepage.dev/enabled: "true"
+        gethomepage.dev/name: "Immich"
+        gethomepage.dev/description: "Photo and video backup"
+        gethomepage.dev/group: "Media"
+        gethomepage.dev/icon: "immich.png"
+        gethomepage.dev/href: "https://immich.nik-homelab.dev"
+      enabled: true
+      kind: HTTPRoute
+      hostnames:
+        - immich.nik-homelab.dev
+      parentRefs:
+        - name: homelab
+          namespace: envoy-gateway-system

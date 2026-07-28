@@ -1,0 +1,4 @@
+# renovate: datasource=docker depName=ghcr.io/immich-app/immich-charts/immich
+chartName: immich
+chartRepo: ghcr.io/immich-app/immich-charts
+chartVersion: 0.13.1
