@@ -83,7 +83,7 @@ spec:
 
 ## Storage
 
-All persistent storage uses the `nfs` StorageClass. Never use `local-path` in new apps — data won't survive node failure.
+All persistent storage uses the `nfs` StorageClass. Never use `local-path` in new apps — data won't survive node failure. The one exception is a replicated CloudNativePG cluster, where replication provides that durability; see the Rules section.
 
 ```yaml
 persistence:
@@ -182,7 +182,7 @@ just todos              # Show remaining TODOs in repo
 
 - **No `sleep` commands** in scripts or manifests. Use `kubectl wait`, `--timeout`, or readiness probes instead.
 - **Never use `Ingress`**. All routing uses Gateway API `HTTPRoute` only.
-- Never use `local-path` StorageClass for new PVCs.
+- Never use `local-path` StorageClass for new PVCs, **except** for replicated databases (CloudNativePG clusters with 2+ instances), where streaming replication — not the volume — provides node-failure durability. NFS is not a supported CNPG configuration. Note `local-path` cannot be expanded in place, so size those volumes correctly up front.
 - Never commit `secrets/.secrets`, `secrets/.secrets.generated`, `.vault_pass`, `pub-cert.pem`, or anything in `config/` (gitignored).
 - Chart versions in `app.yaml` are managed by Renovate — don't pin to `latest`.
 - Server-side apply only for ArgoCD managed resources (avoids annotation conflicts).
