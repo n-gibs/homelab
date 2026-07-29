@@ -1,8 +1,8 @@
 # Post-Outage Follow-Ups — 2026-07-28 DNS Outage
 
-Two pieces of resilience work left over from the 2026-07-28 incident. Both are optional
-in the sense that the cluster is healthy without them, and both address the fact that
-the outage went unnoticed for roughly an hour rather than the outage itself.
+Resilience work left over from the 2026-07-28 incident. Both items address the fact that
+the outage went unnoticed for roughly an hour rather than the outage itself. Item 1 is
+done (2026-07-29); Item 2 is still open.
 
 ## What Happened (context for both items)
 
@@ -54,61 +54,47 @@ admission webhooks.
 
 ---
 
-## Open Item 1 — Dead-Man's Switch (highest leverage, small)
-
-`Watchdog` fires continuously while Prometheus and Alertmanager are healthy, and
-`system/monitoring-system/values.yaml` routes it to the `'null'` receiver — throwing that
-signal away. So when the alerting path itself breaks, the result is silence rather than a
-page.
-
-This is exactly what happened: Prometheus, Alertmanager and Grafana all run on worker-00,
-the node whose DNS died. Alertmanager's own service was one of the 23 dangling frontends,
-and delivering to an external webhook needs the DNS that was dead. Rules fired with
-nowhere to go.
+## Done — Dead-Man's Switch (2026-07-29)
 
 Detection was never the gap — 31 PrometheusRules / 148 alert rules are active, including
-`KubePodNotReady` and `TargetDown`. **Delivery** was the gap.
+`KubePodNotReady` and `TargetDown`. **Delivery** was the gap: `Watchdog` fires continuously
+while the alerting pipeline is healthy, and it was routed to the `'null'` receiver, so a
+broken alerting path produced silence rather than a page. On 2026-07-28 Prometheus,
+Alertmanager and Grafana all ran on worker-00 — the node whose DNS died — and Alertmanager's
+own service was one of the 23 dangling frontends, so rules fired with nowhere to go.
 
-**ntfy cannot do this.** It has no absence detection. This needs an external watcher that
-alerts when a ping *stops* arriving — healthchecks.io (free), Dead Man's Snitch, or an
-off-cluster Uptime Kuma push monitor. Hosting the watcher on this cluster defeats the
-purpose; it must sit outside the blast radius.
+ntfy cannot cover this; it has no absence detection. The watcher has to sit outside the
+blast radius, so it is healthchecks.io (free): Alertmanager POSTs Watchdog outbound to
+`https://hc-ping.com/<uuid>` every 5m, and the check alerts on the *absence* of those
+pings. Check config: period 15m, grace 10m, so it tolerates two missed pings.
 
-The recipe is also parked as a `TODO` in `system/monitoring-system/values.yaml`, so it
-shows up in `just todos`. Blocked only on creating the check and getting a URL.
+Shipped in two commits, deliberately:
 
-1. Create a check (healthchecks.io: period ~15m, grace ~10m). Copy its ping URL.
-2. `echo 'DEADMANSSNITCH_URL=https://hc-ping.com/<uuid>' >> secrets/.secrets`
-3. Add a row to `secrets/registry.tsv`:
-   ```
-   deadmanssnitch-url  monitoring-system  system/monitoring-system/deadmanssnitch-url.yaml  url=DEADMANSSNITCH_URL
-   ```
-4. `just seal deadmanssnitch-url`
-5. Add `- deadmanssnitch-url` to `alertmanager.alertmanagerSpec.secrets` in
-   `system/monitoring-system/values.yaml`
-6. Replace the `Watchdog` → `'null'` route with:
-   ```yaml
-   - receiver: 'deadmanssnitch'
-     matchers: ['alertname = "Watchdog"']
-     group_wait: 0s
-     group_interval: 5m
-     repeat_interval: 5m
-   ```
-   and add the receiver:
-   ```yaml
-   - name: 'deadmanssnitch'
-     webhook_configs:
-       - url_file: /etc/alertmanager/secrets/deadmanssnitch-url/url
-         send_resolved: false
-   ```
+- `86d6463` — sealed secret `deadmanssnitch-url` + `secrets/registry.tsv` row
+- `efa2a9e` — `alertmanagerSpec.secrets` entry, Watchdog → `deadmanssnitch` receiver
+  (`url_file`, `send_resolved: false`, `group_wait: 0s`, `group_interval`/`repeat_interval`
+  5m), stale TODO removed. The `'null'` receiver stays — the top-level route still uses it
+  as the default.
 
-**Ordering trap:** seal the secret *before* step 5. Adding it to `alertmanagerSpec.secrets`
-while the sealed secret doesn't exist leaves Alertmanager unable to mount the volume, and
-it will not start.
+**Why two commits:** if the Secret does not exist when Alertmanager tries to mount it, the
+pod cannot start and you lose *all* alerting. Seal first, confirm the SealedSecret has
+decrypted into a real Secret in `monitoring-system`, then merge the values change.
 
-Alertmanager then posts Watchdog every 5m; ~25m of silence and the external watcher
-notifies you. Verify by silencing Watchdog (or scaling Alertmanager to 0) and confirming
-the watcher actually complains.
+Verified: Secret present and decrypted before the values change; Alertmanager 2/2 Ready
+with 0 restarts after it (pod rescheduled worker-00 → worker-02); secret mounted at
+`/etc/alertmanager/secrets/deadmanssnitch-url/url`; `deadmanssnitch` receiver present in
+the generated config; `alertmanager_notifications_total{integration="webhook"}` increments
+with `alertmanager_notifications_failed_total{...}` 0 in every category — a wrong UUID
+would surface as `clientError`.
+
+Trip-tested by silencing Watchdog for 30m via
+`amtool silence add 'alertname=Watchdog' --duration=30m` (self-expiring, so it restores
+itself even if the session dies). Pings stopped, the check went down ~25m after the last
+ping, then recovered on its own when the silence expired.
+
+**Do not "harden" this by pinning an IP for hc-ping.com.** If cluster DNS breaks,
+Alertmanager cannot resolve it, the ping stops, and the switch fires — that is the entire
+point. Pinning an IP would break TLS SNI and delete the signal.
 
 ---
 
