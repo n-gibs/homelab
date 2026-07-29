@@ -17,6 +17,17 @@ server:
     hostnames:
       - argocd.nik-homelab.dev
 
+# The application-controller already listens on :8082 (--metrics-port=8082); this only
+# puts a Service in front of it so Prometheus has something to scrape. Without it there
+# is no argocd_app_info, and an alert on ArgoCD sync state silently never fires.
+# The matching ServiceMonitor deliberately lives in system/monitoring-system/ rather than
+# here: `controller.metrics.serviceMonitor.enabled` needs the Prometheus Operator CRDs,
+# which don't exist yet at bootstrap time (ArgoCD installs before monitoring-system), so
+# enabling it here would break a from-scratch `just bootstrap`.
+controller:
+  metrics:
+    enabled: true
+
 configs:
   params:
     server.insecure: true  # TLS terminated at gateway

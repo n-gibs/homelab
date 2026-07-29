@@ -1,0 +1,32 @@
+---
+# Scrapes the ArgoCD application-controller, which is what exports argocd_app_info
+# (the metric the ArgoCD alerts in prometheusrule.yaml are built on).
+#
+# This lives here rather than in bootstrap/values/argocd.yaml because a ServiceMonitor
+# needs the Prometheus Operator CRDs, and ArgoCD is bootstrapped by helmfile *before*
+# monitoring-system exists. The Service itself is created by the ArgoCD chart
+# (controller.metrics.enabled). Port name is `http-metrics`, not `metrics`.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: argocd-application-controller
+  namespace: monitoring-system
+  labels:
+    release: monitoring-system
+spec:
+  namespaceSelector:
+    matchNames:
+      - argocd
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: argocd-metrics
+      app.kubernetes.io/component: application-controller
+  endpoints:
+    - port: http-metrics
+      interval: 30s
+      relabelings:
+        # Match the `cluster` label the other scrape configs in values.yaml set.
+        - action: replace
+          sourceLabels: []
+          targetLabel: cluster
+          replacement: homelab

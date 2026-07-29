@@ -134,6 +134,32 @@ alertmanager:
       repeat_interval: 12h
       receiver: 'null'
       routes:
+        # TODO: dead-man's switch. Watchdog fires continuously while Prometheus and
+        # Alertmanager are healthy, and routing it to 'null' throws that away — so when
+        # the alerting path itself breaks, the result is silence rather than a page.
+        # This is not hypothetical: on 2026-07-28 Prometheus, Alertmanager and Grafana
+        # were all on the node whose DNS died, so alerts fired with nowhere to go and a
+        # real outage ran ~1h unnoticed. ntfy can't cover this (no absence detection).
+        # To finish, needs an external watcher URL (healthchecks.io: ~15m period, 10m
+        # grace) — everything else is:
+        #   1. echo 'DEADMANSSNITCH_URL=https://hc-ping.com/<uuid>' >> secrets/.secrets
+        #   2. add to secrets/registry.tsv:
+        #      deadmanssnitch-url  monitoring-system  system/monitoring-system/deadmanssnitch-url.yaml  url=DEADMANSSNITCH_URL
+        #   3. just seal deadmanssnitch-url
+        #   4. add `- deadmanssnitch-url` to alertmanagerSpec.secrets above
+        #   5. replace this route with:
+        #        - receiver: 'deadmanssnitch'
+        #          matchers: ['alertname = "Watchdog"']
+        #          group_wait: 0s
+        #          group_interval: 5m
+        #          repeat_interval: 5m
+        #      and add receiver:
+        #        - name: 'deadmanssnitch'
+        #          webhook_configs:
+        #            - url_file: /etc/alertmanager/secrets/deadmanssnitch-url/url
+        #              send_resolved: false
+        # Order matters: seal the secret BEFORE step 4, or Alertmanager cannot mount it
+        # and will not start.
         - receiver: 'null'
           matchers: ['alertname = "Watchdog"']
         - receiver: 'ntfy'
