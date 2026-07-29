@@ -1,0 +1,13 @@
+---
+apiVersion: bitnami.com/v1alpha1
+kind: SealedSecret
+metadata:
+  name: deadmanssnitch-url
+  namespace: monitoring-system
+spec:
+  encryptedData:
+    url: AgB7lk+dpogKxALPxvHdzVX2LR674S01uq3/jWQ5p4tcqfjWb9g6ow5IkfUb91q3/D5bxtiw287ksvW8jBPdlOPyxUtVgk+saqzeTUshuAIplaRMcq/+fvfUQpvmyo0sKKYRNMpYYlJ1seClP7A6VuLDhJk8M9u88WaNiylKuSSvNanNBxRzt1qik2reURIzL+XHwxQIZv/RWIjAYyVpwNeC+NutPSHxwvCwMrTtgtUUHMnhVSvDsdaTNI9byMBEB7wHhMD1b3Cn1lbRfUGfhpVSnQOMLLT4AsQ9Z3EUDhhxLGFMKc6ICuPV/8KG0zSHSFYiGA4s/T6o93eYiJoILvDCfG8L2y/JZF1+iCK9i5Eb2UeVEjdWpsqFs8SoHLAdmrj+nfPJ1vgKlF5S5880TZlJKyVDVD8fwxrcK0j3OUlyqF/NcQ4hiZmXvKGNispb9w+FqtJeBsSP8TLO1ABhDZQ04b1xYoY3eioJ9iNBe2Y8MLPf00ml0oYp4gy1EOgR+PCmRwz/6X55xujJBjH81PQjwsseE1x7AZmkqgNqf3ggA7F2AYTjyDcGGV57z5Y/QaOEsvuClgp7jDQRfTgROA4MX46MMFGcQxYiAiZ/OClT0No/FPc3WIDMuJ4cdK2qowgFneMYJH2pcYNoxOlr6Qe9X7OHeUTLICPFrtfRVnTrv9T1nimgHeYiUs0hMtbzD7izv/lzbGyCYyZi8ljezuNB6UsLDomcvim2nbECpD4bgINQy+Ec670qctdvHQI9CBdYmSC4QsEjTw==
+  template:
+    metadata:
+      name: deadmanssnitch-url
+      namespace: monitoring-system
