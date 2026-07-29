@@ -10,6 +10,12 @@ controllers:
           effect: PreferNoSchedule
     containers:
       main:
+        # Chart 0.13.1's appVersion is v3.0.0 and the chart does not release on
+        # every Immich release, so the tag is pinned ahead of it here. Valkey is
+        # unaffected: its own values section pins its image explicitly.
+        # renovate: datasource=docker depName=ghcr.io/immich-app/immich-server
+        image:
+          tag: v3.0.3
         env:
           DB_HOSTNAME: immich-database-rw
           DB_USERNAME: app
