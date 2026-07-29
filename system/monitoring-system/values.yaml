@@ -140,10 +140,13 @@ alertmanager:
         # catches a broken alerting path — the failure mode that let the 2026-07-28 outage
         # run ~1h unnoticed. If cluster DNS breaks, Alertmanager cannot resolve hc-ping.com,
         # the ping stops and the switch fires: that is the point, don't pin an IP.
+        # group_interval must be well under repeat_interval: the dispatcher only
+        # re-evaluates on group_interval ticks, so 5m/5m yields a ping every 10m, not 5m
+        # (measured) — which would leave the 15m/10m check tolerating only one missed ping.
         - receiver: 'deadmanssnitch'
           matchers: ['alertname = "Watchdog"']
           group_wait: 0s
-          group_interval: 5m
+          group_interval: 1m
           repeat_interval: 5m
         - receiver: 'ntfy'
           matchers: ['severity =~ "warning|critical"']
