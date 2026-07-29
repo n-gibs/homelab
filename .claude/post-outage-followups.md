@@ -93,10 +93,19 @@ itself even if the session dies). The cluster side behaved: healthchecks.io's ow
 showed one ping at 18:06Z, a 35-minute gap, then pings resuming at 18:41Z the moment the
 silence expired.
 
-**It did not fire, and the reason is worth remembering:** the check was still on
-healthchecks.io's *defaults* — period 1 day, grace 1 hour — so a 35-minute outage was well
-inside tolerance. Creating the check is not configuring it. Period 15m / grace 10m has to
-be set explicitly, and until it is, the switch silently tolerates a day of downtime.
+**The first attempt did not fire, and the reason is worth remembering:** the check was
+still on healthchecks.io's *defaults* — period 1 day, grace 1 hour — so a 35-minute outage
+was well inside tolerance. Creating the check is not configuring it. Period 15m / grace 10m
+has to be set explicitly, and until it is, the switch silently tolerates a day of downtime.
+
+With 15m/10m set, a second 35-minute silence tripped it correctly: last ping 19:39Z, down
+event at 20:03Z (= 15m period + 10m grace, to the minute), ntfy notification delivered, and
+the check recovered on its own when the silence expired. **This switch has been seen to
+fire.**
+
+Note *which* ntfy delivered that page: healthchecks.io's own ntfy integration, not
+Alertmanager → ntfy. That is the point — the notification hop must not run through the
+cluster it is watching. Alertmanager's only job here is the outbound ping.
 
 Two cadence facts that make those numbers work:
 
