@@ -89,8 +89,26 @@ would surface as `clientError`.
 
 Trip-tested by silencing Watchdog for 30m via
 `amtool silence add 'alertname=Watchdog' --duration=30m` (self-expiring, so it restores
-itself even if the session dies). Pings stopped, the check went down ~25m after the last
-ping, then recovered on its own when the silence expired.
+itself even if the session dies). The cluster side behaved: healthchecks.io's own ping log
+showed one ping at 18:06Z, a 35-minute gap, then pings resuming at 18:41Z the moment the
+silence expired.
+
+**It did not fire, and the reason is worth remembering:** the check was still on
+healthchecks.io's *defaults* — period 1 day, grace 1 hour — so a 35-minute outage was well
+inside tolerance. Creating the check is not configuring it. Period 15m / grace 10m has to
+be set explicitly, and until it is, the switch silently tolerates a day of downtime.
+
+Two cadence facts that make those numbers work:
+
+- `group_interval` must be well under `repeat_interval`. With both at 5m the measured
+  cadence was one ping per **10m**, because the dispatcher only re-evaluates a group on
+  `group_interval` ticks and at the 5m tick the 5m repeat has not strictly elapsed.
+  `group_interval: 1m` restores the intended 5m ping.
+- At 5m pings, 15m period / 10m grace tolerates two missed pings, goes late at 15m, and
+  alerts at 25m.
+
+Also confirm the check has notification integrations attached (ntfy + email). A check that
+goes down and notifies nobody is indistinguishable from a healthy one.
 
 **Do not "harden" this by pinning an IP for hc-ping.com.** If cluster DNS breaks,
 Alertmanager cannot resolve it, the ping stops, and the switch fires — that is the entire
