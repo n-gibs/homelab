@@ -22,13 +22,18 @@
     mode: "0755"
   become: true
 
-- name: Configure containerd native snapshotter for Ubuntu 26.04+ / kernel 7.x
-  ansible.builtin.copy:
-    dest: /var/lib/rancher/k3s/agent/etc/containerd/config-v3.toml.d/snapshotter.toml
-    content: |
-      [plugins."io.containerd.cri.v1.images"]
-        snapshotter = "native"
-    mode: "0644"
+# The native snapshotter was a workaround for an early Ubuntu 26.04 / kernel 7.x
+# problem. containerd now reports the overlayfs plugin as healthy on these nodes,
+# and native is expensive: it has no union mount, so each layer's snapshot is a
+# full copy of its parent. Measured on worker-02 with the same 798MB image:
+# 8m23s to unpack on native vs 26s on overlayfs, and 80G vs 2.2G of snapshotter
+# store. Removing the override lets k3s use its overlayfs default.
+# `state: absent` (rather than deleting this task) so already-provisioned nodes
+# are cleaned up too. Takes effect on the next k3s restart.
+- name: Remove the containerd native-snapshotter override
+  ansible.builtin.file:
+    path: /var/lib/rancher/k3s/agent/etc/containerd/config-v3.toml.d/snapshotter.toml
+    state: absent
   become: true
 
 - name: Update apt cache
@@ -148,9 +153,10 @@
   become: true
 
 # The Ubuntu installer allocates only part of the volume group to the root LV.
-# k3s uses containerd's native snapshotter (configured above), which stores a
-# full copy of every image layer rather than sharing them via overlayfs, so
-# nodes consume disk faster than image counts suggest. Claim the whole VG.
+# Container images are the dominant consumer on these nodes, so claim the whole
+# VG. (This was originally written when the native snapshotter was in use and
+# stored a full copy of every layer; that override has since been removed above,
+# but the headroom is still worth having.)
 - name: Check for unallocated space in the root volume group
   ansible.builtin.command: vgs --noheadings --nosuffix --units b -o vg_free ubuntu-vg
   register: root_vg_free
