@@ -125,82 +125,102 @@ point. Pinning an IP would break TLS SNI and delete the signal.
 
 ---
 
-## Open Item 2 — CoreDNS HA
+## Done — CoreDNS HA (2026-07-29)
 
-CoreDNS runs as a **single replica**, and it is deployed and reconciled by k3s itself
-(`/var/lib/rancher/k3s/server/manifests/coredns.yaml`), not by this repo —
-`grep -rl coredns` across the repo returns nothing.
+Three CoreDNS pods now back `kube-dns` (10.43.0.10), one per node, with a
+PodDisruptionBudget (`maxUnavailable: 1`) over every `k8s-app=kube-dns` pod. Verified
+live: DNS resolves from a pod on all three nodes, and
+`cilium-dbg bpf lb list | grep -c 'not found'` is 0 on all three agents after the
+endpoint change.
 
-Be clear-eyed about the limit here: worker-00's agent had stopped programming *any* new
-backend, so a second CoreDNS replica created after the fault would have dangled too. This
-reduces blast radius; it does not prevent that failure mode. Don't oversell it.
+**What was actually missing was two things, not four.** k3s's packaged manifest already
+ships a `kubernetes.io/hostname` topologySpreadConstraint (`maxSkew: 1`,
+`DoNotSchedule`) and resource requests/limits. It has **no `replicas` field at all** —
+it relies on the Kubernetes default of 1. So the real gaps were replicas and a PDB.
 
-Prompt to hand to a fresh session:
+**Option (a) is structurally impossible.** CoreDNS is a `k3s.cattle.io/v1 Addon`, not a
+HelmChart — `kubectl get helmcharts -A` returns nothing, and the Deployment's
+`objectset.rio.cattle.io/owner-gvk` reads `Kind=Addon`. HelmChartConfig only overrides
+HelmChart CRs, so there is nothing for it to attach to. Ruled out on evidence.
+
+**What was built is neither (a) nor (b).** A second Deployment, `coredns-ha`
+(`system/coredns/coredns-ha.yaml`), 2 replicas. Its pods carry `k8s-app=kube-dns`, so
+the existing Service adopts them as extra endpoints with no Service change; the spread
+constraint selects that same label, so it counts k3s's pod too and no two CoreDNS pods
+share a node. It mounts k3s's own `coredns` ConfigMap, so the Corefile and the
+`NodeHosts` file k3s keeps current are not duplicated. k3s's replica is never touched,
+so there was no DNS gap at any point and the dead-man's switch was never paused.
+
+Deployed by a standalone Application (`bootstrap/root/templates/coredns-ha.yaml`)
+because the stack ApplicationSets are git *file* generators globbing
+`<stack>/*/app.yaml` and hardcode `destination.namespace` to the directory basename —
+these objects have no chart and must live in `kube-system`. Needs `just bootstrap-root`
+once; the manifests themselves auto-sync from `main`.
+
+The official `coredns/coredns` chart was evaluated and rejected *for the additive
+shape*. It can be bent into it — `k8sAppLabelOverride: kube-dns`,
+`deployment.skipConfig: true`, `fullnameOverride: coredns` (the only way to point the
+config volume at k3s's ConfigMap), `deployment.name: coredns-ha` (to dodge the
+Deployment name collision that override causes), `zoneFiles: [{filename: NodeHosts}]`
+to smuggle a second key into the volume — but two of those values exist purely as
+tricks, and the chart has no `namespaceOverride` (every template hardcodes
+`.Release.Namespace`), so it needs the same custom Application anyway. **If CoreDNS is
+ever taken over outright (`--disable=coredns`), the chart is the right answer** and all
+of those workarounds disappear.
+
+**Restart survival — tested, not assumed.** Two independent checks:
+- The addon's objectset contains exactly `deployment/coredns`, `configmap/coredns`,
+  `serviceaccount/coredns`. Wrangler prunes by `objectset.rio.cattle.io/hash`, a label
+  `coredns-ha` does not carry, so an addon re-apply cannot see it.
+- `systemctl restart k3s` on worker-02: Deployment, PDB and pods all survived with 0
+  restarts, DNS held on all three nodes, addon checksum unchanged.
+
+Still unexercised: restarting **worker-00**, which holds the `k3s` lease (the addon
+apply leader) and is also the API endpoint and Tailscale subnet router. A leadership
+change forces a full addon resync — the only path that would actually run a prune. The
+structural proof above says it is safe; it has not been proven.
+
+**The honest limit.** This reduces blast radius. It does not prevent the 2026-07-28
+failure mode. worker-00's agent had stopped programming *any* new backend, so a CoreDNS
+replica created after that fault would have dangled too, while pods that already held a
+working entry kept resolving. What helps there is noticing the agent is wedged
+(`bpf lb list | grep 'not found'`), not having more replicas.
+
+**Two gaps left open deliberately:**
+1. The `coredns-ha` image is pinned (`rancher/mirrored-coredns-coredns:1.14.4`) and
+   Renovate does not track it — there is no `app.yaml`. Bump it when k3s bumps. A
+   Renovate rule would push CoreDNS *ahead* of k3s and manufacture skew rather than
+   prevent it.
+2. Delete the `coredns-ha` Application and the extra replicas vanish silently — the
+   ApplicationSet will not recreate it, since only its *contents* self-heal. An alert on
+   `kube-dns` ready-endpoint count < 2 would close this. Not built.
+
+**Side effect: `just bootstrap` was already broken before this work.** The first
+`bootstrap-root` failed with an SSA field-manager conflict. helm is now **v4.2.3**,
+which server-side-applies by default (v3 was client-side), and
+`argocd-applicationset-controller` held `.spec.generators` on the `platform` and `apps`
+ApplicationSets. Pre-existing: any `root` upgrade would have hit it. The ApplicationSets
+themselves were never modified — the apply was rejected, not partially written. Fixed by
+reclaiming ownership once:
 
 ```
-Make CoreDNS highly available in the homelab k3s cluster (repo: /Users/nikgibson/homelab).
-
-Today CoreDNS runs as a SINGLE replica, currently on worker-00. It is deployed and
-reconciled by k3s itself (from /var/lib/rancher/k3s/server/manifests/coredns.yaml),
-NOT by this repo — `grep -rl coredns` across the repo returns nothing. So the first
-real question is mechanism, and it needs verifying before any manifest is written:
-
-  a) HelmChartConfig / a values override k3s will respect
-  b) k3s server flag --disable=coredns + manage CoreDNS as a normal app in system/
-  c) something else
-
-Option (b) means CoreDNS becomes a repo-managed app and the ansible role in
-ansible/roles/ needs the flag. Option (a) is smaller but confirm k3s won't revert
-replica count on restart — k3s re-applies its packaged manifests, so test that the
-override actually survives a k3s restart rather than assuming.
-
-Target state:
-- 2+ replicas
-- topologySpreadConstraints or podAntiAffinity so replicas never share a node
-- a PodDisruptionBudget so a drain can't take all of them at once
-- resources.requests/limits (per repo convention)
-
-Why this matters: on 2026-07-28 a node-local Cilium datapath fault left worker-00's
-BPF LB map pointing at backend IDs that no longer existed, so every pod on worker-00
-lost cluster DNS for ~1h. Be honest in the writeup about the limit of this fix: the
-agent had stopped programming ANY new backend on that node, so a second CoreDNS
-replica created after the fault would have dangled too. This reduces blast radius,
-it does not prevent that failure mode. Do not oversell it.
-
-Constraints:
-- Never use Ingress; Gateway API HTTPRoute only (not relevant here, but repo rule)
-- No `sleep` in scripts/manifests — use kubectl wait
-- Deploy by merging to main and letting ArgoCD sync; don't kubectl apply managed
-  manifests. Bootstrap/helmfile and ansible changes are the exception since they
-  sit outside ArgoCD.
-- No Co-Authored-By trailers
-
-DNS is the dependency everything else has, so treat rollback as a first-class
-concern: state up front how to revert if replicas land wrong or k3s fights the
-override, and verify DNS resolution from a pod on EACH node before declaring done
-(bash /dev/tcp/10.43.0.10/53 works in most pods here). Also re-check
-`cilium-dbg bpf lb list | grep -c 'not found'` is 0 on all three nodes afterward —
-changing CoreDNS backends is exactly what exposed the dangling-backend bug.
-
-EXPECT TO BE PAGED, and don't mistake it for collateral damage. Since 2026-07-29 a
-dead-man's switch is live: Alertmanager POSTs the Watchdog alert outbound to
-healthchecks.io every 5m, and the check alerts when those pings STOP (period 15m,
-grace 10m -> fires ~25m after the last ping). Cluster DNS is on that path — if you
-break DNS resolution for the Alertmanager pod, it cannot resolve hc-ping.com, the
-pings stop, and you get an ntfy alert about 25 minutes later. That is the switch
-working correctly, and it is a genuine signal that you broke DNS.
-
-If you expect DNS to be down for more than ~20 minutes, pause the healthchecks.io
-check first (or silence Watchdog with
-`amtool silence add 'alertname=Watchdog' --duration=<N>m` — always use --duration so
-it self-expires) and un-pause it as an explicit final step. Do NOT leave it paused;
-a paused dead-man's switch is indistinguishable from a healthy one.
-
-Do not trust ntfy to tell you something broke during this work. As of 2026-07-29
-`alertmanager_notifications_failed_total{integration="webhook",reason="clientError"}`
-shows ntfy.sh returning 4xx to Alertmanager (see Open Item 3) — alerts may not reach
-you. Verify DNS directly from pods; do not wait for an alert to appear.
+helmfile sync -f bootstrap/helmfile.yaml -l name=root --args "--force-conflicts"
 ```
+
+Use `sync`, not `apply` — with `apply`, `--args` leaks into the `helm diff` plugin,
+which rejects the flag. `helm(Apply)` now owns `.spec.generators` on all three, so this
+should not recur and no Justfile change was made. Do **not** attempt to fix it with
+`kubectl apply --server-side` of the rendered chart: that strips
+`meta.helm.sh/release-name` and `app.kubernetes.io/managed-by: Helm`, breaking helm's
+ownership of the objects outright (confirmed via `kubectl diff` before running it).
+
+**Verification recipe.** A pinned `busybox:1.37` pod per node (`nodeName` pinned,
+`tolerations: [{operator: Exists}]`) checking resolution three ways — via
+`/etc/resolv.conf`, against `10.43.0.10` directly, and forwarding to `hc-ping.com`
+(the dead-man's switch dependency) — plus `cilium-dbg bpf lb list | grep -c 'not found'`
+per agent. Sanity-check the checker by pointing `CLUSTER_DNS` at a bogus IP and
+confirming it reports FAILED; `kubectl run --attach` falls back to log streaming and
+still propagates the container exit code.
 
 ---
 
