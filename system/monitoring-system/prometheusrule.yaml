@@ -1,0 +1,60 @@
+---
+# Alerts on ArgoCD's own view of the cluster. The chart's default rules cover pods and
+# nodes but say nothing about whether GitOps is still reconciling.
+#
+# Motivating incident (2026-07-28): a node-local Cilium datapath fault killed cluster DNS
+# for every pod on that node, so the application-controller could not resolve
+# argocd-repo-server. All 27 apps sat at sync_status="Unknown" with a ComparisonError for
+# ~1h with nothing watching. `Unknown` means ArgoCD cannot compare desired vs live state
+# at all — it is not the same as OutOfSync, and it is the signal that fires when
+# something underneath ArgoCD (DNS, repo-server, git creds) is broken.
+#
+# Requires the ServiceMonitor in argocd-servicemonitor.yaml; without a scrape target
+# these expressions are simply empty and never fire.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: argocd
+  namespace: monitoring-system
+  labels:
+    release: monitoring-system
+spec:
+  groups:
+    - name: argocd
+      rules:
+        - alert: ArgoCDAppSyncUnknown
+          expr: argocd_app_info{sync_status="Unknown"} == 1
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: ArgoCD cannot determine sync state for {{ $labels.name }}
+            description: >-
+              Application {{ $labels.name }} (project {{ $labels.project }}) has been in
+              sync_status=Unknown for 15m. ArgoCD cannot compare desired against live
+              state, so GitOps is not reconciling this app. Usually a ComparisonError —
+              check the application-controller and repo-server logs for DNS or git
+              failures rather than looking at the app itself.
+
+        - alert: ArgoCDAppDegraded
+          expr: argocd_app_info{health_status="Degraded"} == 1
+          for: 15m
+          labels:
+            severity: critical
+          annotations:
+            summary: ArgoCD app {{ $labels.name }} is Degraded
+            description: >-
+              Application {{ $labels.name }} (project {{ $labels.project }}) has reported
+              health_status=Degraded for 15m.
+
+        - alert: ArgoCDAppOutOfSync
+          expr: argocd_app_info{sync_status="OutOfSync"} == 1
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: ArgoCD app {{ $labels.name }} has been OutOfSync for 1h
+            description: >-
+              Application {{ $labels.name }} (project {{ $labels.project }}) has been
+              OutOfSync for 1h. Auto-sync should have resolved this; a sync is likely
+              failing or the app is missing auto-sync.
