@@ -1,0 +1,167 @@
+---
+# Additive CoreDNS replicas + a disruption budget for the kube-dns service.
+#
+# Why a SECOND deployment instead of scaling kube-system/coredns:
+# k3s owns kube-system/coredns as a k3s.cattle.io Addon -- a packaged manifest
+# at /var/lib/rancher/k3s/server/manifests/coredns.yaml applied by wrangler.
+# It is NOT a HelmChart, so there is no HelmChartConfig to attach a values
+# override to, and anything ArgoCD wrote onto that Deployment would fight the
+# k3s deploy controller on every re-apply.
+#
+# These pods carry k8s-app=kube-dns, so the existing kube-dns Service
+# (10.43.0.10) picks them up as additional endpoints with no Service change.
+# The spread constraint below selects on that same label, so it counts k3s's
+# pod too -- no two CoreDNS pods ever land on the same node.
+#
+# Config is not duplicated: we mount k3s's own `coredns` ConfigMap, which
+# includes the NodeHosts file k3s keeps current as nodes come and go.
+#
+# ponytail: the Deployment selector deliberately overlaps k3s's broader
+# `k8s-app=kube-dns` selector. That is safe -- a pod already carrying a
+# controllerRef is never claimed or reaped by another ReplicaSet -- but it does
+# mean `kubectl get deploy coredns` reports 1/1 while three pods serve DNS.
+# The upgrade path, if that ambiguity ever bites: k3s --disable=coredns and
+# take the addon over wholesale (also means owning NodeHosts upkeep).
+#
+# Rollback: delete this file and let ArgoCD prune, or scale coredns-ha to 0.
+# k3s's own replica is untouched throughout and keeps serving DNS either way.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: coredns-ha
+  namespace: kube-system
+  labels:
+    k8s-app: kube-dns
+    kubernetes.io/name: CoreDNS
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  strategy:
+    rollingUpdate:
+      # maxSurge MUST be 0: a surge pod would be a 4th kube-dns pod on a
+      # 3-node cluster, violate the spread constraint, sit Pending, and wedge
+      # the rollout.
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      k8s-app: kube-dns
+      app.kubernetes.io/name: coredns-ha
+  template:
+    metadata:
+      labels:
+        k8s-app: kube-dns
+        app.kubernetes.io/name: coredns-ha
+    spec:
+      priorityClassName: system-cluster-critical
+      serviceAccountName: coredns
+      # Default, not ClusterFirst: CoreDNS must not resolve through itself.
+      dnsPolicy: Default
+      nodeSelector:
+        kubernetes.io/os: linux
+      tolerations:
+        - key: CriticalAddonsOnly
+          operator: Exists
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        # Cluster DNS must be placeable on every node, including the media
+        # node -- the hard spread constraint needs all three to be candidates.
+        - key: homelab.io/media
+          operator: Equal
+          value: "true"
+          effect: PreferNoSchedule
+      topologySpreadConstraints:
+        - topologyKey: kubernetes.io/hostname
+          maxSkew: 1
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      containers:
+        - name: coredns
+          # Pinned to the image k3s v1.36.2+k3s1 ships. A k3s upgrade moves
+          # its own replica and leaves this one behind; CoreDNS minor skew is
+          # wire-compatible, but bump this when k3s bumps.
+          image: rancher/mirrored-coredns-coredns:1.14.4
+          imagePullPolicy: IfNotPresent
+          args:
+            - -conf
+            - /etc/coredns/Corefile
+          ports:
+            - containerPort: 53
+              name: dns
+              protocol: UDP
+            - containerPort: 53
+              name: dns-tcp
+              protocol: TCP
+            - containerPort: 9153
+              name: metrics
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 100m
+              memory: 70Mi
+            limits:
+              # Memory only, matching k3s's own spec. A CPU limit on cluster
+              # DNS buys nothing and adds a throttling cliff that shows up as
+              # cluster-wide resolution latency -- deliberate deviation from
+              # the repo's requests+limits convention.
+              memory: 170Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 1
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8181
+            periodSeconds: 2
+            timeoutSeconds: 1
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              add:
+                - NET_BIND_SERVICE
+              drop:
+                - all
+          volumeMounts:
+            - name: config-volume
+              mountPath: /etc/coredns
+              readOnly: true
+            - name: custom-config-volume
+              mountPath: /etc/coredns/custom
+              readOnly: true
+      volumes:
+        - name: config-volume
+          configMap:
+            name: coredns
+            items:
+              - key: Corefile
+                path: Corefile
+              - key: NodeHosts
+                path: NodeHosts
+        - name: custom-config-volume
+          configMap:
+            name: coredns-custom
+            optional: true
+---
+# Guards every kube-dns pod, k3s's included, so a drain can never take the
+# whole DNS fleet. maxUnavailable rather than minAvailable: it degrades
+# gracefully if the replica count ever changes, instead of blocking drains.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: coredns
+  namespace: kube-system
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      k8s-app: kube-dns

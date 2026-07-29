@@ -39,6 +39,16 @@ ArgoCD sync waves: `system` (wave 1) → `platform` (wave 2) → `apps` (wave 3)
 
 ArgoCD auto-syncs from `main` branch. Merge to main = deploy.
 
+**Exception — `system/coredns/`.** The three stack ApplicationSets are git *file* generators
+globbing `<stack>/*/app.yaml`, and they hardcode `destination.namespace` to the directory
+basename. `system/coredns/` deliberately has no `app.yaml`, so they skip it: it is raw
+manifests with no Helm chart, and its objects must land in `kube-system` to back the
+existing `kube-dns` Service. It is deployed instead by a standalone Application in
+`bootstrap/root/templates/coredns-ha.yaml`, so changes there need `just bootstrap-root`
+once; the manifests themselves auto-sync from `main` as usual. Do not add an `app.yaml`
+to that directory — it would generate a second, competing Application pointed at
+namespace `coredns`.
+
 ## Adding an App
 
 Use the `/add-app` command — it covers placement, required files, patterns, and secrets.
