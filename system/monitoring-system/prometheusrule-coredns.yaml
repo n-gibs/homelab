@@ -1,0 +1,60 @@
+---
+# Guards the CoreDNS HA posture added 2026-07-29.
+#
+# The extra replicas come from kube-system/coredns-ha (system/coredns/coredns-ha.yaml),
+# deployed by a standalone ArgoCD Application rather than by the system ApplicationSet.
+# If that Application is deleted, nothing recreates it — only its *contents* self-heal —
+# so the cluster silently returns to the single-replica posture that turned a node-local
+# Cilium datapath fault into a ~1h DNS outage on 2026-07-28. Nothing else notices,
+# because DNS keeps working fine on the remaining replica.
+#
+# Metric source: the kube-prometheus-stack coredns exporter already scrapes every CoreDNS
+# pod — Service kube-system/monitoring-system-kube-pro-coredns selects `k8s-app=kube-dns`,
+# which is the same label coredns-ha's pods carry, so both deployments are covered with no
+# extra ServiceMonitor. Verified: `up{job="coredns"}` has one series per pod.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: coredns
+  namespace: monitoring-system
+  labels:
+    release: monitoring-system
+spec:
+  groups:
+    - name: coredns
+      rules:
+        # sum() rather than count(up == 1) so that "every target is down" also trips this
+        # instead of evaluating to an empty vector and never firing.
+        - alert: CoreDNSRedundancyLost
+          expr: sum(up{job="coredns"}) < 2
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: Only {{ $value }} CoreDNS instance(s) responding, expected 3
+            description: >-
+              Cluster DNS has been below 2 responding instances for 15m. This cluster
+              expects 3, one per node. DNS is likely still serving — which is exactly why
+              no other alert is firing — but the redundancy added after the 2026-07-28
+              outage is gone. Check the Application still exists
+              (`kubectl -n argocd get app coredns-ha`) and that no coredns-ha pod is
+              Pending on the hostname topologySpreadConstraint, which happens if a node
+              is cordoned. Total DNS loss is covered separately by TargetDown and by the
+              healthchecks.io dead-man's switch.
+
+        # Without this, the alert above goes quietly blind if the exporter is disabled:
+        # an empty selector makes `sum() < 2` an empty vector, not a breach.
+        - alert: CoreDNSScrapeTargetsMissing
+          expr: absent(up{job="coredns"})
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: Prometheus has no CoreDNS scrape targets
+            description: >-
+              No `up{job="coredns"}` series exist, so CoreDNSRedundancyLost cannot fire and
+              the CoreDNS HA posture is now unmonitored. Usually means the
+              kube-prometheus-stack coredns exporter was disabled in
+              system/monitoring-system/values.yaml, or that Service
+              kube-system/monitoring-system-kube-pro-coredns lost its
+              `k8s-app=kube-dns` selector.
