@@ -191,9 +191,17 @@ working entry kept resolving. What helps there is noticing the agent is wedged
    Renovate does not track it — there is no `app.yaml`. Bump it when k3s bumps. A
    Renovate rule would push CoreDNS *ahead* of k3s and manufacture skew rather than
    prevent it.
-2. Delete the `coredns-ha` Application and the extra replicas vanish silently — the
-   ApplicationSet will not recreate it, since only its *contents* self-heal. An alert on
-   `kube-dns` ready-endpoint count < 2 would close this. Not built.
+2. ~~Delete the `coredns-ha` Application and the extra replicas vanish silently.~~
+   **Closed 2026-07-29** by `system/monitoring-system/prometheusrule-coredns.yaml`:
+   `CoreDNSRedundancyLost` (`sum(up{job="coredns"}) < 2`, for 15m) plus
+   `CoreDNSScrapeTargetsMissing` (`absent(...)`, for 30m) so a disabled exporter cannot
+   silence the first one. No new ServiceMonitor was needed — the stack's existing coredns
+   Service selects `k8s-app=kube-dns`, so it already scrapes both deployments.
+   Both are `severity: warning`, which the Alertmanager route sends to ntfy —
+   **so delivery is subject to Open Item 3**; ntfy was returning 4xx as of this date.
+   Verified loaded in Prometheus and not firing at 3 instances; expression shape checked
+   by inverting the threshold (`< 4` returns 3, so the comparison does emit a series when
+   breached). Not yet trip-tested by actually scaling to 1 replica.
 
 **Side effect: `just bootstrap` was already broken before this work.** The first
 `bootstrap-root` failed with an SSA field-manager conflict. helm is now **v4.2.3**,
