@@ -173,3 +173,57 @@ override, and verify DNS resolution from a pod on EACH node before declaring don
 `cilium-dbg bpf lb list | grep -c 'not found'` is 0 on all three nodes afterward —
 changing CoreDNS backends is exactly what exposed the dangling-backend bug.
 ```
+
+---
+
+## Open Item 3 — ntfy.sh Is Silently Rejecting Notifications
+
+Found 2026-07-29 while verifying the dead-man's switch.
+`alertmanager_notifications_failed_total{integration="webhook",reason="clientError"}` had
+reached **184** on the then-running Alertmanager pod, and was actively incrementing by one
+every 5 minutes from 17:22Z to 18:04Z. `clientError` means a 4xx *response* — the request
+reached `https://ntfy.sh` and was refused, so this is not a DNS or connectivity fault.
+
+That is ~184 alert notifications Alertmanager believes it failed to deliver.
+
+**Two reasons it stayed invisible.** `AlertmanagerFailedToSendAlerts` did fire, but the
+counter is per-pod-lifetime, so the alert self-resolved when the pod restarted at 18:06Z
+without anything being fixed — a restart launders the symptom. And the alert's own delivery
+path is ntfy, the thing that is broken, so when it matters most it cannot reach you. The
+dead-man's switch does not close this: it only proves Alertmanager → hc-ping works.
+
+Note `alertmanager_notifications_total{integration="webhook"}` is shared by the `ntfy` and
+`deadmanssnitch` receivers, so it cannot attribute a success or failure to either. To tell
+them apart, use healthchecks.io's own ping log for the snitch and Alertmanager's logs for
+ntfy.
+
+Diagnose in this order — the status code decides everything, and nothing is currently
+logged because the failures stopped:
+
+1. Catch the next occurrence: `kubectl -n monitoring-system logs
+   alertmanager-monitoring-system-kube-pro-alertmanager-0 -c alertmanager | grep -i notify`
+   — Alertmanager logs the response body on webhook failure.
+2. Or reproduce deliberately: POST an Alertmanager-shaped JSON body (~2KB) to the URL in
+   `secrets/.secrets` (`NTFY_WEBHOOK_URL`) and read the status directly.
+
+Candidate causes, most to least likely:
+
+- **429 — ntfy.sh free-tier rate limiting.** Fits the shape best: a steady one-per-5-minute
+  failure is a group retrying at `group_interval` while being throttled. 148 alert rules on
+  a shared public instance is a lot of publishes.
+- **413/400 — payload.** Alertmanager posts its own JSON schema (~2KB observed); ntfy may
+  reject the size or content.
+- **401/403 — auth.** If the URL carries a token that has expired or the topic was claimed.
+
+Mitigation depends on the cause, but the structural problem is that every alert path
+except the snitch terminates at one free third-party service. Worth considering:
+
+- An SMTP/email receiver for `AlertmanagerFailedToSendAlerts` specifically, so the alert
+  about broken delivery does not depend on the broken channel. A second ntfy *topic* does
+  not help — ntfy.sh itself is the shared dependency.
+- Self-hosting ntfy removes the rate limit but moves the notifier *inside* the blast
+  radius, which is the mistake that caused the 2026-07-28 blackout. If you do it, keep an
+  off-cluster channel for monitoring's own alerts.
+
+Do not "fix" this by raising `repeat_interval` to reduce the failure count. That hides the
+counter without delivering the notifications.
