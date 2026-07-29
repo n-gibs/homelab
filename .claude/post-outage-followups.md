@@ -181,6 +181,25 @@ override, and verify DNS resolution from a pod on EACH node before declaring don
 (bash /dev/tcp/10.43.0.10/53 works in most pods here). Also re-check
 `cilium-dbg bpf lb list | grep -c 'not found'` is 0 on all three nodes afterward —
 changing CoreDNS backends is exactly what exposed the dangling-backend bug.
+
+EXPECT TO BE PAGED, and don't mistake it for collateral damage. Since 2026-07-29 a
+dead-man's switch is live: Alertmanager POSTs the Watchdog alert outbound to
+healthchecks.io every 5m, and the check alerts when those pings STOP (period 15m,
+grace 10m -> fires ~25m after the last ping). Cluster DNS is on that path — if you
+break DNS resolution for the Alertmanager pod, it cannot resolve hc-ping.com, the
+pings stop, and you get an ntfy alert about 25 minutes later. That is the switch
+working correctly, and it is a genuine signal that you broke DNS.
+
+If you expect DNS to be down for more than ~20 minutes, pause the healthchecks.io
+check first (or silence Watchdog with
+`amtool silence add 'alertname=Watchdog' --duration=<N>m` — always use --duration so
+it self-expires) and un-pause it as an explicit final step. Do NOT leave it paused;
+a paused dead-man's switch is indistinguishable from a healthy one.
+
+Do not trust ntfy to tell you something broke during this work. As of 2026-07-29
+`alertmanager_notifications_failed_total{integration="webhook",reason="clientError"}`
+shows ntfy.sh returning 4xx to Alertmanager (see Open Item 3) — alerts may not reach
+you. Verify DNS directly from pods; do not wait for an alert to appear.
 ```
 
 ---
