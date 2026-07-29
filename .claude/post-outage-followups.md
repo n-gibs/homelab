@@ -193,7 +193,27 @@ reached **184** on the then-running Alertmanager pod, and was actively increment
 every 5 minutes from 17:22Z to 18:04Z. `clientError` means a 4xx *response* — the request
 reached `https://ntfy.sh` and was refused, so this is not a DNS or connectivity fault.
 
-That is ~184 alert notifications Alertmanager believes it failed to deliver.
+Be careful reading that number — it is **not** 184 lost alerts. The counting unit is one
+*notification*, i.e. one POST carrying one **alert group**, which may hold many alerts. And
+a failed notification is never written to the notification log, so the identical group is
+re-attempted on the next `group_interval` tick. `+1 every 5 minutes` is therefore the
+signature of *one stuck group retrying*, not 184 distinct notifications: at 5m ticks that is
+~288/day, so 184 is plausibly a single group failing for ~15 hours.
+
+Metric semantics worth knowing before drawing conclusions from any of these (verified
+against the help text on Alertmanager 0.32.2):
+
+- `alertmanager_notifications_total` is *attempted* notifications, not successful ones.
+  Successes are `total - failed`.
+- `alertmanager_notification_requests_total` counts individual HTTP attempts, so
+  `requests > notifications` means in-pipeline retries are happening.
+- `reason="clientError"` is specifically a **4xx response**. The webhook retrier treats 2xx
+  as success and 5xx as retryable, so a 4xx is abandoned immediately. Connection, DNS and
+  timeout faults land in `other` / `contextDeadlineExceeded` instead — which is how you tell
+  "ntfy refused this" apart from "ntfy was unreachable".
+- `alertmanager_notifications_suppressed_total{reason="silence"}` is the direct way to
+  confirm a silence took effect. Prefer it over inferring suppression from gaps in
+  `notifications_total`, which is shared across every webhook receiver.
 
 **Two reasons it stayed invisible.** `AlertmanagerFailedToSendAlerts` did fire, but the
 counter is per-pod-lifetime, so the alert self-resolved when the pod restarted at 18:06Z
