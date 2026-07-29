@@ -1,0 +1,31 @@
+---
+# CoreDNS HA gets its own Application rather than riding the `system`
+# ApplicationSet, for two reasons the generator in stack.yaml can't express:
+#   1. it has no Helm chart -- the generator requires app.yaml with
+#      chartName/chartRepo/chartVersion and builds a chart source from them;
+#   2. its objects must land in kube-system, but the generator hardcodes
+#      destination.namespace to {{ `{{path.basename}}` }}.
+# Everything else matches the ApplicationSet: same repo/revision, automated
+# sync with prune + selfHeal, server-side apply.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: coredns-ha
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  destination:
+    name: in-cluster
+    namespace: kube-system
+  project: default
+  source:
+    repoURL: {{ .Values.gitops.repo }}
+    targetRevision: {{ .Values.gitops.revision }}
+    path: system/coredns
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
