@@ -318,3 +318,67 @@ except the snitch terminates at one free third-party service. Worth considering:
 
 Do not "fix" this by raising `repeat_interval` to reduce the failure count. That hides the
 counter without delivering the notifications.
+
+---
+
+## Open Item 4 — worker-00 Has No Time Sync
+
+Found 2026-07-30 while verifying the CoreDNS HA work. `NodeClockNotSynchronising` is
+firing for `192.168.30.129:9100` (worker-00) and has been since roughly 02:25Z on
+2026-07-29. Not caused by the CoreDNS work — chrony stopped ~20h before that restart.
+
+Already established — don't re-derive:
+
+- chrony `4.8-2ubuntu1` is installed and `enabled` on worker-00, but `inactive (dead)`.
+  worker-01 and worker-02 both report `NTP=yes` / `NTPSynchronized=yes` with chrony active.
+- It exited **cleanly**: `chronyd exiting`, `Deactivated successfully`,
+  `Main PID: 1271 (code=exited, status=0/SUCCESS)` at **2026-07-29 02:14:38 UTC**, after
+  running since Jul 11 20:49. A clean exit means something asked it to stop; it did not
+  crash or OOM. Nothing tried to restart it.
+- **No dpkg activity at that time** (`grep "2026-07-29 02:" /var/log/dpkg.log` is empty),
+  so a package upgrade is ruled out as the trigger. `unattended-upgrades` *is* enabled and
+  its dpkg log was last written Jul 29 06:40 — after the stop, so not the cause.
+- `systemd-timesyncd` is `not-found` on all three nodes; chrony is the only time source.
+- **Ansible does not manage time sync at all** — `grep -rniE 'chrony|ntp|timesync' ansible/`
+  returns nothing. Node provisioning never ensured it, so this was only ever "whatever the
+  Ubuntu installer left running."
+- Drift measured **without touching the clock** via `sudo chronyd -Q -t 8`:
+  `System clock wrong by 0.050767 seconds` as of 2026-07-30 16:29Z. At that size chrony
+  slews rather than steps, so starting it is safe — but **re-measure before acting**, drift
+  grows. Do not compare `date` across nodes over ssh; that measures ssh latency, not skew.
+
+Two questions, in order:
+
+1. **Why did chrony cleanly exit?** 02:14:38Z on Jul 29 is ~16 minutes after the Cilium
+   agent recovered at 01:58:56Z in the 2026-07-28 incident. That may be coincidence, but if
+   something stops chrony during incidents, worker-01 and worker-02 will do it eventually
+   too — and a fix that only restarts the service papers over that. Check the full journal
+   around that window for whatever issued the stop (`journalctl --since '2026-07-29 02:00'
+   --until '2026-07-29 02:20'`), not just the chrony unit.
+2. **Make time sync durable and provisioned.** The likely home is
+   `ansible/roles/common/tasks/main.yml`: ensure chrony installed, enabled *and* started on
+   all three. That is an ansible change, so it deploys via `just provision`, not ArgoCD.
+
+Worth checking while you are here: a `severity: warning` alert fired for ~38 hours and
+nobody noticed. That is either alert fatigue or direct evidence that Open Item 3 (ntfy
+returning 4xx) is losing real notifications. If it's the latter, Item 3 is more urgent than
+it currently reads. Query `ALERTS{alertname="NodeClockNotSynchronising"}` history and
+compare against `alertmanager_notifications_failed_total`.
+
+Safety notes specific to this work:
+
+- worker-00 is simultaneously the kubeconfig API endpoint, the etcd leader and the
+  Tailscale subnet router. The serving cert covers every server, so
+  `kubectl --server=https://192.168.30.136:6443` gives an out-of-band view if you disturb
+  it.
+- **Never step the clock on an etcd control-plane node without measuring first.** A large
+  backwards step can expire etcd leases and upset TLS validity windows. Slew if at all
+  possible; `chronyd -Q` measures without adjusting.
+- Rollback for starting the service is just `sudo systemctl stop chrony`. The part that is
+  not trivially reversible is the clock adjustment itself, which is why you measure first.
+- The healthchecks.io dead-man's switch is live (period 15m, grace 10m, fires ~25m after
+  pings stop). Clock work should not touch DNS, but check which node Alertmanager is on
+  before adjusting that node's clock. If you need a silence, always pass `--duration` so it
+  self-expires, and never leave the healthchecks.io check paused.
+- Do not trust ntfy to confirm anything during this work — see Open Item 3. Verify with
+  `timedatectl`, `chronyc tracking`, and Prometheus directly.
