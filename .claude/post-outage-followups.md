@@ -175,10 +175,25 @@ of those workarounds disappear.
 - `systemctl restart k3s` on worker-02: Deployment, PDB and pods all survived with 0
   restarts, DNS held on all three nodes, addon checksum unchanged.
 
-Still unexercised: restarting **worker-00**, which holds the `k3s` lease (the addon
-apply leader) and is also the API endpoint and Tailscale subnet router. A leadership
-change forces a full addon resync — the only path that would actually run a prune. The
-structural proof above says it is safe; it has not been proven.
+- `systemctl restart k3s` on **worker-00** — the `k3s` lease holder (addon apply leader),
+  etcd leader, API endpoint and Tailscale subnet router, so the restart that actually
+  re-runs the addon reconcile. Fingerprinted before and after: `coredns-ha` Deployment and
+  the PDB came back with **identical UIDs and `generation: 1`**, and all three pods kept
+  their original UIDs with 0 restarts — so they were neither pruned nor
+  deleted-and-resurrected by ArgoCD selfHeal. Addon checksum unchanged, lease reacquired
+  by worker-00, all 28 apps Synced/Healthy, Tailscale pods survived. DNS resolved from a
+  freshly created pod on every node afterward, including worker-00, so the known
+  post-restart stale-Cilium-CNI sandbox failure did not occur; 0 dangling backends on all
+  three agents.
+
+  Tip for repeating this: the serving cert covers every server, so
+  `kubectl --server=https://192.168.30.136:6443` gives an out-of-band view while
+  worker-00's own API is down.
+
+One honesty note on scope: the checksum was unchanged across the restart, so the
+controller may have short-circuited rather than performing a full wrangler apply. What is
+proven is that a lease-holder restart does not disturb `coredns-ha`; the label-based
+objectset argument above is what rules out pruning in general.
 
 **The honest limit.** This reduces blast radius. It does not prevent the 2026-07-28
 failure mode. worker-00's agent had stopped programming *any* new backend, so a CoreDNS
