@@ -1,6 +1,7 @@
 ---
 - name: Apply common baseline to all nodes
   hosts: k3s_cluster
+  tags: common          # without this `just provision-common` selects zero tasks
   roles:
     - common
 

@@ -36,6 +36,44 @@
     state: absent
   become: true
 
+- name: Create k3s systemd override directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/k3s.service.d
+    state: directory
+    mode: "0755"
+  become: true
+
+# Cilium writes /etc/cni/net.d/05-cilium.conflist once, when its agent first becomes
+# ready, and that file then persists on disk forever. containerd carries no
+# cni.conf_dir override, so it watches the /etc/cni/net.d default, finds the conflist
+# at boot and reports the network plugin ready — kubelet marks the node Ready within
+# seconds. But /var/run is a fresh tmpfs, so /var/run/cilium/cilium.sock does not exist
+# yet. kubelet starts every previously-bound pod at once, cilium-cni waits for the
+# socket with a *hard 30s ceiling*, and the losers fail:
+#   CNI ADD failed ... failed to create cilium agent client after 30.000000 seconds timeout
+# Measured on worker-00: 12 pods on the 2026-07-11 boot (coredns among them, which is
+# how it presents as a per-node DNS outage) and 13 more on the 2026-07-29 k3s restart.
+# The node reports Ready the whole time, so the scheduler keeps feeding it work.
+#
+# Dropping the stale conflist before k3s starts makes the node honestly NotReady until
+# the agent rewrites it — the write-cni-conf-when-ready gate Cilium already implements.
+# Note the kubelet --register-with-taints=node.cilium.io/agent-not-ready approach does
+# NOT fix this: taints are applied only at first Node registration and are never
+# re-applied on reboot or kubelet restart.
+#
+# Guarded on the socket so `systemctl restart k3s` against a healthy agent is a no-op:
+# KillMode=process leaves running containers (the agent included) alive across a k3s
+# restart, and the agent only writes the conflist during its own startup.
+- name: Gate k3s startup on a live Cilium CNI socket
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/k3s.service.d/cilium-cni-gate.conf
+    content: |
+      [Service]
+      ExecStartPre=/bin/sh -c '[ -S /var/run/cilium/cilium.sock ] || rm -f /etc/cni/net.d/05-cilium.conflist'
+    mode: "0644"
+  become: true
+  notify: Reload systemd
+
 - name: Update apt cache
   ansible.builtin.apt:
     update_cache: true
