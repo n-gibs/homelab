@@ -7,3 +7,4 @@ collections:
     type: git
     version: "1.2.1"
   - name: community.general
+  - name: ansible.posix

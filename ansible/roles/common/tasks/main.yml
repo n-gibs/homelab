@@ -99,6 +99,29 @@
     - fail2ban
   become: true
 
+# The kernel default fs.inotify.max_user_instances=128 is charged per-UID, and every
+# containerd-shim holds 2 inotify fds — one shim per running pod. worker-00 hit 129/128
+# with 37 pods (72 shim fds + 44 from k3s-server + ~11 from systemd/tailscaled/agetty),
+# after which even PID 1 logged "Failed to allocate inotify fd: Too many open files" and
+# path units could not enter their waiting state.
+# Audited before raising it (.claude/scripts/inotify-audit.py): not a leak — zero holders
+# had an idle instance, and worker-02's 35x-older k3s-server held *fewer* fds. The only
+# growth term is pod count, which kubelet caps at 110/node, so 1024 is real headroom at
+# the measured ~2.2 fds/pod.
+# max_user_watches is not currently near its limit (288 used of 123584); raised for symmetry.
+- name: Raise inotify limits for Kubernetes pod density
+  ansible.posix.sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    sysctl_file: /etc/sysctl.d/99-inotify.conf
+    sysctl_set: true
+    reload: true
+    state: present
+  loop:
+    - { name: fs.inotify.max_user_instances, value: "1024" }
+    - { name: fs.inotify.max_user_watches, value: "524288" }
+  become: true
+
 - name: Configure unattended-upgrades
   ansible.builtin.copy:
     dest: /etc/apt/apt.conf.d/50unattended-upgrades
