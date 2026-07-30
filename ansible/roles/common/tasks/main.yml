@@ -61,13 +61,21 @@
 # NOT fix this: taints are applied only at first Node registration and are never
 # re-applied on reboot or kubelet restart.
 #
-# This originally guarded on the socket, so that `systemctl restart k3s` against a healthy
-# agent was a no-op. That guard is exactly what allowed the split-brain below, so it is
-# gone: the agent is now killed unconditionally first, which makes the socket always absent
-# and the guard dead logic.
-# The first ExecStartPre reaps a surviving agent. KillMode=process (above) is the whole
-# problem: `systemctl stop k3s` leaves the containerd-shims running, so the cilium-agent
-# process outlives k3s. systemd says so itself —
+# Guarded on the socket so `systemctl restart k3s` against a healthy agent is a no-op:
+# KillMode=process leaves running containers (the agent included) alive across a k3s
+# restart, and the agent only writes the conflist during its own startup.
+#
+# That guard is also what permits the split-brain described below, and it is kept anyway —
+# deliberately. Reaping the agent here was tried (84ca78e) and reverted: it only ever fires
+# on a k3s restart, which is also the only time it could help, so it trades a rare silent
+# failure for a routine one. Worst case is the containerd wedge, where `systemctl restart
+# k3s` is the documented remediation and killing the agent risks the replacement container
+# failing to start, leaving the node with no Cilium at all. The invariant belongs in the new
+# agent's own startup, not in k3s's. Detection lives in the CiliumAgentDuplicate alert
+# (system/monitoring/), which fires on the fingerprint below.
+#
+# The split-brain: KillMode=process means `systemctl stop k3s` leaves the containerd-shims
+# running, so the cilium-agent process outlives k3s. systemd says so itself —
 #   k3s.service: Unit process 1836 (containerd-shim) remains running after unit stopped.
 # Normally k3s reattaches to that shim on restart and nothing is duplicated. But when it
 # instead builds a *new* agent container — an image, pod-spec or snapshotter change across
@@ -85,20 +93,12 @@
 # node is Ready, `status --brief` is OK, and neither agent logs anything about LB. Only the
 # BPF map disagrees. CoreDNS was recreated 62s into the split, so it presented as a
 # cluster-wide DNS outage (27 ArgoCD apps Unknown, cert-manager Degraded).
-#
-# Killing the survivor costs a Cilium restart on every `systemctl restart k3s`. The conflist
-# removal already handles that cleanly: no agent -> no conflist -> node honestly NotReady
-# until the agent rewrites it via write-cni-conf-when-ready. That is a fair trade for an
-# invariant of exactly one agent per node, given the failure is silent and cluster-wide.
-# Ceiling: pkill sends SIGTERM and does not wait. That is right for the observed case (an
-# orphan that is healthy enough to hold its ports), but an agent wedged past SIGTERM would
-# still survive; escalate to a SIGKILL-after-timeout wrapper if that ever shows up.
-- name: Reap any surviving Cilium agent and its CNI conflist before k3s starts
+- name: Gate k3s startup on a live Cilium CNI socket
   ansible.builtin.copy:
     dest: /etc/systemd/system/k3s.service.d/cilium-cni-gate.conf
     content: |
       [Service]
-      ExecStartPre=/bin/sh -c 'pkill -x cilium-agent; rm -f /var/run/cilium/cilium.sock /etc/cni/net.d/05-cilium.conflist; true'
+      ExecStartPre=/bin/sh -c '[ -S /var/run/cilium/cilium.sock ] || rm -f /etc/cni/net.d/05-cilium.conflist'
     mode: "0644"
   become: true
   notify: Reload systemd

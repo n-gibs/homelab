@@ -1,0 +1,66 @@
+---
+# Detects two cilium-agent processes running on one node — the root cause of the
+# 2026-07-28 worker-00 outage (23 dangling BPF LB backends -> node-wide DNS loss ->
+# 27 ArgoCD apps Unknown, cert-manager Degraded).
+#
+# Why this is a log rule and not a PrometheusRule: the condition is invisible to
+# Kubernetes (the DaemonSet only knows about the agent it created) and Cilium's
+# Prometheus endpoint is not enabled on this cluster. The one reliable fingerprint is
+# the losing agent failing to bind ports the survivor still holds:
+#   Failed to launch hubble ... listen tcp :4244: bind: address already in use
+#   Failed to serve cilium-health API ... listen tcp <nodeIP>:4240: bind: address already in use
+# Nothing else on a node binds 4244 or 4240, so this is specific.
+#
+# Consumed by the loki-sc-rules sidecar: it copies any ConfigMap carrying the
+# `loki_rule` label into the ruler's rule directory. The annotation places the file in
+# the per-tenant subdirectory the local rule store requires (`fake`, because
+# auth_enabled is false) — see the rulerConfig comment in values.yaml.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loki-rule-cilium-split-brain
+  namespace: loki
+  labels:
+    loki_rule: "cilium"
+  annotations:
+    k8s-sidecar-target-directory: /rules/fake
+data:
+  cilium-split-brain.yaml: |
+    groups:
+      - name: cilium-split-brain
+        # 1m so a genuine duplicate is caught while it is still only corrupting the LB
+        # maps, rather than after something depending on DNS has already failed.
+        interval: 1m
+        rules:
+          # No `for:` — the bind failure is logged once, at agent startup, and never
+          # repeats. A `for:` clause would require the condition to still be true on a
+          # later evaluation and would therefore never fire. count_over_time supplies
+          # the persistence instead: the 10m window keeps the series above 0 long
+          # enough for the dispatcher to pick it up.
+          - alert: CiliumAgentDuplicate
+            expr: |
+              sum by (pod) (
+                count_over_time(
+                  {container="cilium-agent"} |= "address already in use" [10m]
+                )
+              ) > 0
+            labels:
+              severity: critical
+            annotations:
+              summary: Two cilium-agent processes on one node ({{ $labels.pod }})
+              description: >-
+                A cilium-agent failed to bind a port it should own, which means an older
+                agent process is still alive on that node. Two agents write the same BPF
+                LB maps from independent backend-ID allocators and delete each other's
+                backends, so every service whose backend pod is created from now on
+                silently breaks for every pod on that node. It does not self-heal and it
+                does not show up in `cilium-dbg service list`, which renders the
+                agent's own userspace view.
+                Confirm:
+                `kubectl -n kube-system exec <cilium-pod> -c cilium-agent --
+                cilium-dbg bpf lb list | grep -c 'not found'` (0 is healthy; compare
+                across nodes). Fix by deleting that node's cilium agent pod, which
+                rebuilds the maps from Kubernetes state.
+                Cause is k3s KillMode=process leaving the old agent alive across a k3s
+                restart — see the drop-in comment in
+                ansible/roles/common/tasks/main.yml.

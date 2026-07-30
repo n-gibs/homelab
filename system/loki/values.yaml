@@ -25,6 +25,37 @@ loki:
   pattern_ingester:
     enabled: true
 
+  # Enables the ruler so log-only conditions can alert. Needed because the one reliable
+  # fingerprint for a Cilium split brain is a log line, never a metric — Cilium's Prometheus
+  # endpoint is not enabled here, and "two agents on one node" is invisible to Kubernetes
+  # anyway (the DaemonSet only ever knows about the one it created).
+  #
+  # storage.type must be local to read rule files off disk, and the local store expects
+  # <directory>/<tenant>. auth_enabled is false, so the tenant is literally `fake` — Loki
+  # states this itself if the path is wrong:
+  #   unable to read rule dir /var/loki/rules/fake: no such file or directory
+  # /rules is where the chart's already-running loki-sc-rules sidecar writes, so point the
+  # ruler there rather than at the default /var/loki/rules.
+  # alertmanager_url reuses the existing kube-prometheus-stack Alertmanager, so these alerts
+  # inherit the ntfy routing and inhibition rules already configured for Prometheus alerts.
+  # enable_alertmanager_v2 is not set: it already defaults to true in Loki 3.x.
+  rulerConfig:
+    wal:
+      dir: /var/loki/ruler-wal
+    storage:
+      type: local
+      local:
+        directory: /rules
+    alertmanager_url: http://monitoring-system-kube-pro-alertmanager.monitoring-system.svc.cluster.local:9093
+
+# The rules sidecar runs by default and already mounts /rules into the loki container, but it
+# writes every ConfigMap flat into FOLDER, which the ruler cannot read (it needs the tenant
+# subdirectory above). folderAnnotation lets a ConfigMap name its own target directory; the
+# annotation key below is the kiwigrid/k8s-sidecar default.
+sidecar:
+  rules:
+    folderAnnotation: k8s-sidecar-target-directory
+
 singleBinary:
   replicas: 1
   persistence:
