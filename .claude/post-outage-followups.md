@@ -92,6 +92,49 @@ On 2026-07-30 worker-00 held 11 leaked endpoints and **0** dangling backends sim
 and correctly programmed a brand-new backend (`loki-0`) 50 minutes after an agent restart.
 Leaks are real but are not this.
 
+### Open: prevention is deferred, detection is in place
+
+Current state is **detected, not prevented**. `KillMode=process` is untouched, so the
+duplicate can still occur; `CiliumAgentDuplicate` now catches it in ~1–2 min instead of
+days. Recovery is still manual (delete that node's agent pod).
+
+Deferred by decision on 2026-07-30, ahead of the physical move: the trigger needs a k3s
+restart **without** a reboot *plus* a pod-sandbox rebuild. It has happened once, caused by
+the snapshotter migration that is now complete, and a power-cycle cannot trigger it (the
+kernel restarts, so no process survives to collide). So the move itself is not exposed.
+
+**Findings for whoever picks this up — these were proven on worker-02, don't re-derive:**
+
+- The obvious fix, a Cilium `extraInitContainers` reap, is **viable in principle**: the init
+  containers *do* re-run on this path. Verified against the incident — they ran 01:58:50–56,
+  immediately before the failing agent at 01:58:57. `extraInitContainers` also renders
+  *last*, right before `cilium-agent`.
+- But `nsenter --pid=/hostproc/1/ns/pid` **cannot work from a container**:
+  `reassociate to namespace 'ns/pid' failed: Invalid argument`. The kernel forbids `setns()`
+  into an *ancestor* PID namespace, and the host's is an ancestor of the container's. No
+  capability changes this. `--mount` works fine; only `--pid` is impossible.
+- It works only with pod-level `hostPID: true` (then drop `--pid` entirely — the container
+  is already in the host PID namespace). Confirmed: host PID 1 = `systemd`, host
+  `/usr/bin/pkill` present, `pgrep -x cilium-agent` sees the real agent, 260 host processes
+  visible. The chart exposes **no** `hostPID` key, so this needs a helmfile
+  `strategicMergePatches` on the DaemonSet — which then has to survive every Renovate bump.
+- Pod-level `securityContext.appArmorProfile.type: Unconfined` is **required**; without it
+  even opening `/hostproc/1/ns/mnt` fails with `Permission denied` under Ubuntu's default
+  AppArmor profile. The agent pod already sets this, but a standalone test pod must too.
+- **Trap:** if `nsenter` fails, the shell after it never runs — so an `exit 0` *inside* that
+  shell does not protect you. The init container exits non-zero, the agent never starts, and
+  the node loses CNI. Any reap here must be wrapped so the **outer** process always exits 0
+  (`/bin/sh -c 'nsenter ... || echo WARNING; exit 0'`).
+- Don't borrow the chart's `hostproc` volume: it only exists
+  `{{- if or .Values.cgroup.autoMount.enabled .Values.sysctlfix.enabled }}`, so the pod
+  becomes unschedulable — no CNI on that node — if either is ever disabled. Declare a own
+  volume via `extraVolumes` instead.
+
+The other two shapes considered: change k3s `KillMode` (biggest hammer — every k3s restart
+then bounces every pod on the node), or a host-side systemd guard that acts only when
+`pgrep -xc cilium-agent` is genuinely >1 (native PID access, no chart patch, but needs a
+timer to catch the ~70s window after k3s start, making it a periodic watchdog).
+
 **Blast radius:** all ~43 pods on worker-00 lost cluster DNS. All 27 ArgoCD apps sat at
 `sync_status=Unknown` with a `ComparisonError` (reads like a git or Cloudflare problem —
 it wasn't) and cert-manager went `Degraded`. Also dangling: the Envoy Gateway VIP
