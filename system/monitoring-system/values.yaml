@@ -148,6 +148,19 @@ alertmanager:
           group_wait: 0s
           group_interval: 1m
           repeat_interval: 5m
+        # Criticals re-notify hourly instead of inheriting the 12h below. Must stay ABOVE the
+        # warning|critical route — routes match in order and the broader one would swallow it.
+        # This is the delivery half of Item 6: prometheusrule-alert-escalation.yaml turns a
+        # warning firing >2h into a critical, and this makes that critical keep arriving until
+        # it is fixed or silenced. It does not touch warnings, so nothing already being seen
+        # gets louder — and nothing was firing at critical when this shipped.
+        # group_by overrides the top-level ['namespace'] because node-level alerts carry no
+        # namespace label at all: without alertname/escalated_alert every namespace-less alert
+        # collapses into one group sharing a single repeat_interval timer.
+        - receiver: 'ntfy'
+          matchers: ['severity = "critical"']
+          group_by: ['alertname', 'escalated_alert', 'namespace']
+          repeat_interval: 1h
         - receiver: 'ntfy'
           matchers: ['severity =~ "warning|critical"']
           continue: false

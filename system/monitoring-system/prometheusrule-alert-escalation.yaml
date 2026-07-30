@@ -1,0 +1,62 @@
+---
+# Duration-based escalation, added 2026-07-30 (post-outage follow-up Item 6).
+#
+# NodeClockNotSynchronising fired for 38h as a `severity: warning`. Prometheus evaluated it,
+# Alertmanager routed it, ntfy accepted every POST (0 failures) — and nobody noticed, because
+# the ntfy route inherits `repeat_interval: 12h`. ~30h of continuous firing yields two or three
+# notifications, interleaved with whatever else 148 alert rules emit. A warning that never
+# escalates is indistinguishable from noise.
+#
+# This escalates the whole class on duration instead of reclassifying alerts one at a time.
+# It pairs with the `severity = "critical"` child route in values.yaml, which re-notifies
+# hourly: escalation alone would produce one more message in the same stream.
+#
+# No feedback loop: this rule matches `severity="warning"` and emits `severity: critical`,
+# so it cannot match itself. Do not change the emitted severity to warning.
+#
+# ALERTS_FOR_STATE holds the unix timestamp the source alert went PENDING, not firing, and it
+# carries no `alertstate` label — hence the join against ALERTS, which does. For a source with
+# `for: 15m` the real firing time at trip is 1h45m, not 2h. Close enough; erring early is fine.
+#
+# `label_replace` copies the source alertname into `escalated_alert` because Prometheus
+# overwrites `alertname` with this rule's name, which would otherwise leave the notification
+# unable to say which alert escalated.
+#
+# Validated against live Prometheus: with severity="none" this returns Watchdog (39.9h old);
+# with the threshold inverted to > 99999999 it returns empty, so the comparison genuinely
+# gates rather than always-matching.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: alert-escalation
+  namespace: monitoring-system
+  labels:
+    release: monitoring-system
+spec:
+  groups:
+    - name: alert-escalation
+      rules:
+        - alert: WarningAlertFiringTooLong
+          expr: >-
+            label_replace(
+              ALERTS{alertstate="firing", severity="warning"}
+                and ignoring(alertstate) (time() - ALERTS_FOR_STATE > 7200),
+              "escalated_alert", "$1", "alertname", "(.+)")
+          labels:
+            severity: critical
+          annotations:
+            summary: >-
+              {{ $labels.escalated_alert }} has been firing for over 2h and is still unresolved
+            description: >-
+              A `severity: warning` alert has now been firing for more than two hours, which
+              means it was notified once and then went quiet under the 12h repeat interval.
+              Escalated to critical so it re-notifies hourly until it is fixed or silenced.
+              Source alert: `{{ $labels.escalated_alert }}`
+              {{ if $labels.instance }}on `{{ $labels.instance }}`{{ end }}
+              {{ if $labels.namespace }}in namespace `{{ $labels.namespace }}`{{ end }}.
+              Fix it, or if it is expected, silence it with an explicit `--duration` — note a
+              silence on the source alert does NOT suppress this one, because silences are an
+              Alertmanager concept and `ALERTS` still reports a silenced alert as firing. To
+              mute the pair, silence `escalated_alert="<source>"` as well. The original warning
+              also keeps notifying: the inhibit rules match on `alertname`, which differs here
+              by construction.
