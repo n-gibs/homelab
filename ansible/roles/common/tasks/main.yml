@@ -74,6 +74,40 @@
   become: true
   notify: Reload systemd
 
+# k3s.service already declares Wants=/After=network-online.target, but that target is
+# reached vacuously on these nodes: systemd-networkd-wait-online.service is enabled and
+# wanted by the target, yet it is skipped every boot on an unmet
+#   ConditionPathIsSymbolicLink=/run/systemd/generator/network-online.target.wants/systemd-networkd-wait-online.service
+# and that generator directory does not exist on any of the three nodes. So nothing
+# actually waits for DHCP, and k3s starts before there is a default route:
+#   level=fatal msg="Error: no default routes found in \"/proc/net/route\" ..."
+# Observed on the 2026-07-30 worker-02 reboot: 3 failed starts over 11s before the
+# route appeared. Restart=always eventually wins, so it self-heals on a normal reboot —
+# but during a cluster move the switch/firewall boots alongside the nodes, the window is
+# much longer, and all three nodes flap k3s (and their etcd members) until it closes.
+#
+# Clearing the condition lets the unit run, which is all network-online.target needs to
+# mean something; k3s's existing After= then does its job with no k3s-specific hack.
+# Measured cost when the network is already up: 7ms. If DHCP never completes the unit
+# fails after its own 120s timeout and k3s still starts, because k3s uses Wants= (not
+# Requires=) — worst case degrades to today's behaviour rather than blocking the boot.
+- name: Create systemd-networkd-wait-online override directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/systemd-networkd-wait-online.service.d
+    state: directory
+    mode: "0755"
+  become: true
+
+- name: Make network-online.target actually wait for the network
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/systemd-networkd-wait-online.service.d/always-run.conf
+    content: |
+      [Unit]
+      ConditionPathIsSymbolicLink=
+    mode: "0644"
+  become: true
+  notify: Reload systemd
+
 - name: Update apt cache
   ansible.builtin.apt:
     update_cache: true
