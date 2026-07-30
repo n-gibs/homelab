@@ -4,3 +4,10 @@
     name: sshd
     state: restarted
   become: true
+
+# Picks up the k3s drop-in without restarting k3s — the drop-in only has to be in
+# effect by the next boot, and restarting k3s here would be gratuitously disruptive.
+- name: Reload systemd
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  become: true
