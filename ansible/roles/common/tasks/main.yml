@@ -61,15 +61,44 @@
 # NOT fix this: taints are applied only at first Node registration and are never
 # re-applied on reboot or kubelet restart.
 #
-# Guarded on the socket so `systemctl restart k3s` against a healthy agent is a no-op:
-# KillMode=process leaves running containers (the agent included) alive across a k3s
-# restart, and the agent only writes the conflist during its own startup.
-- name: Gate k3s startup on a live Cilium CNI socket
+# This originally guarded on the socket, so that `systemctl restart k3s` against a healthy
+# agent was a no-op. That guard is exactly what allowed the split-brain below, so it is
+# gone: the agent is now killed unconditionally first, which makes the socket always absent
+# and the guard dead logic.
+# The first ExecStartPre reaps a surviving agent. KillMode=process (above) is the whole
+# problem: `systemctl stop k3s` leaves the containerd-shims running, so the cilium-agent
+# process outlives k3s. systemd says so itself —
+#   k3s.service: Unit process 1836 (containerd-shim) remains running after unit stopped.
+# Normally k3s reattaches to that shim on restart and nothing is duplicated. But when it
+# instead builds a *new* agent container — an image, pod-spec or snapshotter change across
+# the restart — the old process is still alive and you get two cilium-agents on one node.
+# Observed on worker-00 2026-07-29: k3s stopped 01:57:43 mid-snapshotter-migration, the new
+# agent came up 01:58:57 and could not bind either of its ports, because the old one held
+# them:
+#   Failed to launch hubble ... listen tcp :4244: bind: address already in use
+#   Failed to serve cilium-health API ... listen tcp 192.168.30.129:4240: bind: address already in use
+# Both agents then wrote the same shared BPF LB maps from independent in-memory backend-ID
+# allocators, so each deleted backends the other had just written and every service whose
+# backend pod appeared after the split pointed at a backend ID that no longer existed:
+#   cilium-dbg bpf lb list | grep 'not found'   ->  "backend 235 not found"  (23 frontends)
+# It hides completely: each agent's own userspace `service list` is self-consistent, the
+# node is Ready, `status --brief` is OK, and neither agent logs anything about LB. Only the
+# BPF map disagrees. CoreDNS was recreated 62s into the split, so it presented as a
+# cluster-wide DNS outage (27 ArgoCD apps Unknown, cert-manager Degraded).
+#
+# Killing the survivor costs a Cilium restart on every `systemctl restart k3s`. The conflist
+# removal already handles that cleanly: no agent -> no conflist -> node honestly NotReady
+# until the agent rewrites it via write-cni-conf-when-ready. That is a fair trade for an
+# invariant of exactly one agent per node, given the failure is silent and cluster-wide.
+# Ceiling: pkill sends SIGTERM and does not wait. That is right for the observed case (an
+# orphan that is healthy enough to hold its ports), but an agent wedged past SIGTERM would
+# still survive; escalate to a SIGKILL-after-timeout wrapper if that ever shows up.
+- name: Reap any surviving Cilium agent and its CNI conflist before k3s starts
   ansible.builtin.copy:
     dest: /etc/systemd/system/k3s.service.d/cilium-cni-gate.conf
     content: |
       [Service]
-      ExecStartPre=/bin/sh -c '[ -S /var/run/cilium/cilium.sock ] || rm -f /etc/cni/net.d/05-cilium.conflist'
+      ExecStartPre=/bin/sh -c 'pkill -x cilium-agent; rm -f /var/run/cilium/cilium.sock /etc/cni/net.d/05-cilium.conflist; true'
     mode: "0644"
   become: true
   notify: Reload systemd

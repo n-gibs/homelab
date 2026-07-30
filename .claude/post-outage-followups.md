@@ -54,8 +54,43 @@ From inside an affected pod the signature is that *one* ClusterIP fails while ot
 work — `10.43.0.10:53` gives `no route to host` while `10.43.0.1:443` and CoreDNS's
 *pod* IP both succeed. `bash /dev/tcp/<ip>/<port>` works in most pods here.
 
-**Fix:** delete that node's cilium agent pod; it rebuilds the LB maps from k8s state.
-Went 23 → 0, DNS restored, no side effects.
+**Workaround at the time:** delete that node's cilium agent pod; it rebuilds the LB maps
+from k8s state. Went 23 → 0, DNS restored, no side effects.
+
+**Root cause (found 2026-07-30): two cilium-agent processes on one node.** k3s carries
+`KillMode=process`, so `systemctl stop k3s` leaves the containerd-shims — and the agent
+inside them — running. systemd logs it plainly:
+
+```
+Jul 29 01:57:43 worker-00 systemd[1]: Stopping k3s.service...
+Jul 29 01:57:43 worker-00 systemd[1]: k3s.service: Unit process 1836 (containerd-shim) remains running after unit stopped.
+```
+
+Normally k3s reattaches to that shim on restart and nothing is duplicated. Here the
+snapshotter migration meant it built a *new* agent container instead, at `01:58:57` — with
+no shutdown logged for the old one, and both of its ports already taken by it:
+
+```
+Failed to launch hubble ... listen tcp :4244: bind: address already in use
+Failed to serve cilium-health API ... listen tcp 192.168.30.129:4240: bind: address already in use
+```
+
+Nothing else on the node binds those two ports, so that is direct proof two agents were
+live at once. They then wrote the same shared BPF LB maps from independent in-memory
+backend-ID allocators, each deleting backends the other had just written — so every service
+whose backend pod appeared after the split pointed at a backend ID that no longer existed.
+CoreDNS was recreated 62s in, which is why it surfaced as a DNS outage. (The map divergence
+itself was not captured live; the split brain is proven, this last step is inferred from it.)
+
+**Fix:** `ansible/roles/common/tasks/main.yml` — the k3s `ExecStartPre` drop-in now kills any
+surviving agent before k3s starts, making "exactly one agent per node" an invariant. The
+previous socket guard, which made a restart against a healthy agent a no-op, was precisely
+what allowed the duplicate, so it is gone.
+
+**Not the cause — ruled out with evidence:** leaked local endpoints from CNI-ADD timeouts.
+On 2026-07-30 worker-00 held 11 leaked endpoints and **0** dangling backends simultaneously,
+and correctly programmed a brand-new backend (`loki-0`) 50 minutes after an agent restart.
+Leaks are real but are not this.
 
 **Blast radius:** all ~43 pods on worker-00 lost cluster DNS. All 27 ArgoCD apps sat at
 `sync_status=Unknown` with a `ComparisonError` (reads like a git or Cloudflare problem —
