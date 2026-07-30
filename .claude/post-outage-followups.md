@@ -271,6 +271,19 @@ still propagates the container exit code.
 
 ## Open Item 3 — ntfy.sh Is Silently Rejecting Notifications
 
+**Deferred deliberately on 2026-07-30, not overlooked.** The proposed fix — a non-ntfy
+receiver for `AlertmanagerFailedToSendAlerts` so "delivery is broken" does not travel through
+the broken channel — needs a credential for a second channel (Discord webhook, Telegram bot,
+or SMTP). None exists in `secrets/registry.tsv` and there is no `smtp`/`smarthost` config in
+the repo. Decision was to leave it open rather than add a channel just to have one: alert
+escalation (Item 6) now makes `AlertmanagerFailedToSendAlerts` loud on its own — it fired for
+13.3h in the 7d before that shipped, which would now escalate to critical and re-notify
+hourly. What remains genuinely uncovered is *total* ntfy failure with an otherwise healthy
+pipeline: the escalated critical routes through ntfy too, so it is lost with everything else,
+and the dead-man's switch does **not** catch this — the snitch pings `hc-ping.com` through a
+separate receiver, so it keeps reporting healthy while ntfy alone refuses. That residual gap
+is the whole of Item 3, and it is accepted for now.
+
 Found 2026-07-29 while verifying the dead-man's switch.
 `alertmanager_notifications_failed_total{integration="webhook",reason="clientError"}` had
 reached **184** on the then-running Alertmanager pod, and was actively incrementing by one
