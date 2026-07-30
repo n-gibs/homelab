@@ -9,9 +9,15 @@ during the snapshotter migration, and chrony was one of four services it killed.
 Item 5 (worker-00 out of inotify instances) was found *and* closed on 2026-07-30 — it was
 live when found: PID 1 itself could not allocate an inotify fd.
 
-**Only Item 3 is open** — ntfy returned 4xx on a since-replaced Alertmanager pod. It is not
-currently recurring; see "The warning alert nobody saw was *not* Item 3" below for the
-measurement that de-escalated it.
+**Open: Items 3 and 6**, both about the alerting pipeline's last hop.
+
+- **Item 3** — ntfy returned 4xx on a since-replaced Alertmanager pod. Not currently
+  recurring; see "The warning alert nobody saw was *not* Item 3" for the measurement that
+  de-escalated it. *The channel refused the message.*
+- **Item 6** — a `severity: warning` fired for 38h, was delivered successfully, and nobody
+  noticed, because the ntfy route carries `repeat_interval: 12h`. Raised out of the Item 4
+  investigation and **the only failure that investigation actually proved.**
+  *The message arrived and did not register.*
 
 Every item after the first two was found *while verifying* an earlier one. Item 5 came out
 of clearing two apparently-cosmetic failed units left over from Item 4.
@@ -333,6 +339,56 @@ counter without delivering the notifications.
 
 ---
 
+## Open Item 6 — A Correctly-Delivered Warning Went Unnoticed for 38 Hours
+
+Raised 2026-07-30 out of Item 4. **This is the only failure the Item 4 investigation
+actually proved**, and it is not a delivery bug — which is what makes it easy to lose.
+
+`NodeClockNotSynchronising` fired for 38 hours. Prometheus evaluated it correctly.
+Alertmanager routed it correctly. ntfy accepted every POST (0 failures over the pod's
+22.9h; see the Item 4 write-up). Nobody noticed. Every layer did its job and the outcome was
+still a node with no clock for a day and a half.
+
+The mechanism is cadence, not plumbing. The generated route is:
+
+```yaml
+- receiver: ntfy
+  matchers: [severity =~ "warning|critical"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 12h        # <-- this
+```
+
+At `repeat_interval: 12h`, ~30 hours of continuous firing yields **two or three**
+notifications total, interleaved with everything else 148 alert rules emit. A
+`severity: warning` that never escalates is indistinguishable from noise.
+
+Note this also governs both CoreDNS redundancy alerts (`CoreDNSRedundancyLost`,
+`CoreDNSScrapeTargetsMissing`) — both are `severity: warning`, so a silent loss of DNS
+redundancy would surface exactly as weakly as the clock did.
+
+**Deliberately not changed yet.** Which alerts are worth interrupting a person for is a
+judgment call, not a bug fix, and the wrong answer here makes fatigue *worse*. Options,
+roughly in increasing order of intrusiveness:
+
+- **Escalate on duration.** A rule that fires when a `warning` has been firing for >N hours,
+  at `severity: critical`. Catches the whole class rather than tuning alerts one at a time,
+  and reuses the existing critical route. Probably the best value.
+- **Shorten `repeat_interval` for node-level warnings only.** A child route matching
+  `alertname =~ "NodeClock.*|CoreDNS.*"` with something like 2h. Narrow, cheap, but has to
+  be maintained per-alert.
+- **Reclassify.** `NodeClockNotSynchronising` on an etcd control-plane node is arguably
+  critical, not a warning. Smallest change, fixes only this alert.
+
+Do **not** address this by raising alert volume globally — that is the direct cause of the
+fatigue being described.
+
+Worth pairing with Item 3: both are about the alerting pipeline's last hop, and a fix for
+one does not help the other. Item 3 is "the channel refused the message"; Item 6 is "the
+message arrived and did not register."
+
+---
+
 ## Done — worker-00 Time Sync (Item 4, closed 2026-07-30)
 
 **Root cause: collateral damage from a mass `kill -TERM` sweep, not anything systemic.**
@@ -388,6 +444,13 @@ Verified: `just provision` converged all three nodes (`failed=0`), and all three
 `NTP service: active`, `System clock synchronized: yes`, `Restart=always`, with chrony,
 thermald and fail2ban active.
 
+**One gap left open deliberately:** only `chrony` got `Restart=always`. `thermald` and
+`fail2ban` are installed, enabled and started, but a second stray SIGTERM would leave them
+dead again exactly as before — `just provision` is the only thing that would bring them
+back. Rationale: clock skew on an etcd control-plane node is the failure that hurts, and
+the drop-in is per-unit. Add the same override for either if it ever goes missing again;
+the task in `ansible/roles/common/tasks/main.yml` is a copy-paste with the name changed.
+
 **Clock adjustment was a slew, not a step.** Re-measured immediately before starting the
 service: `0.052917s` (up from `0.050767s` 23 minutes earlier). `chrony.conf` carries
 `makestep 1 3`, so it only steps above 1 second — 53ms slews. Confirmed after the fact:
@@ -436,6 +499,10 @@ in the same counter.
 
 Also cleared while here: worker-02's `mnt-storage.mount` was in `failed` state; the
 provision run remounted it (`11T, 24% used`).
+
+**This finding is what Open Item 6 exists for.** Detection worked and delivery worked; the
+notification still failed to reach anyone. That is a routing/cadence problem, not a
+pipeline problem, and it is the one thing this incident actually proved.
 
 <details>
 <summary>Original Item 4 write-up (superseded — kept for the evidence trail)</summary>
