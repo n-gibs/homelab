@@ -55,7 +55,48 @@
       - fail2ban
       - open-iscsi
       - nfs-common
+      - chrony
+      - thermald
     state: present
+  become: true
+
+# chrony is the only time source on these nodes — systemd-timesyncd is not installed.
+# On 2026-07-29 a mass `kill -TERM` sweep on worker-00 (hunting an orphaned process
+# holding :9100 during the containerd snapshotter migration) SIGTERM'd chrony, thermald
+# and fail2ban as collateral. None of the three carries Restart=, so all three stayed
+# dead silently; the clock then drifted unmonitored for 38h. Reconcile them here.
+- name: Create chrony systemd override directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/chrony.service.d
+    state: directory
+    mode: "0755"
+  become: true
+
+# A stray SIGTERM is a *clean* exit (status=0/SUCCESS), so Restart=on-failure would not
+# have covered it. An explicit `systemctl stop chrony` still wins — systemd never restarts
+# a unit that was deliberately stopped.
+# ponytail: chrony only. Clock skew on an etcd control-plane node is the one that hurts;
+# add the same override for thermald/fail2ban if either ever goes missing again.
+- name: Make chrony survive an unexpected termination
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/chrony.service.d/override.conf
+    content: |
+      [Service]
+      Restart=always
+      RestartSec=5s
+    mode: "0644"
+  become: true
+
+- name: Enable and start node services
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+    daemon_reload: true
+  loop:
+    - chrony
+    - thermald
+    - fail2ban
   become: true
 
 - name: Configure unattended-upgrades

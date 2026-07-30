@@ -2,9 +2,14 @@
 
 Resilience work left over from the 2026-07-28 incident. The original two items addressed
 the fact that the outage went unnoticed for roughly an hour rather than the outage itself.
-Both are now done: the dead-man's switch (2026-07-29) and CoreDNS HA (2026-07-29).
-Items 3 (ntfy rejecting notifications) and 4 (worker-00 has no time sync) are open, and
-both were found *while verifying* the first two.
+Both are done: the dead-man's switch (2026-07-29) and CoreDNS HA (2026-07-29). Item 4
+(worker-00 time sync) is done as of 2026-07-30 — root cause was a mass `kill -TERM` sweep
+during the snapshotter migration, and chrony was one of four services it killed.
+
+**Open: Item 3** (ntfy returned 4xx; not currently recurring, see the Item 4 write-up) and
+**Item 5** (worker-00 is out of inotify instances — a *live* fault, found 2026-07-30).
+
+Every item after the first two was found *while verifying* an earlier one.
 
 ## What Happened (context for both items)
 
@@ -323,7 +328,112 @@ counter without delivering the notifications.
 
 ---
 
-## Open Item 4 — worker-00 Has No Time Sync
+## Done — worker-00 Time Sync (Item 4, closed 2026-07-30)
+
+**Root cause: collateral damage from a mass `kill -TERM` sweep, not anything systemic.**
+
+At `02:14:38Z` on 2026-07-29, during the containerd snapshotter migration on worker-00,
+a sweep issued `sudo kill -TERM <pid>` against **the entire process table**. The giveaway
+is in the sudo log: the first kill of the batch is
+
+```
+COMMAND=/usr/bin/kill -TERM PID
+```
+
+— the literal string `PID`, i.e. the *header row* of `ps -eo pid,etimes,comm`. So the
+filter matched every line including the header. An earlier batch 45 seconds before
+(`02:13:53Z`) had killed only 16 high PIDs, so the filter worked that time; on the retry
+it degenerated to "everything". The shape of a numeric awk comparison against an empty
+threshold variable (`$2 > ""` → string compare → always true).
+
+The sweep was hunting an orphaned process holding `:9100` (node-exporter's port) left over
+after `systemctl stop k3s` + `rm -rf /var/lib/rancher/k3s/agent/containerd` — the session
+polled `ss -lptn sport = :9100` three times and `ps -o etimes= -p 917397` five times
+around it.
+
+**This will not recur on worker-01 or worker-02 on its own.** It was ad-hoc interactive
+work, not automation: `grep -rniE 'kill -TERM|etimes|pkill|xargs.*kill'` across the repo
+finds nothing. The 16-minute gap after the Cilium agent recovered at `01:58:56Z` was
+coincidence — same maintenance session, not an incident-response reflex.
+
+**chrony was not the only casualty.** The sweep SIGTERM'd four services; none carries
+`Restart=`, so all four stayed dead silently:
+
+| Unit | State found 2026-07-30 | Impact |
+|------|------------------------|--------|
+| `chrony` | `inactive` | the `NodeClockNotSynchronising` alert |
+| `thermald` | `inactive` | no thermal management on a ProDesk Mini for 38h |
+| `fail2ban` | `failed` | no SSH brute-force protection |
+| `wpa_supplicant` | `inactive` | none — wired-only node, left alone |
+
+`chrony` had `Restart=no`, which is Debian's packaged default. A stray SIGTERM is a
+**clean** exit (`status=0/SUCCESS`), so `Restart=on-failure` would not have covered it
+either — only `Restart=always` does.
+
+**Fixed** in `ansible/roles/common/tasks/main.yml` (ships via `just provision`, not ArgoCD):
+
+- `chrony` and `thermald` added to base packages (explicit rather than "whatever the
+  Ubuntu installer left").
+- `chrony`, `thermald`, `fail2ban` ensured `enabled` + `started`.
+- A `chrony.service.d/override.conf` drop-in with `Restart=always` / `RestartSec=5s`.
+  An explicit `systemctl stop chrony` still wins — systemd never restarts a unit that was
+  deliberately stopped.
+
+Verified: `just provision` converged all three nodes (`failed=0`), and all three now report
+`NTP service: active`, `System clock synchronized: yes`, `Restart=always`, with chrony,
+thermald and fail2ban active.
+
+**Clock adjustment was a slew, not a step.** Re-measured immediately before starting the
+service: `0.052917s` (up from `0.050767s` 23 minutes earlier). `chrony.conf` carries
+`makestep 1 3`, so it only steps above 1 second — 53ms slews. Confirmed after the fact:
+no step entry in the journal, and offset settled to `+116µs` against
+`ntp-nts-3.ps5.canonical.com`. Alertmanager was on worker-02 at the time, so the
+dead-man's switch was never near the adjusted node. No silence was needed and none was
+created.
+
+**Trip-tested, not assumed.** Reproduced the exact 2026-07-29 failure on worker-00 —
+`kill -TERM $MainPID`, producing the same `chronyd exiting` /
+`Deactivated successfully` pair — and systemd brought it back in 5s:
+
+```
+17:19:01 chronyd exiting
+17:19:01 chrony.service: Deactivated successfully.
+17:19:06 chrony.service: Scheduled restart job, restart counter is at 1.
+17:19:06 Started chrony.service
+17:19:11 Selected source 185.125.190.123
+```
+
+`NRestarts=1`, back in sync. Note `systemctl show -p MainPID` can read stale immediately
+after the kill; trust `NRestarts` and the journal, not a PID diff.
+
+### The warning alert nobody saw was *not* Item 3
+
+Checked directly, because the answer decides whether Item 3 is urgent. **It is not the
+cause — ntfy delivered these fine.** Over the current Alertmanager pod's 22.9h life:
+
+- `alertmanager_notifications_failed_total` increase = **0** in every
+  integration/reason pair.
+- 213 webhook notifications attempted, 213 HTTP requests — so not even an in-pipeline retry.
+- Zero `notify`/`error` lines in 24h of Alertmanager logs.
+
+`NodeClockNotSynchronising` was firing the whole time (3581 firing samples over 38h of
+Prometheus uptime). The generated route sends `severity =~ "warning|critical"` to `ntfy`
+with **`repeat_interval: 12h`**, so ~30 hours of firing produced only two or three
+notifications, successfully delivered and never looked at. **That is alert fatigue, not
+lost delivery.**
+
+So Item 3 stays where it was in priority. Two honest caveats: the current Alertmanager pod
+postdates Item 3's 184 `clientError`s, so the counter reset (which is Item 3's own point —
+a restart launders the symptom); and `integration="webhook"` is shared by `ntfy` and
+`deadmanssnitch`, so a clean total cannot be attributed to `ntfy` alone. What it *can*
+rule out is any 4xx at all in that window, since a failure of either receiver would land
+in the same counter.
+
+Also cleared while here: worker-02's `mnt-storage.mount` was in `failed` state; the
+provision run remounted it (`11T, 24% used`).
+
+<details>
+<summary>Original Item 4 write-up (superseded — kept for the evidence trail)</summary>
 
 Found 2026-07-30 while verifying the CoreDNS HA work. `NodeClockNotSynchronising` is
 firing for `192.168.30.129:9100` (worker-00) and has been since roughly 02:25Z on
@@ -384,3 +494,81 @@ Safety notes specific to this work:
   self-expires, and never leave the healthchecks.io check paused.
 - Do not trust ntfy to confirm anything during this work — see Open Item 3. Verify with
   `timedatectl`, `chronyc tracking`, and Prometheus directly.
+
+</details>
+
+---
+
+## Open Item 5 — worker-00 Is Out of inotify Instances (live fault)
+
+Found 2026-07-30 while clearing the last two `failed` units left by the Item 4 kill sweep.
+This is **currently happening**, not historical.
+
+`fs.inotify.max_user_instances` is **128** — the kernel default, untuned — on every node.
+Root on worker-00 is at that ceiling right now and cannot allocate a single new instance:
+
+```
+$ sudo python3 -c '...libc.inotify_init1(0)...'
+exhausted after 0 new instances: errno=24 (Too many open files)
+```
+
+Even PID 1 is failing:
+
+```
+Jul 30 17:43:43 worker-00 systemd[1]: Failed to allocate inotify fd: Too many open files
+Jul 30 17:43:43 worker-00 systemd[1]: systemd-ask-password-wall.path: Failed to enter waiting state: Too many open files
+```
+
+13 occurrences in the last 30 days of journal, first at **Jul 29 06:08:47**
+(`systemd-networkd-wait-online[951088]: Could not create manager: Too many open files`),
+most recent today. `systemctl reset-failed` + `start` on the two
+`systemd-ask-password-*.path` units **fails to clear them** — the units cannot enter their
+waiting state without an inotify fd. They are benign in themselves (headless node, nothing
+prompts for a password); they are useful as a canary.
+
+Not symmetric across the cluster — inotify fds held, worker-00 vs worker-02:
+
+| Node | inotify fds held | top consumer |
+|------|------------------|--------------|
+| worker-00 | 150 | `k3s-server` (44) |
+| worker-02 | 88 | `k3s-server` (34) |
+
+(fd count, not instance count — fds are inherited across forks, so these over-count
+instances. The *ratio* is the signal.)
+
+**Why this matters more than two cosmetic failed units.** This is the exact shape of the
+2026-07-28 fault: a process that runs, reports healthy, and silently stops noticing
+changes. worker-00's Cilium agent stopped programming BPF backends while
+`cilium-dbg status --brief` still said `OK`. An agent that cannot establish an inotify
+watch fails precisely that way.
+
+**But do not call it the cause of that incident.** The first journal occurrence
+(Jul 29 06:08) *postdates* the agent wedge (Jul 29 01:58), so on the evidence available it
+does not predate the failure it resembles. Journal retention may simply not reach further
+back. Unproven, worth proving.
+
+**Fix is standard Kubernetes node tuning**, and it belongs in
+`ansible/roles/common/tasks/main.yml` next to the Item 4 work:
+
+```yaml
+- name: Raise inotify limits for Kubernetes workloads
+  ansible.posix.sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    sysctl_file: /etc/sysctl.d/99-inotify.conf
+    reload: true
+  loop:
+    - { name: fs.inotify.max_user_instances, value: "1024" }
+    - { name: fs.inotify.max_user_watches, value: "524288" }
+  become: true
+```
+
+Not applied yet — it is a sysctl change across all three control-plane nodes and was
+outside the scope of the Item 4 investigation. Takes effect immediately on reload, no
+reboot and no k3s restart needed. Verify afterwards by re-running the `inotify_init1` probe
+above (should create 200 without error) and confirming the two
+`systemd-ask-password-*.path` units clear with `systemctl reset-failed`.
+
+Worth checking at the same time *why* worker-00 holds ~1.7× worker-02's inotify fds. A leak
+in something long-lived would come back at 1024 too; raising the ceiling buys headroom, it
+does not prove there is no leak.
