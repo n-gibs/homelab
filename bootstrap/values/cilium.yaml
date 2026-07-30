@@ -1,6 +1,29 @@
 kubeProxyReplacement: true
-k8sServiceHost: "192.168.30.129"
+
+# Every node is a k3s server with its own apiserver listening on *:6443, and both the
+# agent DaemonSet and the operator run hostNetwork, so 127.0.0.1 resolves to the local
+# apiserver on whichever node the pod lands.
+#
+# This used to be hardcoded to 192.168.30.129 (worker-00), which made worker-00 a single
+# point of failure for Cilium cluster-wide: when its k3s restarted on 2026-07-30 at
+# 17:53, all three agents logged `apiserver not ready` and worker-01 additionally logged
+# `403 forbidden` on services/CiliumNode while worker-00's RBAC was still reconciling.
+# Pointing each agent at its own node removes the cross-node dependency — a node whose
+# local apiserver is down has no working k3s anyway, so its agent is moot.
+k8sServiceHost: "127.0.0.1"
 k8sServicePort: "6443"
+
+# Cilium's chart default is maxUnavailable: 2, which on a 3-node cluster tears down
+# two thirds of the CNI at once. Roll one node at a time — Renovate bumps the chart
+# version in bootstrap/helmfile.yaml, so this applies to every future upgrade too.
+updateStrategy:
+  rollingUpdate:
+    maxUnavailable: 1
+
+envoy:
+  updateStrategy:
+    rollingUpdate:
+      maxUnavailable: 1
 
 ipam:
   mode: kubernetes
