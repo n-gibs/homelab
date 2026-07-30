@@ -6,10 +6,15 @@ Both are done: the dead-man's switch (2026-07-29) and CoreDNS HA (2026-07-29). I
 (worker-00 time sync) is done as of 2026-07-30 — root cause was a mass `kill -TERM` sweep
 during the snapshotter migration, and chrony was one of four services it killed.
 
-**Open: Item 3** (ntfy returned 4xx; not currently recurring, see the Item 4 write-up) and
-**Item 5** (worker-00 is out of inotify instances — a *live* fault, found 2026-07-30).
+Item 5 (worker-00 out of inotify instances) was found *and* closed on 2026-07-30 — it was
+live when found: PID 1 itself could not allocate an inotify fd.
 
-Every item after the first two was found *while verifying* an earlier one.
+**Only Item 3 is open** — ntfy returned 4xx on a since-replaced Alertmanager pod. It is not
+currently recurring; see "The warning alert nobody saw was *not* Item 3" below for the
+measurement that de-escalated it.
+
+Every item after the first two was found *while verifying* an earlier one. Item 5 came out
+of clearing two apparently-cosmetic failed units left over from Item 4.
 
 ## What Happened (context for both items)
 
@@ -499,10 +504,10 @@ Safety notes specific to this work:
 
 ---
 
-## Open Item 5 — worker-00 Is Out of inotify Instances (live fault)
+## Done — worker-00 Out of inotify Instances (Item 5, found and closed 2026-07-30)
 
-Found 2026-07-30 while clearing the last two `failed` units left by the Item 4 kill sweep.
-This is **currently happening**, not historical.
+Found while clearing the last two `failed` units left by the Item 4 kill sweep. It was a
+**live** fault at the time, not historical.
 
 `fs.inotify.max_user_instances` is **128** — the kernel default, untuned — on every node.
 Root on worker-00 is at that ceiling right now and cannot allocate a single new instance:
@@ -526,15 +531,42 @@ most recent today. `systemctl reset-failed` + `start` on the two
 waiting state without an inotify fd. They are benign in themselves (headless node, nothing
 prompts for a password); they are useful as a canary.
 
-Not symmetric across the cluster — inotify fds held, worker-00 vs worker-02:
+### It is not a leak — it is pod density against an untuned ceiling
 
-| Node | inotify fds held | top consumer |
-|------|------------------|--------------|
-| worker-00 | 150 | `k3s-server` (44) |
-| worker-02 | 88 | `k3s-server` (34) |
+Investigated before touching the sysctl, because a real leak would exhaust 1024 just as
+happily as 128. It is not one. The limit is charged **per-UID**, and `uid=0` is the one
+that is full:
 
-(fd count, not instance count — fds are inherited across forks, so these over-count
-instances. The *ratio* is the signal.)
+| Node | `uid=0` inotify fds | running pods | `containerd-shim` fds / procs | `k3s-server` fds |
+|------|--------------------|--------------|-------------------------------|------------------|
+| worker-00 | **129 / 128** | 37 | 72 / 37 | 44 |
+| worker-02 | 79 / 128 | 14 | 32 / 14 | 34 |
+
+**Exactly one `containerd-shim` process per running pod, each holding 2 inotify fds.**
+37 shims × 2 = 74, plus k3s-server's 44, plus ~11 from `systemd`/`tailscaled`/`agetty`/etc
+= 129. The marginal cost is ~2.2 fds per pod, and worker-00 carries 37 of the cluster's 68
+running pods (54%).
+
+Three independent reasons this is not a leak:
+
+1. **No idle instances.** Zero processes hold an inotify fd with zero watches — across 60
+   holders on worker-00 and 28 on worker-02. Every instance is in active use.
+2. **Age is anti-correlated.** worker-00's `k3s-server` was 2,025s old holding 44 fds;
+   worker-02's was 71,349s old — **35× older** — holding 34. A leak grows with uptime.
+   This shrinks with it.
+3. **The count is predicted by pod count.** `79 + (37 − 14) × 2.2 ≈ 129`.
+
+So the ceiling of 128 is simply too low for worker-00's density. **worker-00 has zero
+headroom right now** — the next pod scheduled there cannot get a shim watch, and neither
+can any daemon that needs one. worker-02 has room for roughly 22 more pods before it hits
+the same wall.
+
+A methodology note for anyone repeating this: do **not** dedupe inotify fds by
+`stat().st_ino`. Every anonymous inode shares a single inode in the `anon_inodefs`
+superblock, so that collapses the entire audit to one row. Count fds per UID from
+`/proc/*/fd/*` where `readlink` is `anon_inode:inotify`, and read watch counts from
+`inotify wd:` lines in the matching `/proc/<pid>/fdinfo/<fd>`.
+The audit script is at `.claude/scripts/inotify-audit.py`.
 
 **Why this matters more than two cosmetic failed units.** This is the exact shape of the
 2026-07-28 fault: a process that runs, reports healthy, and silently stops noticing
@@ -563,12 +595,25 @@ back. Unproven, worth proving.
   become: true
 ```
 
-Not applied yet — it is a sysctl change across all three control-plane nodes and was
-outside the scope of the Item 4 investigation. Takes effect immediately on reload, no
-reboot and no k3s restart needed. Verify afterwards by re-running the `inotify_init1` probe
-above (should create 200 without error) and confirming the two
-`systemd-ask-password-*.path` units clear with `systemctl reset-failed`.
+**Applied 2026-07-30** via `just provision` (`changed` on all three nodes, `failed=0`).
+Took effect on reload — no reboot, no k3s restart, no pod disruption.
 
-Worth checking at the same time *why* worker-00 holds ~1.7× worker-02's inotify fds. A leak
-in something long-lived would come back at 1024 too; raising the ceiling buys headroom, it
-does not prove there is no leak.
+`max_user_watches` was *not* near its limit (288 used of 123,584); raised for symmetry
+because it costs nothing.
+
+1024 instances gives worker-00 room for roughly 400 pods at the measured ~2.2 fds/pod,
+against a kubelet default cap of 110 pods per node. That is deliberate headroom, not a
+guess: the audit rules out a leak, so the only growth term is pod count, and pod count is
+already capped well below the new ceiling.
+
+Verified after applying:
+
+- The `inotify_init1` probe that previously reported `exhausted after 0 new instances`
+  now creates 200 without error.
+- Both `systemd-ask-password-*.path` units cleared with `reset-failed` + `start` and
+  **stayed** cleared — they had been un-clearable while the limit was hit, which is what
+  makes them a useful canary.
+- **Zero failed units on all three nodes** (worker-02's `mnt-storage.mount` also cleared).
+- `/etc/sysctl.d/99-inotify.conf` written, so it survives reboot.
+- Cluster undisturbed: no not-ready pods, 28/28 ArgoCD apps Synced/Healthy, and
+  `cilium-dbg bpf lb list | grep -c 'not found'` = 0 on all three agents.
