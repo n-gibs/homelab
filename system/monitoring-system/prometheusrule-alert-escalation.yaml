@@ -51,9 +51,7 @@ spec:
               A `severity: warning` alert has now been firing for more than two hours, which
               means it was notified once and then went quiet under the 12h repeat interval.
               Escalated to critical so it re-notifies hourly until it is fixed or silenced.
-              Source alert: `{{ $labels.escalated_alert }}`
-              {{ if $labels.instance }}on `{{ $labels.instance }}`{{ end }}
-              {{ if $labels.namespace }}in namespace `{{ $labels.namespace }}`{{ end }}.
+              Source alert: `{{ $labels.escalated_alert }}`{{ if $labels.instance }} on `{{ $labels.instance }}`{{ end }}{{ if $labels.namespace }} in namespace `{{ $labels.namespace }}`{{ end }}.
               Fix it, or if it is expected, silence it with an explicit `--duration` — note a
               silence on the source alert does NOT suppress this one, because silences are an
               Alertmanager concept and `ALERTS` still reports a silenced alert as firing. To

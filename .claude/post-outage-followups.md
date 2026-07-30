@@ -9,14 +9,18 @@ during the snapshotter migration, and chrony was one of four services it killed.
 Item 5 (worker-00 out of inotify instances) was found *and* closed on 2026-07-30 — it was
 live when found: PID 1 itself could not allocate an inotify fd.
 
-**Open: Items 3 and 6**, both about the alerting pipeline's last hop.
+Item 6 (a correctly-delivered warning nobody noticed) is done as of 2026-07-30: a warning
+still firing after 2h now escalates to critical and re-notifies hourly.
+
+**Open: Item 3 only.** Both it and Item 6 were about the alerting pipeline's last hop, and
+fixing one did not help the other:
 
 - **Item 3** — ntfy returned 4xx on a since-replaced Alertmanager pod. Not currently
   recurring; see "The warning alert nobody saw was *not* Item 3" for the measurement that
   de-escalated it. *The channel refused the message.*
-- **Item 6** — a `severity: warning` fired for 38h, was delivered successfully, and nobody
-  noticed, because the ntfy route carries `repeat_interval: 12h`. Raised out of the Item 4
-  investigation and **the only failure that investigation actually proved.**
+- **Item 6** (done) — a `severity: warning` fired for 38h, was delivered successfully, and
+  nobody noticed, because the ntfy route carries `repeat_interval: 12h`. Raised out of the
+  Item 4 investigation and **the only failure that investigation actually proved.**
   *The message arrived and did not register.*
 
 Every item after the first two was found *while verifying* an earlier one. Item 5 came out
@@ -339,7 +343,101 @@ counter without delivering the notifications.
 
 ---
 
-## Open Item 6 — A Correctly-Delivered Warning Went Unnoticed for 38 Hours
+## Done — Alert Escalation (Item 6, closed 2026-07-30)
+
+**A warning still firing after 2h becomes a critical that re-notifies every hour until it
+is fixed or silenced. Nothing else got louder.** That sentence is the whole change; the
+distinction it turns on is "a persisting condition becomes impossible to ignore" versus
+"more alerts", and the second one would have made this worse.
+
+Shipped in `7b0f05d`, two halves that only work together:
+
+- `system/monitoring-system/prometheusrule-alert-escalation.yaml` —
+  `WarningAlertFiringTooLong` fires when any `severity: warning` has been firing >2h, at
+  `severity: critical`. One rule for the whole class instead of reclassifying 148 alerts
+  one at a time. It matches `warning` and emits `critical`, so it cannot match itself.
+- `system/monitoring-system/values.yaml` — a `severity = "critical"` child route above the
+  existing `warning|critical` route, with `repeat_interval: 1h`.
+
+**Why the route change is not optional.** Escalation alone adds exactly one more message to
+the same 12h stream. ntfy's generic webhook renders no priority, so a lone critical looks
+identical to a warning in the notification list — which is the thing that failed. The route
+makes the escalated critical keep arriving.
+
+**Why it does not raise volume.** The new route matches `severity = "critical"` only;
+warnings are untouched, and nothing was firing at critical when it shipped. Measured over
+the previous 7d of Prometheus data, exactly two alerts would have escalated:
+`NodeClockNotSynchronising` (28.2h) and `AlertmanagerFailedToSendAlerts` (13.3h) — both
+real, both previously ignored, zero false positives. If escalation ever does get noisy the
+knob is the `> 7200` in the rule and the `repeat_interval: 1h` on the route, not the
+warning cadence.
+
+**Deliberate consequences, decided rather than inherited:**
+
+- The original warning keeps notifying too. The existing inhibit rule is
+  `severity = critical` → `severity =~ warning|info` with `equal: ['namespace','alertname']`,
+  and an escalation necessarily has a different `alertname`, so it cannot suppress its own
+  source. Wanted: the pair reads as "this is still broken", not as a replacement.
+- `label_replace` copies the source name into `escalated_alert`, because Prometheus
+  overwrites `alertname` with the rule name and the notification would otherwise not say
+  which alert escalated.
+- The critical route overrides `group_by` to `['alertname','escalated_alert','namespace']`.
+  Node-level alerts carry no `namespace` label at all, so under the top-level
+  `group_by: ['namespace']` every namespace-less alert collapses into one group sharing a
+  single `repeat_interval` timer — part of why the clock alert was so quiet.
+- A silence on the source alert does **not** suppress the escalation: silences are an
+  Alertmanager concept and `ALERTS` still reports a silenced alert as firing. Silence
+  `escalated_alert="<source>"` as well. This is stated in the alert's own description.
+
+**Verification.** Pre-merge, against the rendered config: `amtool check-config` SUCCESS, and
+route order proven first-match-wins empirically by renaming the critical route's receiver in
+a throwaway copy (`critical -> null`, `warning -> ntfy`) rather than trusting the docs. The
+expression was run against live Prometheus including the inverted-threshold check
+(`> 99999999` returns empty, so the comparison genuinely gates).
+
+Post-merge: Alertmanager reloaded **in place at 18:28:23Z — no pod restart** (still 2/2, 24h
+uptime, `alertmanager_config_last_reload_successful = 1`), the generated route tree is
+`Watchdog → deadmanssnitch` / `critical → ntfy` / `warning|critical → ntfy` in that order,
+and Watchdog's `0s`/`1m`/`5m` intervals are byte-for-byte unchanged. One webhook
+notification landed in the following 10m with zero failures; since Watchdog was the only
+firing alert, that notification *is* the snitch, which is the cleanest attribution that
+counter allows.
+
+Then an actual trip test, because "the rule is inactive and the config is valid" proves
+nothing about a rule that has never fired. A temporary `PrometheusRule` (not in the repo,
+`kubectl`-applied, deleted after) fired a synthetic source alert and a copy of the escalation
+rule at a 90s threshold, using invented severities `ztestwarn`/`ztestesc` — confirmed via
+`amtool config routes test` to match no route matcher, so the whole test routed to `'null'`
+and generated **zero notifications**. It tripped on schedule and produced:
+
+```
+labels: {alertname: ZTestEscalation, alertstate: firing,
+         escalated_alert: ZTestSyntheticWarning, severity: ztestesc}
+summary: ZTestSyntheticWarning has been firing for over 2h and is still unresolved
+```
+
+That is what validated the annotation Go template end to end — including that
+`{{ $labels.alertname }}` would have been useless here and the `escalated_alert` copy was
+necessary. It also caught a stray `` `  . `` in the rendered text where `instance` and
+`namespace` were both absent, fixed by collapsing the conditional onto one line (YAML `>-`
+folding was injecting the spaces) and re-rendered against the same live test rule.
+
+**What this does not fix.** Not Item 3. An escalated critical still routes through ntfy, so
+if ntfy starts refusing again the escalation is lost with everything else. They are
+independent: Item 3 is "the channel refused the message", this was "the message arrived and
+did not register."
+
+The unblocked slice of Item 3 would be a **non-ntfy** receiver for
+`AlertmanagerFailedToSendAlerts`, so "delivery is broken" does not travel through the broken
+channel. **Blocked on a credential, not on a decision:** `secrets/registry.tsv` has no SMTP
+row and no `smtp`/`smarthost` config exists anywhere in the repo, so there is nothing to
+point `email_configs` at yet. A second ntfy topic is not a substitute — same shared
+dependency, no benefit. Note the 7d measurement above shows `AlertmanagerFailedToSendAlerts`
+itself firing for 13.3h, so escalation now at least makes Item 3 *loud* when it recurs,
+through the very channel it is complaining about.
+
+<details>
+<summary>Original Item 6 write-up (kept for the reasoning trail)</summary>
 
 Raised 2026-07-30 out of Item 4. **This is the only failure the Item 4 investigation
 actually proved**, and it is not a delivery bug — which is what makes it easy to lose.
@@ -386,6 +484,8 @@ fatigue being described.
 Worth pairing with Item 3: both are about the alerting pipeline's last hop, and a fix for
 one does not help the other. Item 3 is "the channel refused the message"; Item 6 is "the
 message arrived and did not register."
+
+</details>
 
 ---
 
