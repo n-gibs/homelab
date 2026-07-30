@@ -1,8 +1,10 @@
 # Post-Outage Follow-Ups — 2026-07-28 DNS Outage
 
-Resilience work left over from the 2026-07-28 incident. Both items address the fact that
-the outage went unnoticed for roughly an hour rather than the outage itself. Item 1 is
-done (2026-07-29); Item 2 is still open.
+Resilience work left over from the 2026-07-28 incident. The original two items addressed
+the fact that the outage went unnoticed for roughly an hour rather than the outage itself.
+Both are now done: the dead-man's switch (2026-07-29) and CoreDNS HA (2026-07-29).
+Items 3 (ntfy rejecting notifications) and 4 (worker-00 has no time sync) are open, and
+both were found *while verifying* the first two.
 
 ## What Happened (context for both items)
 
