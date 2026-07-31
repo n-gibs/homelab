@@ -50,6 +50,11 @@ server:
         gethomepage.dev/group: "Media"
         gethomepage.dev/icon: "immich.png"
         gethomepage.dev/href: "https://immich.nik-homelab.dev"
+        # Homepage finds the backing pod by app.kubernetes.io/name, defaulting to the
+        # route's own name — which is immich-server, while the chart labels the pod
+        # just "server". Without this the card shows a permanent orange dot even
+        # though the widget itself is fine; status and widget are separate lookups.
+        gethomepage.dev/app: "server"
         # version 2 because the widget's v1 API shape only applies to Immich < 1.118;
         # we run v3.x. The {{HOMEPAGE_VAR_}} placeholder resolves in annotations, not
         # just in Homepage's own config files — discovered services are run through
