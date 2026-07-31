@@ -1,7 +1,7 @@
 # Runbook: shuck the 12TB drive and rack-mount it
 
-Planned for 2026-08-01. Background and evidence live in [`hdd-running-hot.md`](hdd-running-hot.md);
-this is the execution plan only.
+Written 2026-07-31, executed in stages as parts arrive — see the staging table below. Background
+and evidence live in [`hdd-running-hot.md`](hdd-running-hot.md); this is the execution plan only.
 
 **Goal:** get the WD120EDGZ out of the fanless WD Elements shell, where it idles at 56–57C
 against a 65C ceiling, and mount it bare in the 12U 10-inch rack on a WAVLINK SATA-to-USB-C
@@ -20,39 +20,89 @@ and it addresses to 20TB (cheap 32-bit-LBA bridges cap at 2TiB and corrupt rathe
 a 12TB disk). UASP support implies a modern ASMedia or JMicron bridge, so SAT passthrough will
 probably work better than the WD bridge, which throws a bogus threshold checksum on every call.
 
-**Mount it low in the rack, on grommets.** The rack is open front and back with acrylic sides
-*and bottom*. The capped bottom is the problem: there is no low intake, so the 12U column
-stratifies and heat pools at the top. Above the nodes is the worst position available — it puts
-a drive with 9C of headroom in three mini PCs' rising exhaust. Low and clear is the coolest air
-in the rack. Grommets rather than a rigid mount: a 7200rpm 3.5" drive bolted hard to the frame
-turns the rack into a soundboard.
+**Mount it low in the rack.** The rack is open front and back with acrylic sides *and bottom*.
+The capped bottom is the problem: there is no low intake, so the 12U column stratifies and heat
+pools at the top. Above the nodes is the worst position available — it puts a drive with 9C of
+headroom in three mini PCs' rising exhaust. Low and clear is the coolest air in the rack, and
+until the fan lands it is the only cooling lever available.
+
+**Vibration:** on the open shelf (stage A) that means a rubber or anti-static mat under the
+drive. In the 2-bay enclosure (stage C) it means grommets rather than a rigid mount — a 7200rpm
+3.5" drive bolted hard to the frame turns the rack into a soundboard.
 
 **Testable prediction worth checking while you are in there:** if worker-02 is the highest node
 in the rack, that confirms stratification. It took the biggest ambient hit on 07-30 (+5C, vs +3
 and +2 for the others).
 
-## Do the rack fan FIRST, as a separate change
+## Three stages, gated on parts — not one job
 
-The 1U fan panel is independent of the drive work, so it gets its own measurement window.
+Hardware is arriving over about two weeks, and the stages are independent. Do each as its parts
+land, one variable at a time, and the dashboard attributes each change on its own.
 
-**Position: low, front-facing, blowing inward.** That directly replaces the intake the acrylic
-bottom blocks, feeds the coldest zone — where the drive is going — and pushes air the way
-convection already wants to go, which pre-loads the DeskPi top exhaust when it is back in stock.
-Mounting the 1U panel at the top as exhaust instead would duplicate the DeskPi and leave the
-intake problem unsolved. If the rack's back is near a wall, front intake is doubly right.
+| stage | needs | disruptive? | when |
+|---|---|---|---|
+| **B — 1U intake fan** | the fan | **no**, nothing unmounts | available now — **do first** |
+| **A — shuck, WAVLINK, open shelf** | adapter + shelf | **yes**, full cluster quiesce | available now |
+| **C — 2x 3.5" rack enclosure** | the enclosure | **yes**, second quiesce | ~1–2 weeks |
 
-Fit it, leave it an hour, and read all three nodes off the Grafana dashboard. That answers "what
-does forced airflow buy this rack?" on its own — worth having regardless of the disk, since
-every node got warmer on 07-30, not just this one. Doing the fan and the shuck in one window
-means never knowing which one did what; same one-variable-at-a-time discipline that made the APM
+**B before A**, both doable in one day. B costs no downtime, so it goes first: fit it, give it an
+hour, record the numbers, and only then start A. That way the fan's effect and the shuck's effect
+are separate measurements instead of one combined mystery — the same discipline that made the APM
 result trustworthy.
 
-It also calibrates expectations: if the fan alone drops the drive several degrees, the rack was
-the dominant term and the enclosure matters less than we think.
+**A and C each cost a cluster outage.** Doing A now means doing the quiesce twice. That is a
+real cost and the alternative — wait, do it once when the enclosure lands — is defensible: the
+urgent problem (head parking) is already fixed, and what remains is a slow longevity issue with
+9C of margin, 0 seconds over-temperature and clean SMART. Two more weeks is ~330 hours against a
+multi-year life.
 
-- [ ] 1U fan fitted low, front, intake
-- [ ] One hour elapsed, all three nodes + drive read off the dashboard and recorded here
-- [ ] Only then start Phase 0
+What makes either choice safe is that the thermal risk is now monitored. If a hot spell erodes
+the margin, `DiskTemperatureAboveSpec` fires at the rated max sustained 15m and
+`DiskTemperatureCritical` 5C past it. Waiting is a decision, not an oversight.
+
+Doing A early buys two weeks of much cooler running and the bare-drive floor measurement, at the
+price of a second outage. Either is reasonable; the runbook supports both.
+
+**Open question that affects C:** if the 2-bay enclosure is *passive* — a cage holding bare
+drives with the WAVLINK still the bridge — then Phase 4's bridge checks happen once and stage C
+is purely mechanical. If it is an *active* DAS with its own bridge, it replaces the WAVLINK
+entirely and stage C needs the full Phase 4 verification again with a different chip. Worth
+knowing before C, not during it.
+
+### Stage B — the 1U fan (do this first)
+
+1U panel, 3x 40mm dual-ball-bearing fans, 13.41 CFM total, 5V 1A barrel supply, on/off switch.
+Non-disruptive: no unmount, no downtime, so it never needs to be bundled with drive work.
+
+**Mount it as designed — rear exhaust — and mount it low.** The nodes already establish
+front-to-back flow (ProDesk Minis pull in and exhaust out the back), so rear exhaust reinforces
+what the hardware does rather than introducing a competing stream at one height. The "prevent
+thermal recirculation" claim is real in a small acrylic-sided rack: hot air leaving the back
+cannot loop round to the front intakes.
+
+**Do not decide orientation yet — it cannot be answered in this stage.** During B the drive is
+still in its shell on the floor, so the fan cannot affect it; B measures the *node* effect only,
+and for that either direction moves air through the column. Orientation only matters once the
+drive is on the shelf. If the drive disappoints after stage A, flip the panel 180 degrees to
+front intake aimed across the shelf, wait an hour, and compare — 13.41 CFM is modest (a 120mm
+case fan moves 50–70), so aiming it at the one component near a limit may beat diffusing it. Two
+hours, zero downtime, and it settles the question for this specific geometry instead of by
+argument.
+
+Correcting an earlier assumption in this doc: the front and back are fully open, so intake is
+**not** blocked the way a closed-door rack would be — air can enter at any height. What is
+missing is movement, not access. Expect a smaller ambient win than a sealed rack would give, and
+do not be disappointed by a couple of degrees.
+
+**Noise is the likely reason this comes back out.** Three 40mm fans at 4500 RPM: 25 dBA is the
+claim, but small high-RPM fans are tonal in a way that number does not capture, and the panel has
+an on/off switch with no speed control. Worth an honest listen before committing it to 24/7.
+
+- [ ] Fitted low, as designed (rear exhaust)
+- [ ] Noise acceptable where the rack actually lives
+- [ ] One hour elapsed, all three node temps recorded in the Phase 6 table
+- [ ] Only then start stage A
+- [ ] **After** stage A: if the drive disappoints, flip to front intake and re-measure
 
 ---
 
@@ -197,12 +247,20 @@ the one way to actually lose data here.
 - [ ] **Optional but recommended: run it bare in open air for an hour first.** That is the floor
       value — the coldest this drive can physically be. Every later number is measured against
       it, and you cannot get it any other way. Record it here.
-- [ ] Mount low in the rack, on grommets, in the intake fan's airstream. Not above the nodes.
+- [ ] Place on the open shelf, **as low in the rack as the shelf allows, and never above the
+      nodes** — that would put a drive with 9C of headroom in three mini PCs' rising exhaust.
+      With no fan yet, position is the only cooling lever you have, so spend it here.
+- [ ] **Label up, and not directly on bare metal.** The PCB is exposed on the underside of a
+      bare drive; resting it on a metal shelf is a short and ESD risk. A rubber or anti-static
+      mat underneath, which also damps vibration — a 7200rpm drive on a bare shelf will buzz.
+- [ ] Secure it so it cannot be knocked or slide. Cable ties or a strap are fine until the
+      2-bay enclosure arrives; the acrylic sides help, but an unsecured drive on a shelf next
+      to a live cluster is the main risk of running stage A ahead of stage C.
 - [ ] Cable management: enough slack on the USB-C run to worker-01 that nothing is under
       tension, and the 12V brick reaching an outlet without strain. A tugged cable on a live NFS
       export is a worse failure than the heat we are fixing.
 
-Open-air baseline: ______ C   ·   Racked steady state: ______ C
+Open-air baseline: ______ C   ·   On the shelf, no fan: ______ C
 
 ## Phase 4 — reattach and verify
 
@@ -282,12 +340,17 @@ minutes and the answer is the steady state, not the first reading.
 
 Four numbers to compare, which is why each change gets its own window:
 
-| | temp | when |
-|---|---|---|
-| WD Elements shell, on the floor | **56–57C** | baseline, 2026-07-31 |
-| after the 1U intake fan, still in the shell | | before Phase 0 |
-| bare in open air | | Phase 3 |
-| bare, racked low | | Phase 6 |
+| | drive | worker-00 | worker-01 | worker-02 | stage |
+|---|---|---|---|---|---|
+| WD Elements shell, on the floor | **56–57C** | 48–55 | 47–51 | 43–44 | baseline 2026-07-31 |
+| after the 1U fan, rear exhaust | n/a — still on the floor | | | | B |
+| bare in open air | | — | — | — | A, Phase 3 |
+| bare on the rack shelf | | | | | A, Phase 6 |
+| fan flipped to front intake | | | | | only if needed |
+| in the 2-bay enclosure | | | | | C |
+
+Node columns matter: the fan's effect is cluster-wide, and all three got warmer on 07-30, not
+just the disk. If the nodes improve and the drive barely does, the air is not reaching the shelf.
 
 - [ ] Same evening: read the racked steady state off the dashboard
 - [ ] Confirm `rate(node_smart_load_cycle_count[1h]) * 3600` is at 0, not ~50
