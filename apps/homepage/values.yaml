@@ -71,6 +71,14 @@ config:
     target: _blank
     statusStyle: dot
     useEqualHeights: true
+    # unsplash.com/photos/blue-skies-filled-of-stars-W8KTS-mhFUE. Fetched by the
+    # browser, not the pod, so no egress from the cluster. Remote URL means no
+    # /app/public/images volume to mount. brightness dims the star field enough
+    # for card text to stay legible; that rules out cardBlur, which the docs call
+    # incompatible with background filters.
+    background:
+      image: https://images.unsplash.com/photo-1496715976403-7e36dc43f17b?auto=format&fit=crop&w=2560&q=80
+      brightness: 50
     # Only place group icons and column counts can be set. Note Homepage takes group
     # display order from the key order here, but the chart renders this map through
     # toYaml, which sorts keys — so the order is alphabetical and not controllable
