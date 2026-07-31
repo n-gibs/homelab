@@ -104,7 +104,7 @@ One sealed secret is needed, `nextcloud-admin`, for the initial admin account.
 |---|---|---|---|---|
 | Postgres | — | `local-path` ×3 | 10Gi | Replication is the durability, per the CLAUDE.md CNPG exception |
 | App tree | `/var/www/html` | `local-path` | 10Gi | **Documented exception** — see below |
-| File data | `/var/www/html/data` | static NFS PV | 500Gi | The only irreplaceable tier |
+| File data | `/nc-data` | static NFS PV | 500Gi | The only irreplaceable tier |
 
 #### App tree on `local-path` — the exception, and why
 
@@ -139,12 +139,29 @@ A static PV rather than a dynamic `nfs` PVC so the data lives at a **known, huma
 worker-01 — `/mnt/storage/nextcloud` — instead of a provisioner-generated `nextcloud/nextcloud-data`
 directory. This matters for the backup project (below) and for any manual recovery.
 
-#### Nested mount — the one unverified assumption
+#### Data directory relocated to `/nc-data` — nesting eliminated
 
-`/var/www/html` is the `local-path` volume and `/var/www/html/data` is the NFS volume mounted *inside*
-it. The chart does this by design and kubelet orders nested mounts by path depth, but this specific
-`local-path`-parent / NFS-child combination has not been run here. It fails loudly and immediately on
-first boot if wrong — the pod won't reach a ready state and the entrypoint logs will name the path.
+```yaml
+nextcloud:
+  datadir: /nc-data
+```
+
+By default the chart mounts the data volume at `/var/www/html/data` — *inside* the app-tree volume. With
+the app tree now on `local-path` and the data on NFS, that would mean a `local-path`-parent /
+NFS-child nested mount. Kubelet orders nested mounts by path depth and the chart nests volumes by design
+already, so it very likely works — but "very likely" was the only unverified assumption left in this
+design, and it did not need to be.
+
+`nextcloud.datadir` drives the data volume's `mountPath` directly (`deployment.yaml:218`), so setting it
+to a top-level path makes the two volumes **siblings instead of parent and child**. Verified by
+rendering: the mount moves to `/nc-data`, `NEXTCLOUD_DATA_DIR` follows automatically, and the cron pod
+gets the same treatment. Nothing is left to find out at deploy time.
+
+`subPath: data` is unchanged, so files still land at `/mnt/storage/nextcloud/data` on worker-01 — the
+on-disk layout the backup project will find is exactly as described elsewhere in this spec.
+
+Free side benefit: a data directory outside the webroot is Nextcloud's own documented security
+recommendation. It removes any dependence on `.htaccess` rules to keep `data/` from being served.
 
 ### Data directory permissions — ansible creates, init container chowns
 
@@ -382,10 +399,31 @@ drive-backup project that will cover `/mnt/storage` as a whole — including `ph
 have the same exposure. Backing up only Nextcloud's subtree now would be solving a third of the problem
 in a way that project would immediately replace.
 
-What *is* covered in the meantime: Nextcloud's `versions` and `trashbin` apps are enabled by default, so
-accidental deletion and bad edits are recoverable in-app. Not covered: drive failure, fire, theft.
+Three things make the deferral safe to live with rather than merely acknowledged:
 
-Anyone treating this as their only copy of a document should know that until the backup project lands.
+**1. It's tracked by existing tooling, not by memory.** `data-pv.yaml` carries a `TODO:` comment naming
+the gap, which `just todos` (`Justfile:343` — greps `TODO` across `apps/`, `system/`, `platform/`,
+`ansible/`) surfaces on demand. The gap shows up in the repo's own todo listing until the backup project
+closes it, so it can't quietly become permanent:
+
+```yaml
+# TODO: /mnt/storage/nextcloud has no off-host backup. Documents here may be the
+# only copy. Covered by the planned /mnt/storage backup project, which also owns
+# photos/ and media/. Until then the desktop sync client is the second copy.
+```
+
+**2. In-app recovery already works.** Nextcloud's `versions` and `trashbin` apps are enabled by default,
+so accidental deletion and bad edits — by far the likeliest way to lose a document — are recoverable
+from the UI with no infrastructure at all. The uncovered failures are drive failure, fire, and theft.
+
+**3. The desktop client is the interim second copy.** This is an operational practice, not a
+configuration: run the Nextcloud desktop client on at least one machine with a full local sync, and the
+12TB drive failing costs you the server rather than the documents. It's the same reasoning the Immich
+spec used for photos originating on phones, made explicit here because documents have no equivalent
+natural second home.
+
+That third point is a real dependency on behaviour, so state it plainly: **until the backup project
+lands, do not treat this as the only copy of anything that matters.**
 
 ### Upgrade safety — own Renovate group, and a pre-merge dump
 
@@ -454,7 +492,9 @@ the exporter returning 401 and `NextcloudDown` firing, which points at entirely 
 ## Post-deploy verification
 
 - `https://nextcloud.nik-homelab.dev` serves the login page; admin credentials work.
-- Upload a file; confirm it appears under `/mnt/storage/nextcloud/data/` on worker-01.
+- Upload a file; confirm it appears under `/mnt/storage/nextcloud/data/` on worker-01, and that
+  `/nc-data` inside the pod is the NFS mount while `/var/www/html` is the local-path one
+  (`kubectl exec -- df -h /nc-data /var/www/html`).
 - Pod is running on worker-01; `nextcloud-html` PVC bound on that node.
 - Settings → Administration → Overview shows no "background jobs have not run" warning after ~15min.
 - Prometheus targets: exactly **one** `nextcloud-exporter` target, Up. Two targets, or one Down, means
