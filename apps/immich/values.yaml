@@ -54,10 +54,13 @@ server:
         # we run v3.x. The {{HOMEPAGE_VAR_}} placeholder resolves in annotations, not
         # just in Homepage's own config files — discovered services are run through
         # substituteEnvironmentVars — so the key stays a sealed secret on Homepage's
-        # side rather than sitting in plaintext here.
+        # side rather than sitting in plaintext here. It has to be written through a
+        # quoted literal because bjw-s runs route annotation values through Helm's
+        # tpl, which would otherwise try to evaluate the placeholder itself and fail
+        # the render with `function "HOMEPAGE_VAR_IMMICH_API_KEY" not defined`.
         gethomepage.dev/widget.type: "immich"
         gethomepage.dev/widget.url: "http://immich-server.immich.svc.cluster.local:2283"
-        gethomepage.dev/widget.key: "{{HOMEPAGE_VAR_IMMICH_API_KEY}}"
+        gethomepage.dev/widget.key: '{{ "{{HOMEPAGE_VAR_IMMICH_API_KEY}}" }}'
         gethomepage.dev/widget.version: "2"
       enabled: true
       kind: HTTPRoute
