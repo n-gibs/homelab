@@ -1,159 +1,137 @@
-# Investigation prompt: why the 12TB HDD runs at 56–61C
+# The 12TB HDD at 56–61C — findings
 
-Investigation handoff written 2026-07-31. Paste the section below into a new session.
+Investigated 2026-07-31 (handoff written the same morning, then executed). worker-01's
+`/dev/sda` — the WD Elements 12TB backing `/mnt/storage`, every NFS PVC, and the media
+library — runs 56–61C against a 65C vendor maximum.
 
----
+**This turned out to be two unrelated problems.** Keep them separate.
 
-Find out why worker-01's 12TB USB drive runs at 56–61C against a 65C vendor maximum, and
-fix it if it is fixable. Rigorous systematic debugging: measure before concluding, one
-hypothesis at a time, and verify with a real reading before declaring anything solved.
+| | problem | cause | status |
+|---|---|---|---|
+| 1 | 56–61C, ~4–9C of headroom | cooling: passive enclosure + a warmer room since the 07-30 move | **not software-fixable** — physical action needed |
+| 2 | ~50 head load/unload cycles per hour on an idle drive | APM level 128 | **fix applied 2026-07-31, under measurement** |
 
-**Read this whole file before touching anything.** The obvious first guess — "something is
-hammering the disk" — is already measured and disproved below. Do not start there.
+Nothing is failing. Health is `PASSED`, 0 reallocated / pending / offline-uncorrectable,
+0 seek errors, 0 UDMA CRC errors, 0 time over-temperature, no errors logged.
 
-## The symptom
+## Problem 1 — temperature
 
-`/dev/sda` on worker-01 (192.168.30.194) sits at 56–61C. Vendor-specified maximum operating
-temperature is **65C**, so there is roughly 4–9C of headroom on the disk that backs
-`/mnt/storage`: every NFS PVC in the cluster and the entire media library.
+### It is not the workload, and it is not the node's CPU load
 
-Nothing is failing. This is a longevity question, not an outage.
+The drive is effectively idle: **662 seconds of accumulated I/O time across 937 power-on
+hours, ~0.02% busy.** Lifetime totals are 3.38M sectors read, 31.6M written (~16GB). Four
+NFS clients are connected and collectively doing nothing. So there is no runaway scanner,
+arr-stack rescan, or Jellyfin crawl to find.
+
+worker-01's pod count doubled from 17 to 34 on the morning of 07-31, which was the obvious
+suspect. **It is not the cause.** Across that window worker-01's load went 0.35 → 0.84 and
+its CPU package 49 → 52C, while the drive went **58 → 57C**. Drive temperature moves
+independently of the node's own load.
+
+### It is ambient, and the 07-30 relocation is visible in the data
+
+The drive's own metric only starts 08:47 on 07-31 (the textfile feed shipped that morning),
+so it cannot show its own step across the move. But all three nodes' CPU sensors have full
+history, and across the relocation gap (07-30 19:32 → 22:47) — with loads unchanged —
+every node got warmer:
+
+| node | before | after | delta |
+|---|---|---|---|
+| worker-02 | 38–40C | 43–44C | **+5** |
+| worker-00 | 50–52C | 52–55C | +3 |
+| worker-01 | 47–49C | 49–51C | +2 |
+
+Loads did not change across that gap, so this is the room, not the work. A passive
+enclosure sits at ambient plus a roughly fixed delta, so a +3–5C ambient shift moves the
+drive +3–5C — which is most of the distance between "warm" and "9C from spec".
+
+**worker-02 taking the largest jump (+5C) is worth a look on its own** — it suggests the new
+spot is more enclosed than the old one, which is a cluster-wide fact, not just an HDD one.
+
+### What to actually do
+
+In order of cost:
+
+1. **Placement.** Check what the enclosure is sitting on, next to, under, or inside now.
+   Free, and the data above says it is a real 3–5C lever.
+2. **Airflow across the existing shell.** Any small fan pointed at it.
+3. **Re-house the drive.** A 7200rpm helium enterprise drive in a fanless plastic shell is
+   a design mismatch. The unit was bought used on eBay so there is no warranty to void on
+   either part — **opening it costs nothing**, which makes shucking a live option rather
+   than a last resort.
+
+Note the pairing may well be factory: WD Elements units at this capacity commonly ship with
+7200rpm helium white-label drives. "Is the drive original" and "does the enclosure cool it"
+are separate questions and only the second affects temperature. If you want the first
+answered anyway, it takes physical inspection of the shell clips for pry marks or WD's
+warranty lookup on serial `WD-B002KX5D` — neither is answerable over SSH.
+
+**Do not lower the alert thresholds to make the warning go away.**
+
+## Problem 2 — head parking (APM)
+
+`Load_Cycle_Count` was **55971 at 937 power-on hours** — ~60/hr lifetime average, confirmed
+live at 48–60/hr across repeated sampling, on a drive that is 0.02% busy. Normalized value
+has already fallen 200 → 182: **~9% of a 600k budget gone in five weeks**, which
+straight-lines to exhaustion in roughly 14 months.
+
+**The original handoff blamed `idle3`. That was wrong.** `WD120EDGZ-11CNVA0` is an Ultrastar
+He12 white-label — HGST platform, which has no `idle3` timer. Head unload is governed by
+**APM**, which was at 128 ("minimum power consumption without standby"). This matters
+practically: `idle3ctl` sends raw vendor ATA commands that may not survive the USB bridge,
+whereas APM is a standard ATA feature reachable through SAT with the `smartctl` already
+installed. No extra tooling, and no vendor commands aimed at the drive backing every PVC.
+
+Applied 2026-07-31 17:38:38Z:
 
 ```bash
-sudo smartctl -A /dev/sda | grep 194          # current temp, raw value
-sudo smartctl -l devstat /dev/sda | grep -i temp   # min/max/average history
+sudo smartctl --set=apm,254 /dev/sda   # maximum performance, no idle unload
+sudo smartctl --get=apm  /dev/sda      # reads back: 254 (maximum performance)
+sudo smartctl --set=apm,128 /dev/sda   # revert
 ```
 
-## Measured baseline — do not re-derive
+The drive reports `ATA Security is: Disabled, NOT FROZEN`, so settings are accepted.
 
-Hardware:
-- Enclosure: **WD Elements**, external USB, fanless. **Bought used on eBay**, so whether the
-  drive inside is the one that shipped in it is unconfirmed.
-- Drive: **WDC WD120EDGZ-11CNVA0**, serial `WD-B002KX5D`, firmware `01.01A01`. smartctl
-  reports Model Family `Western Digital Ultrastar (He10/12)` from its own drive database, and
-  **7200 rpm / 3.5" / 12TB** read from the drive itself.
-- A 7200rpm helium drive in a fanless plastic shell is the leading explanation for the
-  temperature. Note this does **not** require anyone to have swapped the drive — WD Elements
-  units of this capacity are commonly found with 7200rpm helium white-label drives inside, so
-  the pairing may well be factory. Treat "is it original" and "does the enclosure cool it" as
-  two separate questions; only the second one affects the temperature.
-- USB-attached (`lsblk -d -o NAME,TRAN` → `usb`). No hwmon entry, which is why its
-  temperature reaches Prometheus through a textfile-collector feed rather than node-exporter's
-  hwmon collector — see `ansible/roles/common/tasks/main.yml`.
+**Two things still open on this:**
 
-Temperatures (`smartctl -l devstat`):
-| reading | value |
-|---|---|
-| current | 56C |
-| average short term | 59C |
-| highest ever | 63C |
-| lowest ever | 30C |
-| highest average short term | 61C |
-| lowest average short term | 47C |
-| **specified maximum** | **65C** |
-| time in over-temperature | 0 |
+- **Does it hold?** Watch `rate(node_smart_load_cycle_count[1h])` — expect it to fall to ~0.
+- **It does not persist across a power cycle.** APM resets to the drive default on power
+  loss. If the measurement confirms the fix, persistence belongs in Ansible as a udev rule
+  keyed on the drive serial — not in the existing `smart-temp-textfile` timer, which has a
+  different job.
 
-Health is otherwise clean: `PASSED`, 0 reallocated sectors, 0 current-pending, 0 offline
-uncorrectable, 0 seek errors, 0 UDMA CRC errors.
+**The trade-off to keep in mind:** APM 254 raises idle power, which pushes the drive
+*warmer* — the opposite direction from problem 1. If temperature climbs materially after
+this change, the two fixes are in tension and placement has to come first to buy back the
+headroom.
 
-**Wear is negligible, despite being bought used — the drive is effectively new:**
-| counter | value |
-|---|---|
-| Power_On_Hours | 937 (normalized 099, worst 099) |
-| Power_Cycle_Count | 29 |
-| Start_Stop_Count | 29 |
-| SMART error log | `No Errors Logged` |
-| Self-test log | `No self-tests have been logged` |
+## Instrumentation
 
-worker-01 has ~41 days of uptime and 937 hours is ~39 days, so **essentially every power-on
-hour on this drive was accumulated in this cluster.** Power_Cycle_Count and Start_Stop_Count
-agree at 29, which is internally consistent with a drive that has only ever run here, and a
-reseller refurbishing a drive would normally leave a self-test in the log — there is none.
+`node_smart_load_cycle_count` was added to the existing textfile exporter
+(`ansible/roles/common/tasks/main.yml`, commit `768cdfd`) — attribute 193 rides along on the
+SMART read already happening for temperature. No new exporter, no new timer. No alert on it
+yet; a sane threshold depends on the rate this is now measuring.
 
-So **a worn-out or abused used drive is ruled out.** Whatever is happening is a property of
-this drive model in this enclosure, not of degradation. Do not spend time hunting for hidden
-prior-owner damage.
+Already present, do not duplicate: `node_smart_temperature_celsius` /
+`node_smart_temperature_limit_celsius` from `smart-temp-textfile.timer` every 2 minutes,
+`DiskTemperatureAboveSpec` / `DiskTemperatureCritical` in
+`system/monitoring-system/prometheusrule-temperature.yaml`, and a Homepage widget.
 
-## Already ruled out — do not re-derive
+## Constraints worth keeping
 
-**Workload is NOT the cause.** The drive is effectively idle and still runs hot:
-- `/proc/diskstats` shows **662 seconds of accumulated I/O time across 937 power-on hours**
-  — about **0.02% busy**.
-- A 10-second sample caught **0 sectors read** and 3072 sectors written (~1.5MB).
-- Lifetime totals: 8360 reads / 3.38M sectors, 1.09M writes / 31.6M sectors (~16GB).
-
-So do not go looking for a runaway scanner, an arr-stack rescan, a Jellyfin library crawl, or
-a chatty NFS client. Four NFS clients are connected (all three nodes plus two loopback
-mounts) and they are collectively doing nothing. **A drive this idle sitting 9C from its
-ceiling points at cooling, not access patterns.**
-
-## Hypotheses, most to least likely
-
-1. **The fanless WD Elements shell cannot keep a 7200rpm helium drive cool.** No fan, minimal
-   venting, drive mounted in plastic. If true, the fix is physical: re-house it in a
-   ventilated bay or one with a fan, or add airflow across the existing shell.
-   **No software change can fix this.**
-
-   Practical note on provenance: because the unit was bought used, there is realistically no
-   warranty left to protect on either the enclosure or the drive, so **opening the shell costs
-   nothing** — normally the argument against shucking. That makes re-housing a live option
-   rather than a last resort. If you do want to settle whether the drive is original, the two
-   things that actually answer it are physical inspection of the shell's clips for prior
-   pry marks, and WD's own warranty/serial lookup for `WD-B002KX5D`. Neither is answerable
-   over SSH, and neither changes the temperature.
-2. **Ambient / placement.** The cluster was physically relocated on 2026-07-30. Check what
-   the enclosure is now sitting on, next to, or inside — a cabinet, a shelf against a wall,
-   or stacked on/under one of the mini PCs. For reference, worker-01's internal sensors read
-   56C (CPU package) and 56C (NVMe) at the time of writing, and that node's pod count went
-   from 17 to 34 earlier the same day, so it is now genuinely warmer than it was.
-3. **Orientation / no thermal contact.** A bare drive in a plastic shell with no pad or
-   bracket has only air to conduct into.
-4. **Never spins down.** `APM level is: 128 (minimum power consumption without standby)` —
-   the platters turn continuously. Spin-down *would* cut heat, but it is the wrong trade for
-   a disk backing live NFS PVCs: spin-up latency would stall every PVC-backed pod, and
-   start/stop cycles are their own wear mechanism. Consider it only as a last resort, and
-   never for the PVC path.
-
-## Separate finding worth its own look — load cycles
-
-`Load_Cycle_Count` is **55964 at 937 power-on hours** — roughly **60 head load/unload cycles
-per hour**, about one a minute, on an essentially idle drive. The normalized value has
-already fallen 200 → 182, so ~9% of the rated budget is gone in about five weeks of uptime.
-Straight-line, that exhausts a 600k-cycle rating in roughly 14 months.
-
-This is the classic aggressive head-parking timer (WD `idle3` / APM interaction). It is a
-**wear** problem rather than a heat problem, so keep it separate from the thermal question —
-but it is arguably the more urgent of the two, and `idle3ctl` may not reach the drive through
-the USB bridge. Worth confirming whether it can be read/set at all in this enclosure.
-
-## Constraints
-
-- **`smartctl` exits non-zero on this drive on every call** — its exit status is a bitmask
-  and the enclosure reports an invalid checksum in the SMART threshold structure while still
-  returning good data. Any script needs `|| true`; under `set -euo pipefail` it will
-  otherwise die after reading the value. This already bit once.
-- `smartctl -d usbjmicron` and `-d usbsunplus` both fail; **auto-detect works** — pass no
+- **`smartctl` exits non-zero on this drive on every call.** Its exit status is a bitmask and
+  the enclosure reports an invalid checksum in the SMART threshold structure while still
+  returning good data. Any script needs `|| true`; under `set -euo pipefail` it otherwise
+  dies *after* reading the value. This has bitten twice.
+- `smartctl -d usbjmicron` and `-d usbsunplus` both fail. **Auto-detect works** — pass no
   `-d` flag.
-- Do not add a monitoring component. `node_smart_temperature_celsius` /
-  `node_smart_temperature_limit_celsius` already exist, fed by
-  `smart-temp-textfile.timer` every 2 minutes, with `DiskTemperatureAboveSpec` /
-  `DiskTemperatureCritical` alerts in `system/monitoring-system/prometheusrule-temperature.yaml`
-  and a Homepage widget. Use that history — query Prometheus for the trend rather than
-  taking spot readings, and check whether the temperature tracks worker-01's CPU (shared
-  ambient) or moves independently (enclosure-local).
-- Repo rules apply: no `sleep`, changes go through git → ArgoCD, node-level changes go in
-  Ansible so they survive a rebuild.
-
-## Accept this may not be a software fix
-
-The measured evidence — an idle enterprise 7200rpm drive in a passive enclosure, 9C from its
-ceiling, with 0 time over-temperature and perfect health — most likely resolves to "this
-drive needs better cooling." A legitimate outcome is a written recommendation about the
-enclosure and its placement plus the load-cycle finding, with no code change at all. Do not
-manufacture a config change to feel productive, and do not lower the alert thresholds to
-make the warning go away.
-
-The one genuinely useful software deliverable, if the trend data supports it: establish
-whether the temperature correlates with node CPU load now that worker-01 carries 34 pods
-instead of 17, since that is the one variable that changed on 2026-07-31 and it is
-answerable from Prometheus history alone.
+- No hwmon entry for USB-attached disks (`drivetemp` binds SATA hosts, not usb-storage),
+  which is why the textfile feed exists.
+- `hdparm` and `idle3ctl` are not installed on the nodes, and neither is needed.
+- `thermal_thermal_zone0` on worker-01 reads **-268C**. That is a garbage acpitz sensor, not
+  a real reading — ignore it.
+- Spinning the drive down would cut heat but is the wrong trade for a disk backing live NFS
+  PVCs: spin-up latency stalls every PVC-backed pod, and start/stop cycles are their own
+  wear mechanism. Not for the PVC path.
+- Repo rules: no `sleep`, changes go through git → ArgoCD, node-level changes go in Ansible
+  so they survive a rebuild.
