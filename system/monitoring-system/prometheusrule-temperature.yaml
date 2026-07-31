@@ -179,3 +179,36 @@ spec:
               Check smart-temp-textfile.timer on worker-01 and that node-exporter still
               has --collector.textfile.directory pointed at
               /host/root/var/lib/node_exporter/textfile_collector.
+
+        # Wear, not heat. The drive shipped at APM 128 and parked its heads ~50 times an
+        # hour while 0.02% busy; a udev rule in ansible/roles/common now pins APM to 254 on
+        # every add/change event, which took the rate to zero. This alert exists because
+        # that rule can stop matching silently: it keys on ID_SERIAL_SHORT, and a different
+        # USB bridge may expose its own serial instead of passing the drive's through.
+        # Re-enclosing the drive is exactly when that would happen, and the symptom is
+        # otherwise invisible for about a year.
+        #
+        # 10/hr sits well clear of both states — zero when the rule holds, ~50 when it does
+        # not. The 1h window plus for:1h is deliberately slow: a reboot or a re-plug parks
+        # the heads legitimately a few times, and a wear budget measured in years does not
+        # need a fast alert.
+        - alert: DiskHeadParkingResumed
+          expr: >-
+            (
+              rate(node_smart_load_cycle_count[1h]) * 3600 > 10
+            ) * on(instance) group_left(nodename) node_uname_info
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: >-
+              {{ $labels.nodename }} disk {{ $labels.device }} is parking its heads
+              {{ $value | printf "%.0f" }} times an hour again
+            description: >-
+              {{ $labels.device }} on {{ $labels.nodename }} is back to loading and
+              unloading its heads {{ $value | printf "%.0f" }} times an hour, which burns a
+              600k-cycle rating in roughly 14 months. APM has reverted to a power-saving
+              level. Check that /etc/udev/rules.d/60-wd-elements-apm.rules still matches the
+              drive — `udevadm info --query=property --name=/dev/sda | grep ID_SERIAL_SHORT`
+              — and that `smartctl --get=apm /dev/sda` reads 254. If the serial changed, the
+              rule needs the new one.
