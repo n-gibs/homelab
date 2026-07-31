@@ -5,10 +5,13 @@
 | Node | Hardware | Role |
 |------|----------|------|
 | worker-00 | HP ProDesk Mini G4 | k3s server + worker (schedulable) |
-| worker-01 | HP ProDesk Mini G9 — i5 12th gen, 16GB RAM, 12TB USB | k3s server + worker, NFS server, media workloads (`homelab.io/media=true:PreferNoSchedule`) |
+| worker-01 | HP ProDesk Mini G9 — i5 12th gen, 16GB RAM, 12TB USB | k3s server + worker, NFS server, media workloads (`homelab.io/media=true` label, no taint) |
 | worker-02 | HP ProDesk Mini G6 | k3s server + worker (schedulable) |
 
-All 3 nodes are k3s server+worker (HA etcd control plane). G9 (worker-01) carries a `homelab.io/media=true:PreferNoSchedule` taint + label so media apps land there and other workloads prefer G4/G6. See `.claude/g6-migration.md` for full plan.
+All 3 nodes are k3s server+worker (HA etcd control plane) and all 3 are normal scheduling
+candidates. G9 (worker-01) carries a `homelab.io/media=true` label so media apps select it;
+it has no taint, so generic workloads use its spare capacity too. See
+`.claude/g6-migration.md` for the original migration plan.
 
 ## Stack
 
@@ -121,19 +124,22 @@ NFS path layout on worker-01:
 - `/data/media/tv` — Sonarr managed library
 - `/data/media/movies` — Radarr managed library
 
-Media apps must pin to G9 via nodeSelector (and tolerate its `PreferNoSchedule` taint once G6 lands):
+Media apps pin to G9 with a nodeSelector on its label. No toleration is needed — worker-01
+carries no taint:
 ```yaml
 controllers:
   main:
     pod:
       nodeSelector:
         homelab.io/media: "true"
-      tolerations:
-        - key: homelab.io/media
-          operator: Equal
-          value: "true"
-          effect: PreferNoSchedule
 ```
+
+worker-01 used to carry a `homelab.io/media=true:PreferNoSchedule` taint as well. It was
+removed on 2026-07-31: a taint only repels, and the nodeSelector above is what actually
+attracts media, so all the taint did was keep the highest-RAM node in the cluster (22.6G vs
+14.9G on worker-02) idle while worker-02 filled to 58% memory. Existing media apps still
+carry a matching `tolerations:` block; it is now a harmless no-op, so don't copy it into new
+apps and feel free to drop it when touching one for another reason.
 
 ## Media Stack — qBittorrent / Gluetun VPN
 

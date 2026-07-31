@@ -131,13 +131,9 @@ For media apps that need the shared data volume, add the nodeSelector, toleratio
 controllers:
   main:
     pod:
+      # worker-01 carries no taint, so no toleration is needed — just the selector.
       nodeSelector:
         homelab.io/media: "true"
-      tolerations:
-        - key: homelab.io/media
-          operator: Equal
-          value: "true"
-          effect: PreferNoSchedule
     containers:
       ...
 
@@ -213,7 +209,7 @@ Watch sync: `kubectl get application -n argocd` or check ArgoCD UI at `argocd.ni
 - [ ] Homepage annotations on the route
 - [ ] `vpa.yaml` present
 - [ ] NFS StorageClass for any PVCs (not local-path)
-- [ ] nodeSelector `homelab.io/media: "true"` + matching `PreferNoSchedule` toleration if accessing `/data` on NFS
+- [ ] nodeSelector `homelab.io/media: "true"` if accessing `/data` on NFS (no toleration — worker-01 is untainted)
 - [ ] Secrets sealed and committed, var name added to `secrets/.secrets.example`
 - [ ] Row added to `secrets/registry.tsv` if secrets needed
 - [ ] If arr-stack app: added to `wire-media` recipe in `Justfile` (root folder and/or Prowlarr application link)
