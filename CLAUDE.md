@@ -31,7 +31,7 @@ Any firewall rules, network policies, or IP references must use the `192.168.30.
 
 ```
 apps/           # user-facing applications (arr stack, jellyfin, vaultwarden, etc.)
-platform/       # cluster platform services (external-secrets, sealed-secrets, tailscale)
+platform/       # cluster platform services (sealed-secrets, tailscale, cloudnative-pg)
 system/         # low-level cluster infrastructure (cilium, cert-manager, nfs-provisioner, vpa)
 bootstrap/      # one-time helmfile bootstrap (Cilium, ArgoCD, root ApplicationSet)
 ansible/        # node provisioning (Ubuntu install, k3s setup)
