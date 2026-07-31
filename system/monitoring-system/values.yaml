@@ -52,6 +52,16 @@ kubelet:
         action: drop
         regex: '.+;'
 
+prometheusOperator:
+  # One config-reloader sidecar rides in both the Prometheus and the Alertmanager pod, and
+  # neither had a request. 7-day peak was 0m / 20Mi each — trivial individually, but they
+  # are two of the seventeen requestless containers that made worker-00 look empty.
+  prometheusConfigReloader:
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+
 kube-state-metrics:
   prometheus:
     monitor:
@@ -84,6 +94,22 @@ prometheus-node-exporter:
 
 prometheus:
   prometheusSpec:
+    # Prometheus is the single largest consumer in the cluster and shipped with no requests,
+    # so the scheduler saw a free pod and parked it on worker-00 — the 4-core node — where
+    # it was actually using 179m and 2.9Gi. A container with no request is invisible to
+    # scheduling: it scores the same on a 4-core node as on a 12-core one.
+    #
+    # 7-day peak from Prometheus itself was 179m / 2979Mi. Memory is requested at 3Gi
+    # rather than trimmed to the peak because a TSDB's working set grows with retention and
+    # series count, and under-requesting the one workload that dominates the node is what
+    # produced this imbalance to begin with.
+    #
+    # No limits: a memory limit on a TSDB converts a slow query into an OOMKill that loses
+    # the WAL, and this pod is the alerting path — see prometheusrule-alert-escalation.yaml.
+    resources:
+      requests:
+        cpu: 250m
+        memory: 3Gi
     ruleSelectorNilUsesHelmValues: false
     serviceMonitorSelectorNilUsesHelmValues: false
     podMonitorSelectorNilUsesHelmValues: false
@@ -123,6 +149,12 @@ grafana:
 
 alertmanager:
   alertmanagerSpec:
+    # 7-day peak was 14m / 46Mi. Small, but it shipped requestless like the rest, which is
+    # how it ended up co-located with Prometheus on the 4-core node.
+    resources:
+      requests:
+        cpu: 25m
+        memory: 96Mi
     secrets:
       - ntfy-webhook-url
       - deadmanssnitch-url
