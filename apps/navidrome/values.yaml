@@ -16,7 +16,7 @@ controllers:
       app:
         image:
           repository: deluan/navidrome
-          tag: "0.63.1"
+          tag: "0.63.2"
         env:
           ND_MUSICFOLDER: /data/media/music
           ND_DATAFOLDER: /config
