@@ -62,6 +62,18 @@ kube-state-metrics:
           replacement: homelab
 
 prometheus-node-exporter:
+  # Points the textfile collector at the host directory that smart-temp-textfile.timer
+  # writes (see ansible/roles/common/tasks/main.yml). No new volume needed: the chart
+  # already bind-mounts / at /host/root, and the collector only ever reads.
+  #
+  # The two filesystem excludes are the chart's own `extraArgs` defaults, repeated verbatim
+  # because Helm replaces lists rather than merging them — dropping them would make
+  # node-exporter scrape every container overlay and kubelet bind mount. Re-check them
+  # against the chart when Renovate bumps kube-prometheus-stack.
+  extraArgs:
+    - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|run/containerd/.+|var/lib/docker/.+|var/lib/kubelet/.+)($|/)
+    - --collector.filesystem.fs-types-exclude=^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|iso9660|mqueue|nsfs|overlay|proc|procfs|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|sysfs|tracefs|erofs)$
+    - --collector.textfile.directory=/host/root/var/lib/node_exporter/textfile_collector
   prometheus:
     monitor:
       relabelings:

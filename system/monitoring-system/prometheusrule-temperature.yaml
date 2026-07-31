@@ -1,0 +1,145 @@
+---
+# Hardware temperature alerts for the three ProDesk Minis.
+#
+# Motivating observation (2026-07-31): a manual temp sweep found worker-01's 12TB WD
+# WD120EDGZ sitting at 61C with a lifetime high of 63C against a vendor-specified 65C
+# maximum — 4C of headroom on the disk that holds every byte of media and all NFS-backed
+# PVCs — while nothing in the cluster was watching any thermal sensor at all.
+#
+# Thresholds are relative to each sensor's OWN limit rather than one hardcoded number,
+# because the hardware disagrees about what hot means: worker-00's 8th-gen coretemp reports
+# crit=82C where the 10th/12th-gen chips in worker-02 and worker-01 report crit=100C, and
+# the three NVMe drives report 81.85C, 81.85C and 87.85C. A single literal would be either
+# deaf on the G4 or hair-trigger on the other two.
+#
+# Sensors with no crit/limit value published are silently outside these rules — the `on()`
+# joins drop them. In practice that means NVMe alerting covers the Composite sensor only
+# (the drive's headline temperature) and not its per-die Sensor 1/Sensor 2 readings, and
+# that node_hwmon_temp_max_celsius is deliberately unused: several NVMe sensors report it
+# as 65261.85C, which would produce a threshold no reading could ever cross.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: temperature
+  namespace: monitoring-system
+  labels:
+    release: monitoring-system
+spec:
+  groups:
+    - name: temperature-cpu-nvme
+      rules:
+        # thermal_zone chips are excluded on purpose. They duplicate the coretemp and PCH
+        # readings that are already covered here, and worker-01's acpitz zone reports a
+        # constant -268.3C — a broken ACPI sensor, not a cold node.
+        #
+        # The group_left join onto node_uname_info exists only to put a hostname in the
+        # notification instead of 192.168.30.x:9100. It costs a suppression risk: an
+        # instance missing node_uname_info would drop out of the alert entirely. That
+        # metric is core node-exporter and present whenever the target is up at all, and a
+        # target that is down has no temperature to report either, so NodeDown covers it.
+        - alert: NodeSensorTemperatureHigh
+          expr: >-
+            (
+              node_hwmon_temp_celsius{chip!~"thermal_thermal_zone.*"}
+                >= on(instance, chip, sensor)
+              (node_hwmon_temp_crit_celsius - 12)
+            ) * on(instance) group_left(nodename) node_uname_info
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: >-
+              {{ $labels.nodename }} sensor {{ $labels.chip }}/{{ $labels.sensor }} is
+              {{ $value | printf "%.0f" }}C
+            description: >-
+              Sensor {{ $labels.chip }}/{{ $labels.sensor }} on {{ $labels.nodename }} has
+              been within 12C of its critical threshold for 15m, currently
+              {{ $value | printf "%.1f" }}C. Sustained rather than a load spike. Check
+              airflow and dust around the chassis, and confirm thermald is still running —
+              it is installed on every node but carries no Restart=, so a stray SIGTERM
+              leaves it dead and silent.
+
+        - alert: NodeSensorTemperatureCritical
+          expr: >-
+            (
+              node_hwmon_temp_celsius{chip!~"thermal_thermal_zone.*"}
+                >= on(instance, chip, sensor)
+              (node_hwmon_temp_crit_celsius - 5)
+            ) * on(instance) group_left(nodename) node_uname_info
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: >-
+              {{ $labels.nodename }} sensor {{ $labels.chip }}/{{ $labels.sensor }} is
+              {{ $value | printf "%.0f" }}C — near shutdown
+            description: >-
+              Sensor {{ $labels.chip }}/{{ $labels.sensor }} on {{ $labels.nodename }} is
+              {{ $value | printf "%.1f" }}C, within 5C of the threshold at which the
+              hardware throttles hard or cuts power. Expect the node to drop out of the
+              cluster if this continues. All three nodes are etcd members, so losing a
+              second one costs quorum.
+
+    - name: temperature-disk
+      rules:
+        # Fed by smart-temp-textfile.timer on the host, not by hwmon: USB-attached drives
+        # get no hwmon entry, so this is the only path by which worker-01's 12TB WD has a
+        # temperature in Prometheus at all.
+        - alert: DiskTemperatureAboveSpec
+          expr: >-
+            (
+              node_smart_temperature_celsius
+                >= on(instance, device)
+              node_smart_temperature_limit_celsius
+            ) * on(instance) group_left(nodename) node_uname_info
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: >-
+              {{ $labels.nodename }} disk {{ $labels.device }} is {{ $value | printf "%.0f" }}C,
+              above its rated maximum
+            description: >-
+              {{ $labels.device }} ({{ $labels.model }}) on {{ $labels.nodename }} has run
+              at or above its vendor-specified maximum operating temperature for 15m,
+              currently {{ $value | printf "%.0f" }}C. Running a helium drive past spec
+              shortens its life well before it fails outright, and this disk backs
+              /mnt/storage — every NFS PVC and the whole media library. Improve airflow
+              around the enclosure; there is no software fix.
+
+        - alert: DiskTemperatureCritical
+          expr: >-
+            (
+              node_smart_temperature_celsius
+                >= on(instance, device)
+              (node_smart_temperature_limit_celsius + 5)
+            ) * on(instance) group_left(nodename) node_uname_info
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: >-
+              {{ $labels.nodename }} disk {{ $labels.device }} is {{ $value | printf "%.0f" }}C
+            description: >-
+              {{ $labels.device }} ({{ $labels.model }}) on {{ $labels.nodename }} is
+              {{ $value | printf "%.0f" }}C, more than 5C past its rated maximum. Move data
+              off or power the enclosure down.
+
+        # Without this the disk alerts above fail silent: if the systemd timer stops, the
+        # series simply disappears and both expressions go permanently empty. worker-01 owns
+        # the cluster's only non-NVMe disk, so "no node is reporting any SMART temperature"
+        # is exactly equivalent to "worker-01's feed is broken" without hardcoding a node
+        # here. 30m tolerates a reboot or an Ansible run.
+        - alert: DiskTemperatureMetricsMissing
+          expr: absent(node_smart_temperature_celsius)
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: No SMART drive temperatures are being reported
+            description: >-
+              node_smart_temperature_celsius has been absent for 30m, so the disk
+              temperature alerts cannot fire and worker-01's 12TB drive is unmonitored.
+              Check smart-temp-textfile.timer on worker-01 and that node-exporter still
+              has --collector.textfile.directory pointed at
+              /host/root/var/lib/node_exporter/textfile_collector.
