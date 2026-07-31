@@ -51,6 +51,11 @@ env:
       secretKeyRef:
         name: immich-api-key
         key: IMMICH_API_KEY
+  - name: HOMEPAGE_VAR_JELLYFIN_API_KEY
+    valueFrom:
+      secretKeyRef:
+        name: jellyfin-api-key
+        key: JELLYFIN_API_KEY
   - name: HOMEPAGE_VAR_NAVIDROME_USER
     valueFrom:
       secretKeyRef:
