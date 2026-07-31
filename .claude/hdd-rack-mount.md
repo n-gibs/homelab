@@ -98,7 +98,16 @@ do not be disappointed by a couple of degrees.
 claim, but small high-RPM fans are tonal in a way that number does not capture, and the panel has
 an on/off switch with no speed control. Worth an honest listen before committing it to 24/7.
 
-- [ ] Fitted low, as designed (rear exhaust)
+**Placement, decided:** rear rails (confirmed available), fans blowing outward, low in the rack
+and below the nodes so the drive is never in their rising exhaust. Adjacent to the drive shelf,
+not across the rack — with 13.41 CFM, distance costs a lot. **Below** the shelf if it is vented or
+mesh, so air rises through it past the drive's underside; **directly behind** it at the same
+height if the shelf is solid metal, since a solid shelf makes "below" a separate airflow zone that
+never touches the drive. If mounting behind, push the drive as close to the fan as the cable
+allows: a flat 3.5" drive is only ~26mm tall, so most of a 1U aperture is looking at empty air
+rather than at the drive.
+
+- [ ] Fitted low on the rear rails, blowing outward
 - [ ] Noise acceptable where the rack actually lives
 - [ ] One hour elapsed, all three node temps recorded in the Phase 6 table
 - [ ] Only then start stage A
