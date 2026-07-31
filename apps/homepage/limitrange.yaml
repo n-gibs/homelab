@@ -9,6 +9,23 @@ spec:
       defaultRequest:
         cpu: 50m
         memory: 128Mi
+      # No default CPU limit on purpose, unlike every other app's LimitRange.
+      #
+      # Homepage is one single-threaded Node process that fans out ~15 server-side widget
+      # fetches on every page load, so it wants most of a core for a second or two and
+      # nothing at all in between. A CPU limit turns that burst into a stall: the container
+      # spent 93% of its CFS periods throttled, page loads took 15s+, and Envoy's 15s route
+      # timeout then returned a plain-text "upstream request timeout" that the customapi
+      # widgets tried to JSON.parse — "Unexpected token 'u'".
+      #
+      # The limit that did it was not this 500m. VPA preserves the request:limit ratio it
+      # finds, so once it settled the request at 15m against this file's 50m/500m 10x ratio,
+      # it scaled the ceiling down to 150m — 15% of a core. Raising the default here would
+      # only move that number; VPA would keep dividing it. Removing it leaves nothing to
+      # scale, so the burst runs at whatever the node has spare, which is the behaviour a
+      # latency-sensitive single-threaded process needs.
+      #
+      # The memory limit stays: an unbounded Node heap on a 16GB node is a real risk, and
+      # memory is not a burst-and-idle resource here.
       default:
-        cpu: 500m
         memory: 512Mi
