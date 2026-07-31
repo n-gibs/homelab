@@ -1,3 +1,18 @@
+# cilium-operator, hubble-relay and hubble-ui all run without resource requests, and that
+# is a deliberate omission rather than an oversight. They are four of the seventeen
+# requestless containers that let worker-00 (4 cores) accumulate 60% of the cluster's real
+# CPU load while reporting 24% requested — the rest were fixed in bootstrap/values/argocd.yaml,
+# system/monitoring-system/values.yaml and system/nfs-provisioner/values.yaml.
+#
+# These are not, because setting them means `helmfile apply -l name=cilium`, and a Cilium
+# release upgrade risks rolling the agent DaemonSet. k3s's KillMode=process can leave the
+# old agent alive while the new container starts; both then write the BPF LB maps from
+# independent allocators and produce dangling backends, which is exactly the 2026-07-28
+# cluster-wide DNS outage. See node_cilium_dangling_bpf_backends and commit 76af3e5.
+#
+# Their combined measured peak is 55m / 448Mi against ArgoCD's 405m and Prometheus's
+# 250m/3Gi, so the scheduling benefit is small and does not justify the blast radius.
+# Do this in a deliberate window, watching for CiliumAgentDuplicate, not as a side effect.
 kubeProxyReplacement: true
 
 # Every node is a k3s server with its own apiserver listening on *:6443, and both the

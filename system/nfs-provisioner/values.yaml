@@ -2,6 +2,14 @@ nfs:
   server: 192.168.30.194
   path: /mnt/storage
 
+# Shipped requestless. 7-day peak was 1m / 31Mi — it does almost nothing, but a container
+# with no request is invisible to the scheduler and counts as free capacity on whichever
+# node it lands on, which is how worker-00 accumulated seventeen of them.
+resources:
+  requests:
+    cpu: 10m
+    memory: 64Mi
+
 storageClass:
   name: nfs
   defaultClass: false
