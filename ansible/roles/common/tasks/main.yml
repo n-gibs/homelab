@@ -220,7 +220,7 @@
 
 # Writes to a temp file and renames: the collector reads this directory on every scrape
 # and a half-written .prom makes it fail the whole scrape, not just this metric.
-# Both metrics are omitted per-disk when unreadable rather than emitted as 0 — a missing
+# Every metric is omitted per-disk when unreadable rather than emitted as 0 — a missing
 # series makes the alert expression empty, where a 0 would read as a stone-cold drive.
 - name: Install SMART drive temperature textfile exporter
   ansible.builtin.copy:
@@ -241,6 +241,8 @@
         echo '# TYPE node_smart_temperature_celsius gauge'
         echo '# HELP node_smart_temperature_limit_celsius Vendor specified maximum operating temperature.'
         echo '# TYPE node_smart_temperature_limit_celsius gauge'
+        echo '# HELP node_smart_load_cycle_count Lifetime head load/unload cycles (SMART 193).'
+        echo '# TYPE node_smart_load_cycle_count counter'
       } >"$tmp"
 
       # NVMe is deliberately excluded: hwmon already covers it, and two sources for one
@@ -269,6 +271,15 @@
           | awk -F': +' '/^Device Model|^Product/ { print $2; exit }' || true)"
         printf 'node_smart_temperature_celsius{device="%s",model="%s"} %s\n' \
           "$name" "${model:-unknown}" "$temp" >>"$tmp"
+
+        # Head parking is a wear budget, not a temperature: worker-01's WD burns ~50
+        # load cycles an hour while essentially idle, which straight-lines through a
+        # 600k rating in about 14 months. Only a rate over time says whether a fix
+        # worked, so it rides along on the SMART read already happening here.
+        cycles="$(awk '$1 == 193 { print $10; exit }' <<<"$attrs")"
+        if [[ "$cycles" =~ ^[0-9]+$ ]]; then
+          printf 'node_smart_load_cycle_count{device="%s"} %s\n' "$name" "$cycles" >>"$tmp"
+        fi
 
         limit="$(smartctl -l devstat "$dev" 2>/dev/null \
           | awk '/Specified Maximum Operating Temperature/ { print $4; exit }' || true)"
