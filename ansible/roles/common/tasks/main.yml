@@ -157,6 +157,8 @@
       - open-iscsi
       - nfs-common
       - chrony
+      - lm-sensors
+      - smartmontools
       - thermald
     state: present
   become: true
@@ -198,6 +200,129 @@
     - chrony
     - thermald
     - fail2ban
+  become: true
+
+# CPU and NVMe temperatures already reach Prometheus for free: node-exporter's hwmon
+# collector reads /sys and publishes node_hwmon_temp_celsius alongside each chip's own
+# node_hwmon_temp_crit_celsius, which is what the alerts thresholds off.
+#
+# USB-attached drives have no hwmon entry — the kernel's `drivetemp` module binds to SATA
+# hosts, not usb-storage — so worker-01's 12TB WD (the cluster's only spinning disk, and
+# the hottest sensor in it at 61C against a 65C spec max) is invisible to that path. This
+# feeds it in through node-exporter's textfile collector instead of adding a second
+# exporter. Emits nothing at all on nodes with no SMART-readable non-NVMe disk.
+- name: Create node-exporter textfile collector directory
+  ansible.builtin.file:
+    path: /var/lib/node_exporter/textfile_collector
+    state: directory
+    mode: "0755"
+  become: true
+
+# Writes to a temp file and renames: the collector reads this directory on every scrape
+# and a half-written .prom makes it fail the whole scrape, not just this metric.
+# Both metrics are omitted per-disk when unreadable rather than emitted as 0 — a missing
+# series makes the alert expression empty, where a 0 would read as a stone-cold drive.
+- name: Install SMART drive temperature textfile exporter
+  ansible.builtin.copy:
+    dest: /usr/local/bin/smart-temp-textfile
+    mode: "0755"
+    content: |
+      #!/usr/bin/env bash
+      # Managed by Ansible (roles/common). Publishes SMART drive temperatures for
+      # node-exporter's textfile collector.
+      set -euo pipefail
+
+      out=/var/lib/node_exporter/textfile_collector/smart_temp.prom
+      tmp="$(mktemp "${out}.XXXXXX")"
+      trap 'rm -f "$tmp"' EXIT
+
+      {
+        echo '# HELP node_smart_temperature_celsius Drive temperature reported by SMART.'
+        echo '# TYPE node_smart_temperature_celsius gauge'
+        echo '# HELP node_smart_temperature_limit_celsius Vendor specified maximum operating temperature.'
+        echo '# TYPE node_smart_temperature_limit_celsius gauge'
+      } >"$tmp"
+
+      # NVMe is deliberately excluded: hwmon already covers it, and two sources for one
+      # device would mean two alerts for one hot disk.
+      while read -r name type; do
+        [[ "$type" == "disk" ]] || continue
+        [[ "$name" == nvme* ]] && continue
+        dev="/dev/$name"
+
+        # Every smartctl call needs `|| true`. Its exit status is a bitmask, and it sets
+        # bits for conditions that are not failures for our purpose: worker-01's WD
+        # returns non-zero on every invocation because the enclosure presents an invalid
+        # checksum in the SMART threshold structure, while still reporting a perfectly
+        # good temperature. Without this, pipefail plus set -e aborts the script after
+        # reading the value but before writing the file.
+        attrs="$(smartctl -A "$dev" 2>/dev/null || true)"
+        # Field 10 of attribute 194 is the raw value. Falls back to the SCSI-style
+        # "Current Drive Temperature" line for drives that report no ATA attributes.
+        temp="$(awk '$1 == 194 { print $10; exit }' <<<"$attrs")"
+        if [[ -z "$temp" ]]; then
+          temp="$(awk '/Current Drive Temperature/ { print $4; exit }' <<<"$attrs")"
+        fi
+        [[ "$temp" =~ ^[0-9]+$ ]] || continue
+
+        model="$(smartctl -i "$dev" 2>/dev/null \
+          | awk -F': +' '/^Device Model|^Product/ { print $2; exit }' || true)"
+        printf 'node_smart_temperature_celsius{device="%s",model="%s"} %s\n' \
+          "$name" "${model:-unknown}" "$temp" >>"$tmp"
+
+        limit="$(smartctl -l devstat "$dev" 2>/dev/null \
+          | awk '/Specified Maximum Operating Temperature/ { print $4; exit }' || true)"
+        if [[ "$limit" =~ ^[0-9]+$ ]]; then
+          printf 'node_smart_temperature_limit_celsius{device="%s"} %s\n' \
+            "$name" "$limit" >>"$tmp"
+        fi
+      done < <(lsblk --nodeps --noheadings --output NAME,TYPE)
+
+      chmod 0644 "$tmp"
+      mv "$tmp" "$out"
+      trap - EXIT
+  become: true
+
+- name: Install SMART temperature exporter systemd units
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/{{ item.name }}"
+    mode: "0644"
+    content: "{{ item.content }}"
+  loop:
+    - name: smart-temp-textfile.service
+      content: |
+        [Unit]
+        Description=Publish SMART drive temperatures for node-exporter
+        After=local-fs.target
+
+        [Service]
+        Type=oneshot
+        ExecStart=/usr/local/bin/smart-temp-textfile
+    # 2min, not 30s. Polling SMART holds a drive awake, and temperature is a slow signal —
+    # the alerts below need 15m sustained to fire, so a 2min gauge age costs nothing.
+    - name: smart-temp-textfile.timer
+      content: |
+        [Unit]
+        Description=Publish SMART drive temperatures every 2 minutes
+
+        [Timer]
+        OnBootSec=2min
+        OnUnitActiveSec=2min
+        AccuracySec=10s
+
+        [Install]
+        WantedBy=timers.target
+  loop_control:
+    label: "{{ item.name }}"
+  become: true
+  notify: Reload systemd
+
+- name: Enable and start SMART temperature exporter timer
+  ansible.builtin.systemd_service:
+    name: smart-temp-textfile.timer
+    enabled: true
+    state: started
+    daemon_reload: true
   become: true
 
 # The kernel default fs.inotify.max_user_instances=128 is charged per-UID, and every
