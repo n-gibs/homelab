@@ -211,6 +211,11 @@
 # the hottest sensor in it at 61C against a 65C spec max) is invisible to that path. This
 # feeds it in through node-exporter's textfile collector instead of adding a second
 # exporter. Emits nothing at all on nodes with no SMART-readable non-NVMe disk.
+#
+# TODO(NAS): this exporter, its two systemd units, and the disk half of
+# system/monitoring-system/prometheusrule-temperature.yaml all exist for that one USB
+# drive. Once /mnt/storage moves to a NAS the nodes have only NVMe left, hwmon covers it,
+# and this whole block goes silent — delete it rather than leaving it emitting nothing.
 - name: Create node-exporter textfile collector directory
   ansible.builtin.file:
     path: /var/lib/node_exporter/textfile_collector
@@ -335,6 +340,34 @@
     state: started
     daemon_reload: true
   become: true
+
+# TODO(NAS): delete this task and the rule it installs once /mnt/storage moves off the
+# USB drive. It is pinned to one serial and is dead weight the moment that drive leaves.
+#
+# worker-01's 12TB WD shipped at APM 128 ("minimum power consumption without standby"),
+# which parks the heads roughly 50 times an hour on a drive that is 0.02% busy — about 9%
+# of a 600k load-cycle rating burned in five weeks. APM 254 stops the parking outright,
+# measured at zero cycles over the following hour with no temperature penalty.
+#
+# APM is volatile: it resets to the drive default whenever the drive loses power, which on
+# a USB enclosure includes bus re-enumeration with the node still up. A boot-time unit
+# would miss that, so this hangs off the udev add/change event instead.
+#
+# smartctl, not idle3ctl or hdparm: WD120EDGZ is an Ultrastar He12 white-label, an HGST
+# platform with no idle3 timer, so unload is APM and APM alone. APM is a standard ATA
+# feature reachable over SAT with smartmontools, already installed above — no vendor
+# commands aimed at the disk backing every NFS PVC in the cluster.
+- name: Stop the 12TB USB drive parking its heads every minute
+  ansible.builtin.copy:
+    dest: /etc/udev/rules.d/60-wd-elements-apm.rules
+    mode: "0644"
+    content: |
+      # Managed by Ansible (roles/common). See the task that installs this file.
+      ACTION=="add|change", SUBSYSTEM=="block", KERNEL=="sd[a-z]", \
+        ENV{ID_SERIAL_SHORT}=="WD-B002KX5D", \
+        RUN+="/usr/sbin/smartctl --set=apm,254 /dev/%k"
+  become: true
+  notify: Reload udev rules
 
 # The kernel default fs.inotify.max_user_instances=128 is charged per-UID, and every
 # containerd-shim holds 2 inotify fds — one shim per running pod. worker-00 hit 129/128

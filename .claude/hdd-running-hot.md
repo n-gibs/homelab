@@ -92,18 +92,18 @@ sudo smartctl --set=apm,128 /dev/sda   # revert
 
 The drive reports `ATA Security is: Disabled, NOT FROZEN`, so settings are accepted.
 
-**Two things still open on this:**
+**It worked.** Load cycles went to zero and stayed there — 55971 held flat across the
+following 15+ minutes, where the previous rate would have produced ~13. The feared side
+effect did not appear: temperature stayed at 56C, so APM 254 costs nothing thermally here
+and the two fixes are not in tension after all.
 
-- **Does it hold?** Watch `rate(node_smart_load_cycle_count[1h])` — expect it to fall to ~0.
-- **It does not persist across a power cycle.** APM resets to the drive default on power
-  loss. If the measurement confirms the fix, persistence belongs in Ansible as a udev rule
-  keyed on the drive serial — not in the existing `smart-temp-textfile` timer, which has a
-  different job.
-
-**The trade-off to keep in mind:** APM 254 raises idle power, which pushes the drive
-*warmer* — the opposite direction from problem 1. If temperature climbs materially after
-this change, the two fixes are in tension and placement has to come first to buy back the
-headroom.
+**Made persistent**, because APM resets to the drive default whenever the drive loses power
+— which on a USB enclosure includes bus re-enumeration with the node still up, so a
+boot-time unit would miss it. A udev rule keyed on `ID_SERIAL_SHORT=WD-B002KX5D` reapplies
+it on every add/change event: `/etc/udev/rules.d/60-wd-elements-apm.rules`, installed from
+`ansible/roles/common`. Verified end to end by setting APM back to 128, firing
+`udevadm trigger --action=change --sysname-match=sda`, and watching it return to 254 on its
+own with `/mnt/storage` unaffected.
 
 ## Instrumentation
 
@@ -116,6 +116,28 @@ Already present, do not duplicate: `node_smart_temperature_celsius` /
 `node_smart_temperature_limit_celsius` from `smart-temp-textfile.timer` every 2 minutes,
 `DiskTemperatureAboveSpec` / `DiskTemperatureCritical` in
 `system/monitoring-system/prometheusrule-temperature.yaml`, and a Homepage widget.
+
+## Removal when the NAS lands
+
+All of this is scaffolding around one USB drive. When `/mnt/storage` moves to a NAS, the
+nodes have only NVMe left, hwmon covers that on its own, and every piece below is either
+dead weight or matching no series. Delete rather than leave it emitting nothing. Each is
+marked `TODO(NAS)` in place, so `just todos` lists them.
+
+| what | where |
+|---|---|
+| APM udev rule (serial-pinned, meaningless without this drive) | `ansible/roles/common/tasks/main.yml` + `handlers/main.yml` |
+| `smart-temp-textfile` exporter, its two systemd units, and `node_smart_load_cycle_count` | `ansible/roles/common/tasks/main.yml` |
+| `temperature-disk` alert group | `system/monitoring-system/prometheusrule-temperature.yaml` |
+| this document | `.claude/hdd-running-hot.md` |
+
+Out of scope of the thermal work but part of the same migration: the NFS server role on
+worker-01, the `nfs` StorageClass, and every media app's direct `192.168.30.194:/mnt/storage`
+mount. Those are a bigger decision than deleting the monitoring around them.
+
+Note the temperature exporter itself is written generically — it emits nothing on a node
+with no SMART-readable non-NVMe disk — so leaving it in place breaks nothing. It just stops
+being worth its own maintenance.
 
 ## Constraints worth keeping
 

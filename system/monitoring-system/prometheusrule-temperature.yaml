@@ -112,6 +112,10 @@ spec:
               cluster if this continues. All three nodes are etcd members, so losing a
               second one costs quorum.
 
+    # TODO(NAS): this whole group exists for worker-01's 12TB USB drive, the cluster's only
+    # spinning disk. When /mnt/storage moves to a NAS, delete the group along with the
+    # smart-temp-textfile exporter in ansible/roles/common — the NAS watches its own disks,
+    # and these rules would sit here matching no series.
     - name: temperature-disk
       rules:
         # Fed by smart-temp-textfile.timer on the host, not by hwmon: USB-attached drives
