@@ -96,7 +96,7 @@ ansible/
 │   └── k3s_cluster.yml    # k3s version, shared flags, token ref
 ├── host_vars/
 │   ├── worker-00.yml      # G4: drop control-plane taint (post-migration)
-│   ├── worker-01.yml      # G9: storage label + PreferNoSchedule taint
+│   ├── worker-01.yml      # G9: media label (no taint)
 │   └── worker-02.yml      # G6: no control-plane taint (schedulable)
 └── roles/
     ├── common/               # SSH hardening, UFW, unattended-upgrades
@@ -109,5 +109,5 @@ ansible/
 
 - CNI: Cilium (flannel disabled)
 - Ingress: Envoy Gateway (traefik + servicelb disabled)
-- HA control plane: all 3 nodes are k3s server+worker, no control-plane taint; worker-01 carries a `PreferNoSchedule` storage taint so media apps land on G9 (see `.claude/g6-migration.md`)
+- HA control plane: all 3 nodes are k3s server+worker, no taints at all; worker-01 carries a `homelab.io/media=true` label so media apps land on G9 via nodeSelector (see `.claude/g6-migration.md`)
 - k3s version: v1.36.2+k3s1 (Kubernetes v1.36.2)

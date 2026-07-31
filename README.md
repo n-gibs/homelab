@@ -11,10 +11,10 @@ k3s + Cilium (VXLAN) + ArgoCD (GitOps) + Envoy Gateway + cert-manager + sealed-s
 | Hostname | Hardware | Role | IP |
 |----------|----------|------|-----|
 | worker-00 | HP ProDesk Mini G4 | k3s server + worker (schedulable) | 192.168.30.129 |
-| worker-01 | HP ProDesk Mini G9 — i5 12th gen, 16GB RAM, 12TB USB | k3s server + worker, NFS server, media workloads (`PreferNoSchedule`) | 192.168.30.194 |
+| worker-01 | HP ProDesk Mini G9 — i5 12th gen, 16GB RAM, 12TB USB | k3s server + worker, NFS server, media workloads (label, no taint) | 192.168.30.194 |
 | worker-02 | HP ProDesk Mini G6 | k3s server + worker (schedulable) | 192.168.30.136 |
 
-All 3 nodes are k3s server+worker (HA etcd control plane). G9 (worker-01) carries a `homelab.io/media=true:PreferNoSchedule` taint so media apps land there and other workloads prefer G4/G6. See `.claude/g6-migration.md` for the migration details.
+All 3 nodes are k3s server+worker (HA etcd control plane) and all 3 are normal scheduling candidates. G9 (worker-01) carries a `homelab.io/media=true` label so media apps select it via nodeSelector; it has no taint, so generic workloads use its spare capacity too. See `.claude/g6-migration.md` for the migration details.
 
 ---
 

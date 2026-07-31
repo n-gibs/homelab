@@ -1,3 +1,15 @@
 ---
-# G9: k3s server + worker (schedulable, no control-plane taint); label + PreferNoSchedule taint keep it media-priority overflow
-extra_server_args: "{{ common_server_flags }} --node-label homelab.io/media=true --node-taint homelab.io/media=true:PreferNoSchedule"
+# G9: k3s server + worker (schedulable, no control-plane taint). The label is what attracts
+# media workloads — they select it with `nodeSelector: homelab.io/media: "true"`.
+#
+# There is deliberately no `--node-taint` here. It used to carry
+# `homelab.io/media=true:PreferNoSchedule`, but a taint only ever *repels*; it does nothing
+# to attract media, which the nodeSelector already handles. Its practical effect was to
+# penalise this node in scheduler scoring so hard that nothing generic ever landed here:
+# on 2026-07-31, worker-01 sat at 17 pods and 24% memory while worker-02 — which has 14.9G
+# against worker-01's 22.6G — absorbed everything and reached 58% memory requested. The
+# node with the most RAM in the cluster was being kept idle.
+#
+# Without the taint, worker-01 is a normal scheduling candidate and generic workloads use
+# its spare capacity, while media still lands here via the label.
+extra_server_args: "{{ common_server_flags }} --node-label homelab.io/media=true"
