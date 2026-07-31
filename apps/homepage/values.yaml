@@ -67,8 +67,26 @@ config:
     title: Homelab
     theme: dark
     color: slate
-    headerStyle: boxed
+    headerStyle: boxedWidgets
     target: _blank
+    statusStyle: dot
+    useEqualHeights: true
+    # Layout order here is the display order, and it is the only place group icons
+    # can be set. Calendar gets its own single-column group so the agenda renders
+    # full width instead of squeezed into a third of the Media grid.
+    layout:
+      Upcoming:
+        style: row
+        columns: 1
+        icon: mdi-calendar
+      Media:
+        style: row
+        columns: 3
+        icon: mdi-play-circle
+      Infrastructure:
+        style: row
+        columns: 3
+        icon: mdi-server
 
   kubernetes:
     mode: cluster
@@ -140,8 +158,9 @@ config:
               user: "{{HOMEPAGE_VAR_NAVIDROME_USER}}"
               token: "{{HOMEPAGE_VAR_NAVIDROME_TOKEN}}"
               salt: "{{HOMEPAGE_VAR_NAVIDROME_SALT}}"
+    - Upcoming:
         - Calendar:
-            description: Upcoming releases
+            description: Releases across the arr stack
             icon: mdi-calendar
             widget:
               type: calendar
