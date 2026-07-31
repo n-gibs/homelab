@@ -1,14 +1,58 @@
-# Runbook: move the 12TB drive into the UGREEN enclosure
+# Runbook: shuck the 12TB drive and rack-mount it
 
 Planned for 2026-08-01. Background and evidence live in [`hdd-running-hot.md`](hdd-running-hot.md);
 this is the execution plan only.
 
 **Goal:** get the WD120EDGZ out of the fanless WD Elements shell, where it idles at 56–57C
-against a 65C ceiling, and into a ventilated UGREEN enclosure. Success is a lower steady-state
-temperature with SMART, APM and the mount all still working.
+against a 65C ceiling, and mount it bare in the 12U 10-inch rack on a WAVLINK SATA-to-USB-C
+adapter. Success is a lower steady-state temperature with SMART, APM and the mount all still
+working.
 
 **Not a data migration.** The platters are untouched. WD *Elements* has no hardware encryption
-in the bridge (unlike My Book), so the drive is readable in any enclosure.
+in the bridge (unlike My Book), so the drive is readable in any enclosure. It is also a helium
+drive — hermetically sealed — so running it bare exposes nothing.
+
+## Hardware decisions already made
+
+**Destination: bare drive, rack-mounted, on the WAVLINK adapter.** Its spec clears the two
+things that would have ruled it out — a 12V brick is included (USB cannot power a 3.5" drive)
+and it addresses to 20TB (cheap 32-bit-LBA bridges cap at 2TiB and corrupt rather than fail on
+a 12TB disk). UASP support implies a modern ASMedia or JMicron bridge, so SAT passthrough will
+probably work better than the WD bridge, which throws a bogus threshold checksum on every call.
+
+**Mount it low in the rack, on grommets.** The rack is open front and back with acrylic sides
+*and bottom*. The capped bottom is the problem: there is no low intake, so the 12U column
+stratifies and heat pools at the top. Above the nodes is the worst position available — it puts
+a drive with 9C of headroom in three mini PCs' rising exhaust. Low and clear is the coolest air
+in the rack. Grommets rather than a rigid mount: a 7200rpm 3.5" drive bolted hard to the frame
+turns the rack into a soundboard.
+
+**Testable prediction worth checking while you are in there:** if worker-02 is the highest node
+in the rack, that confirms stratification. It took the biggest ambient hit on 07-30 (+5C, vs +3
+and +2 for the others).
+
+## Do the rack fan FIRST, as a separate change
+
+The 1U fan panel is independent of the drive work, so it gets its own measurement window.
+
+**Position: low, front-facing, blowing inward.** That directly replaces the intake the acrylic
+bottom blocks, feeds the coldest zone — where the drive is going — and pushes air the way
+convection already wants to go, which pre-loads the DeskPi top exhaust when it is back in stock.
+Mounting the 1U panel at the top as exhaust instead would duplicate the DeskPi and leave the
+intake problem unsolved. If the rack's back is near a wall, front intake is doubly right.
+
+Fit it, leave it an hour, and read all three nodes off the Grafana dashboard. That answers "what
+does forced airflow buy this rack?" on its own — worth having regardless of the disk, since
+every node got warmer on 07-30, not just this one. Doing the fan and the shuck in one window
+means never knowing which one did what; same one-variable-at-a-time discipline that made the APM
+result trustworthy.
+
+It also calibrates expectations: if the fan alone drops the drive several degrees, the rack was
+the dominant term and the enclosure matters less than we think.
+
+- [ ] 1U fan fitted low, front, intake
+- [ ] One hour elapsed, all three nodes + drive read off the dashboard and recorded here
+- [ ] Only then start Phase 0
 
 ---
 
@@ -143,14 +187,22 @@ the one way to actually lose data here.
 
 - [ ] Shuck the WD Elements. Shell is clipped, not screwed — a guitar pick or spudger along the
       seam. No warranty to lose on either part.
-- [ ] Seat the drive in the UGREEN enclosure.
-- [ ] **If the UGREEN uses a real SATA power connector:** WD white-labels implement SATA power
-      pin 3 as PWDIS (power disable). A PSU that supplies 3.3V there holds the drive in reset
-      and it simply won't spin up. Kapton tape over pins 1–3, or a Molex-to-SATA adapter, which
-      doesn't carry 3.3V. If the drive appears dead on first power-up, this is the cause — not
-      the shuck.
-- [ ] Confirm the new enclosure actually moves air. A second fanless shell buys nothing; that
-      was the whole problem.
+- [ ] **PWDIS / the 3.3V pin — the most likely "I killed it" false alarm.** WD white-labels
+      implement SATA power pin 3 as power-disable. A supply that puts 3.3V on that pin holds the
+      drive in reset and it simply will not spin up. This matters *more* with a bare adapter
+      than with an enclosure, because the WAVLINK presents a real SATA power connector. If the
+      drive appears dead on first power-on, tape pins 1–3 with Kapton before concluding
+      anything. It is not the shuck.
+- [ ] Connect to the WAVLINK adapter, power from its 12V brick.
+- [ ] **Optional but recommended: run it bare in open air for an hour first.** That is the floor
+      value — the coldest this drive can physically be. Every later number is measured against
+      it, and you cannot get it any other way. Record it here.
+- [ ] Mount low in the rack, on grommets, in the intake fan's airstream. Not above the nodes.
+- [ ] Cable management: enough slack on the USB-C run to worker-01 that nothing is under
+      tension, and the 12V brick reaching an outlet without strain. A tugged cable on a live NFS
+      export is a worse failure than the heat we are fixing.
+
+Open-air baseline: ______ C   ·   Racked steady state: ______ C
 
 ## Phase 4 — reattach and verify
 
@@ -225,18 +277,32 @@ deliberately.
 
 ## Phase 6 — did it work?
 
-Temperature needs hours, not minutes — a 12TB drive in a new enclosure has a thermal time
-constant of tens of minutes and the answer is the steady state, not the first reading.
+Temperature needs hours, not minutes — a 12TB drive has a thermal time constant of tens of
+minutes and the answer is the steady state, not the first reading.
 
-- [ ] Same evening: compare against the 56–57C idle baseline on the dashboard
+Four numbers to compare, which is why each change gets its own window:
+
+| | temp | when |
+|---|---|---|
+| WD Elements shell, on the floor | **56–57C** | baseline, 2026-07-31 |
+| after the 1U intake fan, still in the shell | | before Phase 0 |
+| bare in open air | | Phase 3 |
+| bare, racked low | | Phase 6 |
+
+- [ ] Same evening: read the racked steady state off the dashboard
 - [ ] Confirm `rate(node_smart_load_cycle_count[1h]) * 3600` is at 0, not ~50
 - [ ] Confirm Load_Cycle_Count is near 55971 — a few cycles from the power cycle are normal
 - [ ] Update `hdd-running-hot.md` with the result and close out hypothesis #1
 - [ ] If the serial changed, commit the udev rule fix
+- [ ] Note whether the other two nodes also improved — the fan's effect is cluster-wide
 
 **What good looks like:** a steady-state idle temperature meaningfully below 56C with SMART
-still readable, APM at 254, and load cycles flat. If temperature barely moves, the new enclosure
-isn't moving enough air either and a fan pointed at it is the next cheapest thing.
+still readable, APM at 254, and load cycles flat.
+
+**How to read the gaps.** If racked lands within a couple of degrees of open air, the rack
+breathes fine and you are done. A large gap means the rack is now the bottleneck, not the
+enclosure — which is an argument for prioritising the DeskPi top exhaust when it restocks, and a
+fact worth knowing about all the hardware in there, not just this drive.
 
 ## Rollback
 
