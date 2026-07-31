@@ -27,10 +27,16 @@ sudo smartctl -l devstat /dev/sda | grep -i temp   # min/max/average history
 ## Measured baseline — do not re-derive
 
 Hardware:
-- **WDC WD120EDGZ-11CNVA0**, Model Family `Western Digital Ultrastar (He10/12)`
-- **7200 rpm, 3.5", helium-filled, 12TB** — an *enterprise* drive, shucked into a USB
-  enclosure. Rated for forced-air server chassis, not passive external cooling. This is the
-  single most important fact about the problem.
+- Enclosure: **WD Elements**, external USB, fanless. **Bought used on eBay**, so whether the
+  drive inside is the one that shipped in it is unconfirmed.
+- Drive: **WDC WD120EDGZ-11CNVA0**, serial `WD-B002KX5D`, firmware `01.01A01`. smartctl
+  reports Model Family `Western Digital Ultrastar (He10/12)` from its own drive database, and
+  **7200 rpm / 3.5" / 12TB** read from the drive itself.
+- A 7200rpm helium drive in a fanless plastic shell is the leading explanation for the
+  temperature. Note this does **not** require anyone to have swapped the drive — WD Elements
+  units of this capacity are commonly found with 7200rpm helium white-label drives inside, so
+  the pairing may well be factory. Treat "is it original" and "does the enclosure cool it" as
+  two separate questions; only the second one affects the temperature.
 - USB-attached (`lsblk -d -o NAME,TRAN` → `usb`). No hwmon entry, which is why its
   temperature reaches Prometheus through a textfile-collector feed rather than node-exporter's
   hwmon collector — see `ansible/roles/common/tasks/main.yml`.
@@ -48,7 +54,25 @@ Temperatures (`smartctl -l devstat`):
 | time in over-temperature | 0 |
 
 Health is otherwise clean: `PASSED`, 0 reallocated sectors, 0 current-pending, 0 offline
-uncorrectable, 0 seek errors, 0 UDMA CRC errors, 937 power-on hours, 29 start/stop cycles.
+uncorrectable, 0 seek errors, 0 UDMA CRC errors.
+
+**Wear is negligible, despite being bought used — the drive is effectively new:**
+| counter | value |
+|---|---|
+| Power_On_Hours | 937 (normalized 099, worst 099) |
+| Power_Cycle_Count | 29 |
+| Start_Stop_Count | 29 |
+| SMART error log | `No Errors Logged` |
+| Self-test log | `No self-tests have been logged` |
+
+worker-01 has ~41 days of uptime and 937 hours is ~39 days, so **essentially every power-on
+hour on this drive was accumulated in this cluster.** Power_Cycle_Count and Start_Stop_Count
+agree at 29, which is internally consistent with a drive that has only ever run here, and a
+reseller refurbishing a drive would normally leave a self-test in the log — there is none.
+
+So **a worn-out or abused used drive is ruled out.** Whatever is happening is a property of
+this drive model in this enclosure, not of degradation. Do not spend time hunting for hidden
+prior-owner damage.
 
 ## Already ruled out — do not re-derive
 
@@ -65,10 +89,18 @@ ceiling points at cooling, not access patterns.**
 
 ## Hypotheses, most to least likely
 
-1. **Passive enclosure cannot cool an enterprise 7200rpm helium drive.** Consumer USB
-   enclosures are sealed plastic with no fan, sized for 5400rpm-class drives. A 7200rpm
-   Ultrastar dissipates meaningfully more. If true, the fix is physical: shuck it into a
-   ventilated bay, add a fan, or replace the enclosure. **No software change can fix this.**
+1. **The fanless WD Elements shell cannot keep a 7200rpm helium drive cool.** No fan, minimal
+   venting, drive mounted in plastic. If true, the fix is physical: re-house it in a
+   ventilated bay or one with a fan, or add airflow across the existing shell.
+   **No software change can fix this.**
+
+   Practical note on provenance: because the unit was bought used, there is realistically no
+   warranty left to protect on either the enclosure or the drive, so **opening the shell costs
+   nothing** — normally the argument against shucking. That makes re-housing a live option
+   rather than a last resort. If you do want to settle whether the drive is original, the two
+   things that actually answer it are physical inspection of the shell's clips for prior
+   pry marks, and WD's own warranty/serial lookup for `WD-B002KX5D`. Neither is answerable
+   over SSH, and neither changes the temperature.
 2. **Ambient / placement.** The cluster was physically relocated on 2026-07-30. Check what
    the enclosure is now sitting on, next to, or inside — a cabinet, a shelf against a wall,
    or stacked on/under one of the mini PCs. For reference, worker-01's internal sensors read
