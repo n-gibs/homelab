@@ -46,6 +46,11 @@ env:
       secretKeyRef:
         name: argocd-api-key
         key: ARGOCD_API_KEY
+  - name: HOMEPAGE_VAR_IMMICH_API_KEY
+    valueFrom:
+      secretKeyRef:
+        name: immich-api-key
+        key: IMMICH_API_KEY
   - name: HOMEPAGE_VAR_NAVIDROME_USER
     valueFrom:
       secretKeyRef:
