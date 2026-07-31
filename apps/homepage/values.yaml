@@ -71,9 +71,12 @@ config:
     target: _blank
     statusStyle: dot
     useEqualHeights: true
-    # Layout order here is the display order, and it is the only place group icons
-    # can be set. Calendar gets its own single-column group so the agenda renders
-    # full width instead of squeezed into a third of the Media grid.
+    # Only place group icons and column counts can be set. Note Homepage takes group
+    # display order from the key order here, but the chart renders this map through
+    # toYaml, which sorts keys — so the order is alphabetical and not controllable
+    # from values.yaml. Calendar gets its own single-column group so the agenda
+    # renders full width instead of squeezed into a third of the Media grid; it
+    # sorts last, which is a fine home for an agenda strip.
     layout:
       Upcoming:
         style: row
