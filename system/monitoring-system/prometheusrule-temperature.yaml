@@ -26,20 +26,16 @@ metadata:
     release: monitoring-system
 spec:
   groups:
-    # Exists for the Homepage dashboard widget, which reads the Prometheus HTTP API
-    # directly. Without it the widget URL has to carry this whole expression
-    # percent-encoded on one line, where nobody can read or review it.
-    #
-    # sensor_name is precomputed here rather than assembled in the widget because
-    # Homepage's dynamic-list display takes each row's name from a field in the data.
-    # That makes the widget independent of the order Prometheus returns series in —
-    # indexing rows positionally would silently relabel every reading if that order
-    # ever shifted.
-    #
-    # NVMe is deliberately not included. It sits 25-40C below its threshold on all three
-    # nodes, so it is noise on a dashboard; the alert rules below still cover it.
+    # Both rules here precompute sensor_name because Homepage's dynamic-list display takes
+    # each row's name from a field in the data. That makes the widget independent of the
+    # order Prometheus returns series in — indexing rows positionally would silently
+    # relabel every reading if that order ever shifted. They also keep the widget URL
+    # short enough to review instead of carrying a whole expression percent-encoded on one
+    # line.
     - name: temperature-recording
       rules:
+        # Read by the Grafana dashboard's panel 1 only. NVMe is deliberately absent: panel 1
+        # gets it from a separate query, so adding it here would double-count.
         - record: node:temperature_celsius:max
           expr: >-
             label_replace(
@@ -54,6 +50,54 @@ spec:
               max by (nodename) (
                 node_smart_temperature_celsius
                   * on(instance) group_left(nodename) node_uname_info
+              ),
+              "sensor_name", "$1 HDD", "nodename", "(.*)"
+            )
+
+        # Read by the Homepage widget. Degrees left before each sensor hits its OWN ceiling,
+        # not raw temperature: 57C is 8 degrees from death on the 12TB WD and 43 degrees of
+        # slack on worker-01's CPU, so one absolute number on a glanceable list means
+        # nothing. Small number = attention needed, which is the only reading a dashboard
+        # row has room to convey.
+        #
+        # Kept separate from :max above rather than replacing it — the dashboard's panel 1
+        # plots absolute temperature over time and still needs that. This is also NOT the
+        # same shape as the dashboard's panel 2, which reduces to one worst-sensor value per
+        # node; here each sensor class gets its own row so a hot disk cannot hide behind a
+        # cool CPU.
+        #
+        # Sensors with no published crit drop out of the `on()` joins silently, same caveat
+        # as the alerts: NVMe is the Composite sensor (temp1) only, and
+        # node_hwmon_temp_max_celsius stays unused because several NVMe sensors report it as
+        # 65261.85C.
+        - record: node:temperature_headroom_celsius:min
+          expr: >-
+            label_replace(
+              min by (nodename) (
+                (
+                  node_hwmon_temp_crit_celsius
+                    - node_hwmon_temp_celsius{chip="platform_coretemp_0"}
+                ) * on(instance) group_left(nodename) node_uname_info
+              ),
+              "sensor_name", "$1 CPU", "nodename", "(.*)"
+            )
+            or
+            label_replace(
+              min by (nodename) (
+                (
+                  node_hwmon_temp_crit_celsius
+                    - node_hwmon_temp_celsius{chip=~"nvme.*", sensor="temp1"}
+                ) * on(instance) group_left(nodename) node_uname_info
+              ),
+              "sensor_name", "$1 NVMe", "nodename", "(.*)"
+            )
+            or
+            label_replace(
+              min by (nodename) (
+                (
+                  node_smart_temperature_limit_celsius
+                    - on(instance, device) node_smart_temperature_celsius
+                ) * on(instance) group_left(nodename) node_uname_info
               ),
               "sensor_name", "$1 HDD", "nodename", "(.*)"
             )

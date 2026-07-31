@@ -181,22 +181,32 @@ config:
               url: http://monitoring-system-grafana.monitoring-system.svc.cluster.local
               username: admin
               password: changeme
-        # Reads the node:temperature_celsius:max recording rule from
-        # system/monitoring-system/prometheusrule-temperature.yaml, which is also what
-        # keeps this URL short enough to review. dynamic-list takes each row's name from
-        # metric.sensor_name in the response rather than from its position, so the display
-        # does not depend on the order Prometheus returns series in.
+        # Reads the node:temperature_headroom_celsius:min recording rule from
+        # system/monitoring-system/prometheusrule-temperature.yaml, which is also what keeps
+        # this URL short enough to review. Headroom, not raw temperature: the hardware
+        # disagrees about what hot means (coretemp crit is 82C on worker-00 and 100C on the
+        # other two, the 12TB WD is rated 65C), so "57" tells you nothing while "8 C to
+        # limit" tells you everything. Smaller is worse — sort() puts the sensor with the
+        # least slack at the top, which is the one worth seeing first.
+        #
+        # dynamic-list takes each row's name from metric.sensor_name in the response rather
+        # than from its position, so the display does not depend on series order.
+        #
+        # suffix/format are undocumented for dynamic-list but do work: the display passes the
+        # whole mappings object to the same formatValue() the block display uses (verified in
+        # v1.13.2 src/widgets/customapi/component.jsx). Nothing in customapi can colour a
+        # row in any display mode, hence carrying the threshold in the wording instead.
         #
         # 60s refresh instead of the 10s default: the underlying SMART reading is only
         # refreshed every 2 minutes by a systemd timer on the node, so polling faster just
         # re-renders the same number.
         - Temperatures:
-            href: https://grafana.nik-homelab.dev
-            description: CPU & drive temps
+            href: https://grafana.nik-homelab.dev/d/homelab-temperatures
+            description: Thermal headroom per sensor
             icon: mdi-thermometer
             widget:
               type: customapi
-              url: http://prometheus-operated.monitoring-system.svc.cluster.local:9090/api/v1/query?query=node:temperature_celsius:max
+              url: http://prometheus-operated.monitoring-system.svc.cluster.local:9090/api/v1/query?query=sort(node:temperature_headroom_celsius:min)
               refreshInterval: 60000
               display: dynamic-list
               mappings:
@@ -204,5 +214,6 @@ config:
                 name: metric.sensor_name
                 label: value.1
                 format: number
+                suffix: "C to limit"
 
   bookmarks: []
