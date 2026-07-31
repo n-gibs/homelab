@@ -50,6 +50,15 @@ server:
         gethomepage.dev/group: "Media"
         gethomepage.dev/icon: "immich.png"
         gethomepage.dev/href: "https://immich.nik-homelab.dev"
+        # version 2 because the widget's v1 API shape only applies to Immich < 1.118;
+        # we run v3.x. The {{HOMEPAGE_VAR_}} placeholder resolves in annotations, not
+        # just in Homepage's own config files — discovered services are run through
+        # substituteEnvironmentVars — so the key stays a sealed secret on Homepage's
+        # side rather than sitting in plaintext here.
+        gethomepage.dev/widget.type: "immich"
+        gethomepage.dev/widget.url: "http://immich-server.immich.svc.cluster.local:2283"
+        gethomepage.dev/widget.key: "{{HOMEPAGE_VAR_IMMICH_API_KEY}}"
+        gethomepage.dev/widget.version: "2"
       enabled: true
       kind: HTTPRoute
       hostnames:
