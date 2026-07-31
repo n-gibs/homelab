@@ -26,6 +26,38 @@ metadata:
     release: monitoring-system
 spec:
   groups:
+    # Exists for the Homepage dashboard widget, which reads the Prometheus HTTP API
+    # directly. Without it the widget URL has to carry this whole expression
+    # percent-encoded on one line, where nobody can read or review it.
+    #
+    # sensor_name is precomputed here rather than assembled in the widget because
+    # Homepage's dynamic-list display takes each row's name from a field in the data.
+    # That makes the widget independent of the order Prometheus returns series in —
+    # indexing rows positionally would silently relabel every reading if that order
+    # ever shifted.
+    #
+    # NVMe is deliberately not included. It sits 25-40C below its threshold on all three
+    # nodes, so it is noise on a dashboard; the alert rules below still cover it.
+    - name: temperature-recording
+      rules:
+        - record: node:temperature_celsius:max
+          expr: >-
+            label_replace(
+              max by (nodename) (
+                node_hwmon_temp_celsius{chip="platform_coretemp_0"}
+                  * on(instance) group_left(nodename) node_uname_info
+              ),
+              "sensor_name", "$1 CPU", "nodename", "(.*)"
+            )
+            or
+            label_replace(
+              max by (nodename) (
+                node_smart_temperature_celsius
+                  * on(instance) group_left(nodename) node_uname_info
+              ),
+              "sensor_name", "$1 HDD", "nodename", "(.*)"
+            )
+
     - name: temperature-cpu-nvme
       rules:
         # thermal_zone chips are excluded on purpose. They duplicate the coretemp and PCH

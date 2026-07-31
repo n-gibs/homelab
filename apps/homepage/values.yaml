@@ -181,5 +181,28 @@ config:
               url: http://monitoring-system-grafana.monitoring-system.svc.cluster.local
               username: admin
               password: changeme
+        # Reads the node:temperature_celsius:max recording rule from
+        # system/monitoring-system/prometheusrule-temperature.yaml, which is also what
+        # keeps this URL short enough to review. dynamic-list takes each row's name from
+        # metric.sensor_name in the response rather than from its position, so the display
+        # does not depend on the order Prometheus returns series in.
+        #
+        # 60s refresh instead of the 10s default: the underlying SMART reading is only
+        # refreshed every 2 minutes by a systemd timer on the node, so polling faster just
+        # re-renders the same number.
+        - Temperatures:
+            href: https://grafana.nik-homelab.dev
+            description: CPU & drive temps
+            icon: mdi-thermometer
+            widget:
+              type: customapi
+              url: http://prometheus-operated.monitoring-system.svc.cluster.local:9090/api/v1/query?query=node:temperature_celsius:max
+              refreshInterval: 60000
+              display: dynamic-list
+              mappings:
+                items: data.result
+                name: metric.sensor_name
+                label: value.1
+                format: number
 
   bookmarks: []
