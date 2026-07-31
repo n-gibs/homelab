@@ -1,0 +1,206 @@
+# Hardware temperature dashboard, loaded by the Grafana sidecar (LABEL=grafana_dashboard,
+# LABEL_VALUE=1, NAMESPACE=ALL — confirmed from the running deployment).
+#
+# Why this exists: the thermal stack shipped 2026-07-31 as alerts and a Homepage widget with
+# no visualization behind them, so every "is it getting worse?" question meant querying the
+# Prometheus API by hand. The 07-30 relocation cost all three nodes 2-5C simultaneously and
+# nothing would have shown that — it is only legible as a common-mode step across nodes,
+# which is exactly what a shared time axis makes obvious and a per-sensor alert cannot.
+#
+# The sidecar has no FOLDER_ANNOTATION set, so a grafana_folder annotation here would be
+# silently ignored. It lands in the default folder; that is fine for one dashboard.
+#
+# Thresholds deliberately mirror prometheusrule-temperature.yaml (crit-12 warning, crit-5
+# critical) so the colours change at the same points the alerts fire. Keep them in sync.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-temperatures
+  namespace: monitoring-system
+  labels:
+    grafana_dashboard: "1"
+data:
+  homelab-temperatures.json: |
+    {
+      "title": "Homelab — Temperatures",
+      "uid": "homelab-temperatures",
+      "tags": ["homelab", "hardware"],
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "refresh": "1m",
+      "time": { "from": "now-24h", "to": "now" },
+      "templating": {
+        "list": [
+          {
+            "name": "datasource",
+            "label": "Data source",
+            "type": "datasource",
+            "query": "prometheus",
+            "hide": 0,
+            "current": {}
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "timeseries",
+          "title": "Temperature — hottest sensor per node",
+          "description": "CPU and HDD come from the node:temperature_celsius:max recording rule; NVMe is the Composite sensor (temp1), not the per-die readings. A step that moves every series at once is ambient — the room, not the workload.",
+          "gridPos": { "h": 9, "w": 24, "x": 0, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "celsius",
+              "decimals": 0,
+              "custom": { "lineWidth": 2, "fillOpacity": 0 }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": { "displayMode": "table", "placement": "right", "calcs": ["lastNotNull", "max"] },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "node:temperature_celsius:max",
+              "legendFormat": "{{sensor_name}}"
+            },
+            {
+              "refId": "B",
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "max by (nodename) (node_hwmon_temp_celsius{chip=~\"nvme.*\", sensor=\"temp1\"} * on(instance) group_left(nodename) node_uname_info)",
+              "legendFormat": "{{nodename}} NVMe"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "type": "bargauge",
+          "title": "Headroom to limit",
+          "description": "Degrees left before each sensor hits its own rated ceiling. Raw temperature is meaningless across this hardware — the coretemp criticals are 82C on the G4 and 100C on the other two, the NVMe drives sit at 81.85/81.85/87.85C, and the 12TB WD is rated 65C. Amber and red are the same points at which NodeSensorTemperatureHigh and NodeSensorTemperatureCritical fire.",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 9 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "celsius",
+              "decimals": 0,
+              "min": 0,
+              "max": 60,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "orange", "value": 5 },
+                  { "color": "green", "value": 12 }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "orientation": "horizontal",
+            "displayMode": "gradient",
+            "showUnfilled": true,
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "min by (nodename) ((node_hwmon_temp_crit_celsius - node_hwmon_temp_celsius{chip!~\"thermal_thermal_zone.*\"}) * on(instance) group_left(nodename) node_uname_info)",
+              "legendFormat": "{{nodename}} worst sensor",
+              "instant": true
+            },
+            {
+              "refId": "B",
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "(node_smart_temperature_limit_celsius - on(instance, device) node_smart_temperature_celsius) * on(instance) group_left(nodename) node_uname_info",
+              "legendFormat": "{{nodename}} {{device}}",
+              "instant": true
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "type": "timeseries",
+          "title": "12TB USB drive vs its 65C ceiling",
+          "description": "TODO(NAS): delete this panel with the drive. Fed by smart-temp-textfile.timer, not hwmon — USB-attached disks get no hwmon entry. Investigated 2026-07-31: the heat is the fanless enclosure, not the workload (the drive is 0.02% busy) and not the node's CPU load. See .claude/hdd-running-hot.md.",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 9 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "celsius",
+              "decimals": 0,
+              "custom": { "lineWidth": 2, "fillOpacity": 10 }
+            },
+            "overrides": [
+              {
+                "matcher": { "id": "byRegexp", "options": ".*rated maximum.*" },
+                "properties": [
+                  { "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [10, 10] } },
+                  { "id": "custom.fillOpacity", "value": 0 },
+                  { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["lastNotNull", "max"] },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "node_smart_temperature_celsius",
+              "legendFormat": "{{device}} ({{model}})"
+            },
+            {
+              "refId": "B",
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "node_smart_temperature_limit_celsius",
+              "legendFormat": "{{device}} rated maximum"
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "type": "timeseries",
+          "title": "Head load/unload cycles per hour",
+          "description": "TODO(NAS): delete this panel with the drive. Wear, not heat — keep it separate from the panels above. The drive shipped at APM 128 and parked its heads ~50 times an hour while 0.02% busy, which straight-lines through a 600k rating in about 14 months. A udev rule in ansible/roles/common now pins APM to 254 on every add/change event; this should sit at zero. If it climbs back, that rule stopped matching.",
+          "gridPos": { "h": 7, "w": 24, "x": 0, "y": 17 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "decimals": 1,
+              "min": 0,
+              "custom": { "lineWidth": 2, "fillOpacity": 10 },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "orange", "value": 5 }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["lastNotNull", "mean"] },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "rate(node_smart_load_cycle_count[1h]) * 3600",
+              "legendFormat": "{{device}}"
+            }
+          ]
+        }
+      ]
+    }
