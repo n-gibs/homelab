@@ -357,6 +357,13 @@
 # platform with no idle3 timer, so unload is APM and APM alone. APM is a standard ATA
 # feature reachable over SAT with smartmontools, already installed above — no vendor
 # commands aimed at the disk backing every NFS PVC in the cluster.
+#
+# Matched on vendor+model, not serial: the drive was shucked from its WD Elements
+# enclosure on 2026-08-01 and now hangs off a generic SATA-USB bridge that does not pass
+# the ATA serial through. Udev sees a fabricated identity that is also *unstable* —
+# ID_SERIAL_SHORT and ID_WWN both read 5000000000000001, and the usb-* by-id link carries
+# a fresh random hex on each enumeration. The SCSI INQUIRY vendor/model strings are the
+# only bridge-independent fields left, and worker-01 has exactly one USB disk.
 - name: Stop the 12TB USB drive parking its heads every minute
   ansible.builtin.copy:
     dest: /etc/udev/rules.d/60-wd-elements-apm.rules
@@ -364,7 +371,7 @@
     content: |
       # Managed by Ansible (roles/common). See the task that installs this file.
       ACTION=="add|change", SUBSYSTEM=="block", KERNEL=="sd[a-z]", \
-        ENV{ID_SERIAL_SHORT}=="WD-B002KX5D", \
+        ENV{ID_VENDOR}=="WDC_WD12", ENV{ID_MODEL}=="0EDGZ-11CNVA0", \
         RUN+="/usr/sbin/smartctl --set=apm,254 /dev/%k"
   become: true
   notify: Reload udev rules
