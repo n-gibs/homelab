@@ -487,7 +487,13 @@ the exporter returning 401 and `NextcloudDown` firing, which points at entirely 
 5. Commit and push to `main`. If the new Application doesn't appear, refresh the **ApplicationSet** —
    per `argocd_appset_refresh_for_chart_bumps`, an Application refresh is a no-op for this.
 6. Watch CNPG first (`sync-wave: -1`): all 3 instances Ready before the app pod starts. First boot then
-   runs the installer against an empty database — expect it to be slow, `startupProbe` covers it.
+   runs the installer against an empty database — expect it to be slow.
+
+   **`startupProbe` must be enabled explicitly in `values.yaml`.** The chart ships it disabled while
+   `livenessProbe` is enabled with `initialDelaySeconds: 10`, `periodSeconds: 10`,
+   `failureThreshold: 3` — roughly a 40-second budget before liveness starts killing a pod that is
+   still installing. With chart defaults the first boot crashloops mid-install and never completes.
+   Set `startupProbe.enabled: true` with `failureThreshold: 60` for a 10-minute budget.
 
 ## Post-deploy verification
 
