@@ -72,6 +72,28 @@ nextcloud:
         ),
       );
 
+  # Envoy terminates TLS and forwards plain HTTP to port 8080, so without these
+  # Nextcloud believes it is being served over http and generates http:// URLs.
+  # The symptom is a login that hangs: POST /login authenticates fine and returns
+  # 303, but the Location header points at http://, which the browser cannot
+  # follow, so no follow-up request ever reaches the pod. All three are read via
+  # getenv() by the chart's reverse-proxy.config.php on every request, so unlike
+  # trusted_domains they are not install-time-only.
+  extraEnv:
+    # Generated URLs for cron, emails and share links. Default is http://localhost.
+    - name: OVERWRITECLIURL
+      value: https://nextcloud.nik-homelab.dev
+    # Lets Nextcloud honour X-Forwarded-For from the gateway, so logs, rate
+    # limiting and brute-force protection see the real client IP instead of an
+    # Envoy pod IP. Scoped to the pod CIDR.
+    - name: TRUSTED_PROXIES
+      value: 10.42.0.0/16
+
+# Sets OVERWRITEPROTOCOL=https. Chart-native knob for the same reverse-proxy
+# problem as the extraEnv block above; protocol defaults to https.
+phpClientHttpsFix:
+  enabled: true
+
 internalDatabase:
   enabled: false
 
