@@ -1,30 +1,17 @@
-# cilium-operator, hubble-relay and hubble-ui all run without resource requests, and that
-# is a deliberate omission rather than an oversight. They are four of the seventeen
-# requestless containers that let worker-00 (4 cores) accumulate 60% of the cluster's real
-# CPU load while reporting 24% requested — the rest were fixed in bootstrap/values/argocd.yaml,
-# system/monitoring-system/values.yaml and system/nfs-provisioner/values.yaml.
-#
-# These are not, because setting them means `helmfile apply -l name=cilium`, and a Cilium
-# release upgrade risks rolling the agent DaemonSet. k3s's KillMode=process can leave the
-# old agent alive while the new container starts; both then write the BPF LB maps from
-# independent allocators and produce dangling backends, which is exactly the 2026-07-28
-# cluster-wide DNS outage. See node_cilium_dangling_bpf_backends and commit 76af3e5.
-#
-# Their combined measured peak is 55m / 448Mi against ArgoCD's 405m and Prometheus's
-# 250m/3Gi, so the scheduling benefit is small and does not justify the blast radius.
-# Do this in a deliberate window, watching for CiliumAgentDuplicate, not as a side effect.
+# cilium-operator, hubble-relay and hubble-ui deliberately have NO resource requests,
+# unlike their requestless peers fixed in argocd.yaml / monitoring-system / nfs-provisioner.
+# Setting them means `helmfile apply -l name=cilium`, and rolling the agent DaemonSet is
+# how you get two agents writing the BPF LB maps at once (k3s KillMode=process) — the
+# dangling-backend DNS outage. Combined peak is only 55m / 448Mi, so the scheduling win
+# does not justify it. If you do it, do it in a deliberate window watching
+# CiliumAgentDuplicate, not as a side effect. See commit 76af3e5.
 kubeProxyReplacement: true
 
-# Every node is a k3s server with its own apiserver listening on *:6443, and both the
-# agent DaemonSet and the operator run hostNetwork, so 127.0.0.1 resolves to the local
-# apiserver on whichever node the pod lands.
-#
-# This used to be hardcoded to 192.168.30.129 (worker-00), which made worker-00 a single
-# point of failure for Cilium cluster-wide: when its k3s restarted on 2026-07-30 at
-# 17:53, all three agents logged `apiserver not ready` and worker-01 additionally logged
-# `403 forbidden` on services/CiliumNode while worker-00's RBAC was still reconciling.
-# Pointing each agent at its own node removes the cross-node dependency — a node whose
-# local apiserver is down has no working k3s anyway, so its agent is moot.
+# Every node is a k3s server with its own apiserver on *:6443, and the agent DaemonSet and
+# operator both run hostNetwork, so 127.0.0.1 is the local apiserver wherever the pod lands.
+# This was hardcoded to worker-00's IP, which made that node a cluster-wide single point of
+# failure for Cilium — every agent logged `apiserver not ready` when its k3s restarted.
+# A node whose own apiserver is down has no working k3s anyway, so its agent is moot.
 k8sServiceHost: "127.0.0.1"
 k8sServicePort: "6443"
 

@@ -3,28 +3,19 @@ kind: PersistentVolumeClaim
 metadata:
   name: nextcloud-html
   namespace: nextcloud
-  # Deliberately NO sync-wave annotation — do not add one. local-path is
-  # WaitForFirstConsumer, so this PVC cannot bind until a consuming pod is
-  # scheduled, and ArgoCD treats a non-Bound PVC as unhealthy. Put it in an
-  # earlier wave than the Deployment and the sync deadlocks permanently: wave -1
-  # never goes healthy, so the Deployment that would bind it is never created.
-  # It has to land in the same wave as its consumer. The sibling volume
-  # manifests (data-pv.yaml, postgres.yaml) DO carry wave -1 and are fine —
-  # a static NFS PV and the nfs class both bind immediately.
+  # NO sync-wave annotation — do not add one. local-path is WaitForFirstConsumer,
+  # so this stays Pending (= unhealthy to ArgoCD) until its consumer is scheduled.
+  # An earlier wave deadlocks the sync forever. The sibling volumes bind
+  # immediately, which is why they can carry wave -1.
 spec:
   accessModes:
     - ReadWriteOnce
-  # local-path per the second exception in CLAUDE.md. The nfs class provisions
-  # onto worker-01's sync-exported USB spinning disk, and this tree is ~15k small
-  # PHP files rsynced out of the image on first boot and stat-ed on every request.
-  # Safe here because it is reconstructible: image contents plus config.php.
-  #
-  # Recovery if the pinned node dies permanently: delete this PVC and let the
-  # tree rebuild from the image on next start. The database and the data
-  # directory are untouched.
-  #
-  # local-path cannot be expanded in place. 10Gi against a ~1.5GB tree is
-  # deliberate headroom for custom apps.
+  # local-path per the second exception in CLAUDE.md: ~15k small PHP files stat-ed
+  # on every request, too hot for the sync-exported USB disk the nfs class uses,
+  # and reconstructible from the image.
+  # Recovery if the pinned node dies: delete this PVC, the tree rebuilds on next
+  # start. Database and data directory are untouched.
+  # 10Gi against a ~1.5GB tree is headroom for apps — local-path can't be expanded.
   storageClassName: local-path
   resources:
     requests:

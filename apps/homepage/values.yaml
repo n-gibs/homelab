@@ -81,22 +81,17 @@ config:
     target: _blank
     statusStyle: dot
     useEqualHeights: true
-    # unsplash.com/photos/blue-skies-filled-of-stars-W8KTS-mhFUE. Fetched by the
-    # browser, not the pod, so no egress from the cluster. Remote URL means no
-    # /app/public/images volume to mount.
-    #
-    # Deliberately the bare-string form rather than the background: {image, ...}
-    # map: cardBlur is incompatible with background filters, so taking the frosted
-    # cards means giving up brightness/opacity dimming. The night sky is dark
-    # enough on its own to keep card text legible.
+    # unsplash.com/photos/blue-skies-filled-of-stars-W8KTS-mhFUE. Browser fetches it, not
+    # the pod, so no cluster egress and no /app/public/images volume to mount.
+    # Bare-string form, not the background: {image, ...} map — cardBlur is incompatible
+    # with background filters, so frosted cards means no brightness/opacity dimming. This
+    # image is dark enough already.
     background: https://images.unsplash.com/photo-1496715976403-7e36dc43f17b?auto=format&fit=crop&w=2560&q=80
     cardBlur: sm
-    # Only place group icons and column counts can be set. Note Homepage takes group
-    # display order from the key order here, but the chart renders this map through
-    # toYaml, which sorts keys — so the order is alphabetical and not controllable
-    # from values.yaml. Calendar gets its own single-column group so the agenda
-    # renders full width instead of squeezed into a third of the Media grid; it
-    # sorts last, which is a fine home for an agenda strip.
+    # Only place group icons and column counts can be set. Homepage takes group display
+    # order from key order here, but the chart renders this map through toYaml, which sorts
+    # keys — so order is alphabetical and not controllable from values.yaml. Calendar gets
+    # its own single-column group so the agenda renders full width; it sorts last anyway.
     layout:
       Upcoming:
         style: row
@@ -224,24 +219,19 @@ config:
               username: admin
               password: changeme
         # Reads the node:temperature_headroom_celsius:min recording rule from
-        # system/monitoring-system/prometheusrule-temperature.yaml, which is also what keeps
-        # this URL short enough to review. Headroom, not raw temperature: the hardware
-        # disagrees about what hot means (coretemp crit is 82C on worker-00 and 100C on the
-        # other two, the 12TB WD is rated 65C), so "57" tells you nothing while "8 C to
-        # limit" tells you everything. Smaller is worse — sort() puts the sensor with the
-        # least slack at the top, which is the one worth seeing first.
+        # system/monitoring-system/prometheusrule-temperature.yaml, which also keeps this URL
+        # short enough to review. Headroom, not raw temperature — the hardware disagrees
+        # about what hot means, so "57" says nothing while "8 C to limit" says everything.
+        # sort() puts the least slack first. dynamic-list names each row from
+        # metric.sensor_name, so the display does not depend on series order.
         #
-        # dynamic-list takes each row's name from metric.sensor_name in the response rather
-        # than from its position, so the display does not depend on series order.
-        #
-        # suffix/format are undocumented for dynamic-list but do work: the display passes the
-        # whole mappings object to the same formatValue() the block display uses (verified in
+        # suffix/format are undocumented for dynamic-list but work: it passes the whole
+        # mappings object to the same formatValue() the block display uses (verified in
         # v1.13.2 src/widgets/customapi/component.jsx). Nothing in customapi can colour a
-        # row in any display mode, hence carrying the threshold in the wording instead.
+        # row, hence the threshold lives in the wording.
         #
-        # 60s refresh instead of the 10s default: the underlying SMART reading is only
-        # refreshed every 2 minutes by a systemd timer on the node, so polling faster just
-        # re-renders the same number.
+        # 60s refresh, not the 10s default: the SMART reading behind it only updates every
+        # 2 minutes, so polling faster re-renders the same number.
         - Temperatures:
             href: https://grafana.nik-homelab.dev/d/homelab-temperatures
             description: Thermal headroom per sensor

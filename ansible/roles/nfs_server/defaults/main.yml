@@ -7,7 +7,6 @@ nfs_subdirs:
   - downloads
   - media
   - photos
-  # Nextcloud file data. Created nobody:nogroup like its siblings; the Nextcloud
-  # pod's init container chowns it to 33:33 (www-data) on every start, because
-  # fsGroup does not apply to NFS volumes.
+  # Nextcloud file data. Created nobody:nogroup like its siblings; the app's init
+  # container chowns it to 33:33 on every start.
   - nextcloud

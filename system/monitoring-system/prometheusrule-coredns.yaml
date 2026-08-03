@@ -1,17 +1,12 @@
 ---
-# Guards the CoreDNS HA posture added 2026-07-29.
+# Guards the CoreDNS HA posture. The extra replicas come from system/coredns/coredns-ha.yaml,
+# deployed by a standalone Application rather than the system ApplicationSet — so if that
+# Application is deleted nothing recreates it (only its *contents* self-heal) and the cluster
+# silently drops back to the single-replica posture that once turned a node-local Cilium fault
+# into a ~1h DNS outage. Nothing else notices, because DNS keeps working on the survivor.
 #
-# The extra replicas come from kube-system/coredns-ha (system/coredns/coredns-ha.yaml),
-# deployed by a standalone ArgoCD Application rather than by the system ApplicationSet.
-# If that Application is deleted, nothing recreates it — only its *contents* self-heal —
-# so the cluster silently returns to the single-replica posture that turned a node-local
-# Cilium datapath fault into a ~1h DNS outage on 2026-07-28. Nothing else notices,
-# because DNS keeps working fine on the remaining replica.
-#
-# Metric source: the kube-prometheus-stack coredns exporter already scrapes every CoreDNS
-# pod — Service kube-system/monitoring-system-kube-pro-coredns selects `k8s-app=kube-dns`,
-# which is the same label coredns-ha's pods carry, so both deployments are covered with no
-# extra ServiceMonitor. Verified: `up{job="coredns"}` has one series per pod.
+# No extra ServiceMonitor needed: the stack's coredns exporter selects `k8s-app=kube-dns`,
+# the same label coredns-ha's pods carry, so both deployments are already scraped.
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:

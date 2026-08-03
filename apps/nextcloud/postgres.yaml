@@ -11,14 +11,12 @@ spec:
 
   storage:
     # local-path per the CNPG exception in CLAUDE.md: streaming replication, not
-    # the volume, provides node-failure durability. Sized deliberately — a
-    # document store's DB is metadata only, and local-path cannot be expanded in
-    # place, so growing this later means a rebuild.
+    # the volume, provides node-failure durability. This DB holds metadata only,
+    # and local-path can't be expanded — growing it later means a rebuild.
     size: 10Gi
     storageClass: local-path
 
-  # local-path PVCs already pin each instance to its node permanently, so
-  # "required" adds no constraint local-path has not already imposed.
+  # Free: local-path already pins each instance to its node permanently.
   affinity:
     podAntiAffinityType: required
 

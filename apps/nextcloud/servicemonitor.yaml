@@ -15,8 +15,7 @@ spec:
     matchNames:
       - nextcloud
   endpoints:
-    # The metrics Service exposes port 9100 named "http", targeting the
-    # container's 9205. The port name here is the Service's, not the container's.
+    # The metrics Service's port name, not the container's (9100 -> 9205).
     - port: http
       path: /metrics
       interval: 60s
