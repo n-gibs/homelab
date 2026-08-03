@@ -3,8 +3,14 @@ kind: PersistentVolumeClaim
 metadata:
   name: nextcloud-html
   namespace: nextcloud
-  annotations:
-    argocd.argoproj.io/sync-wave: "-1"
+  # Deliberately NO sync-wave annotation — do not add one. local-path is
+  # WaitForFirstConsumer, so this PVC cannot bind until a consuming pod is
+  # scheduled, and ArgoCD treats a non-Bound PVC as unhealthy. Put it in an
+  # earlier wave than the Deployment and the sync deadlocks permanently: wave -1
+  # never goes healthy, so the Deployment that would bind it is never created.
+  # It has to land in the same wave as its consumer. The sibling volume
+  # manifests (data-pv.yaml, postgres.yaml) DO carry wave -1 and are fine —
+  # a static NFS PV and the nfs class both bind immediately.
 spec:
   accessModes:
     - ReadWriteOnce
