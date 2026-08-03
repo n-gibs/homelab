@@ -131,6 +131,16 @@ cronjob:
   # Not 'sidecar' — that runs crond, which needs root in the app pod.
   type: cronjob
   cronjob:
+    # REQUIRED. Without this the cron pod runs as uid 0 and every run exits 1 with
+    # "Console has to be executed with the user that owns the file config/config.php.
+    # Current user id: 0 / Owner id of config.php: 33" — so background jobs never
+    # run at all, previews and trash expiry silently stop, and the admin panel
+    # shows a permanent cron warning. The chart's own values say the cron pod
+    # "should run as same user as the Nextcloud pod" but ship securityContext
+    # empty, so nothing enforces it.
+    securityContext:
+      runAsUser: 33
+      runAsGroup: 33
     resources:
       requests:
         cpu: 50m
