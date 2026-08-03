@@ -1,0 +1,26 @@
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: nextcloud
+  namespace: nextcloud
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: nextcloud
+  updatePolicy:
+    updateMode: "Recreate"
+  resourcePolicy:
+    containerPolicies:
+      # minAllowed bounds the ratchet from below: VPA preserves the
+      # request:limit ratio, so an unbounded downward request also lowers the
+      # ceiling.
+      - containerName: "nextcloud"
+        minAllowed:
+          cpu: 100m
+          memory: 512Mi
+        maxAllowed:
+          cpu: 2
+          memory: 3Gi
+      - containerName: "fix-data-perms"
+        mode: "Off"
