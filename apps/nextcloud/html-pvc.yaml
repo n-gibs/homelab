@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nextcloud-html
+  namespace: nextcloud
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  # local-path per the second exception in CLAUDE.md. The nfs class provisions
+  # onto worker-01's sync-exported USB spinning disk, and this tree is ~15k small
+  # PHP files rsynced out of the image on first boot and stat-ed on every request.
+  # Safe here because it is reconstructible: image contents plus config.php.
+  #
+  # Recovery if the pinned node dies permanently: delete this PVC and let the
+  # tree rebuild from the image on next start. The database and the data
+  # directory are untouched.
+  #
+  # local-path cannot be expanded in place. 10Gi against a ~1.5GB tree is
+  # deliberate headroom for custom apps.
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 10Gi

@@ -1,0 +1,165 @@
+nextcloud:
+  host: nextcloud.nik-homelab.dev          # also templates NEXTCLOUD_TRUSTED_DOMAINS
+  # Relocated out of /var/www/html on purpose. The default puts the data volume at
+  # /var/www/html/data — inside the app-tree volume — which with the tree on
+  # local-path and data on NFS would be a nested local-path-parent/NFS-child mount.
+  # A top-level path makes them siblings instead. subPath is unchanged, so files
+  # still land at /mnt/storage/nextcloud/data. A datadir outside the webroot is also
+  # upstream's own security recommendation.
+  datadir: /nc-data
+  existingSecret:
+    enabled: true
+    secretName: nextcloud-admin
+    usernameKey: username
+    passwordKey: password
+  defaultConfigs:
+    # No Redis. The chart emits REDIS_URL referencing $(REDIS_HOST) unconditionally;
+    # harmless, but writing no Redis config at all beats relying on that.
+    redis.config.php: false
+  # fsGroup: 33 does not apply to NFS volumes, so without this the entrypoint cannot
+  # write into the data dir. Works because the export carries no_root_squash and this
+  # container runs as root. Volume name is a hardcoded chart literal, not templated
+  # off the release name.
+  extraInitContainers:
+    - name: fix-data-perms
+      image: busybox:1.37
+      command: ["sh", "-c", "mkdir -p /nc/data && chown 33:33 /nc /nc/data"]
+      volumeMounts:
+        - name: nextcloud-data
+          mountPath: /nc
+      resources:
+        requests:
+          cpu: 10m
+          memory: 16Mi
+        limits:
+          cpu: 50m
+          memory: 64Mi
+  phpConfigs:
+    uploads.ini: |
+      upload_max_filesize = 4G
+      post_max_size = 4G
+      memory_limit = 1G
+      max_execution_time = 3600
+  configs:
+    previews.config.php: |-
+      <?php
+      $CONFIG = array (
+        'enable_previews' => true,
+        'enabledPreviewProviders' => array (
+          'OC\Preview\PNG',
+          'OC\Preview\JPEG',
+          'OC\Preview\GIF',
+          'OC\Preview\HEIC',
+          'OC\Preview\TXT',
+          'OC\Preview\MarkDown',
+          'OC\Preview\PDF'
+        ),
+      );
+
+internalDatabase:
+  enabled: false
+
+externalDatabase:
+  enabled: true
+  type: postgresql
+  # The CNPG-generated secret's keys map 1:1 onto what the chart wants, so the
+  # database needs no sealed secret of its own.
+  existingSecret:
+    enabled: true
+    secretName: nextcloud-database-app
+    usernameKey: username
+    passwordKey: password
+    hostKey: host
+    databaseKey: dbname
+
+redis:
+  enabled: false
+mariadb:
+  enabled: false
+collabora:
+  enabled: false
+imaginary:
+  enabled: false
+
+# Metrics land in a follow-up commit, so a first-boot failure has fewer causes.
+metrics:
+  enabled: false
+prometheus:
+  serviceMonitor:
+    enabled: false
+  rules:
+    enabled: false
+
+cronjob:
+  enabled: true
+  # Not 'sidecar' — that runs crond, which needs root in the app pod.
+  type: cronjob
+  cronjob:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+persistence:
+  enabled: true
+  existingClaim: nextcloud-html
+  nextcloudData:
+    enabled: true
+    existingClaim: nextcloud-data
+
+# The app tree is on local-path, which pins the pod to whichever node it first
+# lands on. Pinning deliberately to worker-01 makes that a choice rather than
+# chance (worker-00 is the known density hotspot), and worker-01 IS the NFS
+# server, so file I/O stays local. Reuses the existing label rather than adding
+# a second name for the same node. No toleration — worker-01 carries no taint.
+nodeSelector:
+  homelab.io/media: "true"
+
+# REQUIRED. livenessProbe is on by default and starts killing the pod ~40s in,
+# which is far less than a first boot needs to rsync ~15k files and run the
+# installer. failureThreshold 60 x periodSeconds 10 = a 10-minute budget.
+startupProbe:
+  enabled: true
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 60
+
+# Ratios kept tight (1:4 CPU, 1:2.7 memory). VPA preserves the request:limit
+# ratio, so a wide ratio means a request VPA lowers drags the ceiling down with
+# it — throttling hardest exactly when a burst arrives.
+resources:
+  requests:
+    cpu: 250m
+    memory: 768Mi
+  limits:
+    cpu: "1"
+    memory: 2Gi
+
+httpRoute:
+  enabled: true
+  hostnames:
+    - nextcloud.nik-homelab.dev
+  parentRefs:
+    - name: homelab
+      namespace: envoy-gateway-system
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: "/"
+      # Large uploads outlive Envoy's default stream timeout. Envoy Gateway sets
+      # no request-body size limit, so 4G should pass; if uploads cut off
+      # mid-transfer the lever is a ClientTrafficPolicy, not this.
+      timeouts:
+        request: 3600s
+  annotations:
+    gethomepage.dev/enabled: "true"
+    gethomepage.dev/name: "Nextcloud"
+    gethomepage.dev/description: "Documents & file sync"
+    gethomepage.dev/group: "Infrastructure"
+    gethomepage.dev/icon: "nextcloud.png"
+    gethomepage.dev/href: "https://nextcloud.nik-homelab.dev"
