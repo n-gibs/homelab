@@ -55,6 +55,22 @@ nextcloud:
           'OC\Preview\PDF'
         ),
       );
+    # Declared here rather than left to NEXTCLOUD_TRUSTED_DOMAINS. The entrypoint
+    # writes that env var into config.php only on the INITIAL install, and this
+    # instance was installed while metrics were still off — so config.php ended up
+    # with just localhost + the public hostname, and the exporter's requests to the
+    # in-cluster service DNS came back HTTP 400 "untrusted domain" (not 401, so it
+    # looks nothing like a credentials problem). A config file is re-applied on
+    # every pod start, so this survives pod recreation and reinstalls.
+    trusted_domains.config.php: |-
+      <?php
+      $CONFIG = array (
+        'trusted_domains' => array (
+          'localhost',
+          'nextcloud.nik-homelab.dev',
+          'nextcloud.nextcloud.svc.cluster.local'
+        ),
+      );
 
 internalDatabase:
   enabled: false
