@@ -10,11 +10,13 @@
 
 - name: Configure NFS server on worker-01
   hosts: worker-01
+  tags: nfs             # without this `just provision-nfs` selects zero tasks
   roles:
     - nfs_server
 
 - name: Configure NFS client on worker-00 and worker-02
   hosts: worker-00,worker-02
+  tags: nfs             # without this `just provision-nfs` selects zero tasks
   roles:
     - nfs_client
 
