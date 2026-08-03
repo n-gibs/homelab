@@ -96,7 +96,7 @@ spec:
 
 ## Storage
 
-All persistent storage uses the `nfs` StorageClass. Never use `local-path` in new apps — data won't survive node failure. The one exception is a replicated CloudNativePG cluster, where replication provides that durability; see the Rules section.
+All persistent storage uses the `nfs` StorageClass. Never use `local-path` in new apps — data won't survive node failure. There are two exceptions, both in the Rules section: a replicated CloudNativePG cluster, where replication provides the durability, and a volume whose contents are reconstructible from an image.
 
 ```yaml
 persistence:
@@ -198,7 +198,15 @@ just todos              # Show remaining TODOs in repo
 
 - **No `sleep` commands** in scripts or manifests. Use `kubectl wait`, `--timeout`, or readiness probes instead.
 - **Never use `Ingress`**. All routing uses Gateway API `HTTPRoute` only.
-- Never use `local-path` StorageClass for new PVCs, **except** for replicated databases (CloudNativePG clusters with 2+ instances), where streaming replication — not the volume — provides node-failure durability. NFS is not a supported CNPG configuration. Note `local-path` cannot be expanded in place, so size those volumes correctly up front.
+- Never use `local-path` StorageClass for new PVCs, **except** in two cases. (1) Replicated databases
+  (CloudNativePG clusters with 2+ instances), where streaming replication — not the volume — provides
+  node-failure durability; NFS is not a supported CNPG configuration. (2) Volumes whose contents are
+  **reconstructible from a container image**, where the volume is a performance cache rather than a
+  system of record — Nextcloud's PHP app tree is the example (`apps/nextcloud/html-pvc.yaml`): ~15k
+  small files that would otherwise sit on a `sync`-exported USB spinning disk, and whose loss costs a
+  rebuild rather than data. Both cases pin the pod to one node, so `replicas: 1` and a `Recreate`
+  strategy are prerequisites, and the recovery path (delete the PVC, let it rebuild) must be written
+  down. Note `local-path` cannot be expanded in place, so size those volumes correctly up front.
 - Never commit `secrets/.secrets`, `secrets/.secrets.generated`, `.vault_pass`, `pub-cert.pem`, or anything in `config/` (gitignored).
 - Chart versions in `app.yaml` are managed by Renovate — don't pin to `latest`.
 - Server-side apply only for ArgoCD managed resources (avoids annotation conflicts).
