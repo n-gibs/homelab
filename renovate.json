@@ -17,6 +17,13 @@
       "matchFileNames": ["**/app.yaml"],
       "groupName": "helm charts",
       "automerge": false
+    },
+    {
+      "description": "Nextcloud cannot skip major versions - 34 to 36 in one jump wedges the upgrade and needs manual occ recovery. Its own PR so a pending bump is never buried in a batch of unrelated charts.",
+      "matchManagers": ["regex"],
+      "matchFileNames": ["apps/nextcloud/app.yaml"],
+      "groupName": "nextcloud",
+      "automerge": false
     }
   ],
   "customManagers": [
