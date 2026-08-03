@@ -1,17 +1,13 @@
 # Hardware temperature dashboard, loaded by the Grafana sidecar (LABEL=grafana_dashboard,
-# LABEL_VALUE=1, NAMESPACE=ALL — confirmed from the running deployment).
-#
-# Why this exists: the thermal stack shipped 2026-07-31 as alerts and a Homepage widget with
-# no visualization behind them, so every "is it getting worse?" question meant querying the
-# Prometheus API by hand. The 07-30 relocation cost all three nodes 2-5C simultaneously and
-# nothing would have shown that — it is only legible as a common-mode step across nodes,
-# which is exactly what a shared time axis makes obvious and a per-sensor alert cannot.
+# LABEL_VALUE=1, NAMESPACE=ALL). Answers "is it getting worse?", which the alerts and the
+# Homepage widget cannot: a common-mode step across all three nodes at once — a room move
+# cost 2-5C everywhere — is only legible on a shared time axis.
 #
 # The sidecar has no FOLDER_ANNOTATION set, so a grafana_folder annotation here would be
-# silently ignored. It lands in the default folder; that is fine for one dashboard.
+# silently ignored. Lands in the default folder, which is fine for one dashboard.
 #
-# Thresholds deliberately mirror prometheusrule-temperature.yaml (crit-12 warning, crit-5
-# critical) so the colours change at the same points the alerts fire. Keep them in sync.
+# Thresholds mirror prometheusrule-temperature.yaml (crit-12 warning, crit-5 critical) so
+# the colours change where the alerts fire. Keep them in sync.
 apiVersion: v1
 kind: ConfigMap
 metadata:

@@ -22,14 +22,11 @@
     mode: "0755"
   become: true
 
-# The native snapshotter was a workaround for an early Ubuntu 26.04 / kernel 7.x
-# problem. containerd now reports the overlayfs plugin as healthy on these nodes,
-# and native is expensive: it has no union mount, so each layer's snapshot is a
-# full copy of its parent. Measured on worker-02 with the same 798MB image:
-# 8m23s to unpack on native vs 26s on overlayfs, and 80G vs 2.2G of snapshotter
-# store. Removing the override lets k3s use its overlayfs default.
-# `state: absent` (rather than deleting this task) so already-provisioned nodes
-# are cleaned up too. Takes effect on the next k3s restart.
+# The native snapshotter worked around an early Ubuntu 26.04 / kernel 7.x problem.
+# overlayfs is healthy on these nodes now, and native has no union mount — each
+# layer is a full copy of its parent (measured 8m23s vs 26s to unpack one 798MB
+# image, 80G vs 2.2G of store). `state: absent` rather than deleting the task, so
+# already-provisioned nodes get cleaned up too. Takes effect on next k3s restart.
 - name: Remove the containerd native-snapshotter override
   ansible.builtin.file:
     path: /var/lib/rancher/k3s/agent/etc/containerd/config-v3.toml.d/snapshotter.toml
@@ -43,56 +40,27 @@
     mode: "0755"
   become: true
 
-# Cilium writes /etc/cni/net.d/05-cilium.conflist once, when its agent first becomes
-# ready, and that file then persists on disk forever. containerd carries no
-# cni.conf_dir override, so it watches the /etc/cni/net.d default, finds the conflist
-# at boot and reports the network plugin ready — kubelet marks the node Ready within
-# seconds. But /var/run is a fresh tmpfs, so /var/run/cilium/cilium.sock does not exist
-# yet. kubelet starts every previously-bound pod at once, cilium-cni waits for the
-# socket with a *hard 30s ceiling*, and the losers fail:
-#   CNI ADD failed ... failed to create cilium agent client after 30.000000 seconds timeout
-# Measured on worker-00: 12 pods on the 2026-07-11 boot (coredns among them, which is
-# how it presents as a per-node DNS outage) and 13 more on the 2026-07-29 k3s restart.
-# The node reports Ready the whole time, so the scheduler keeps feeding it work.
+# Cilium's 05-cilium.conflist persists on disk once written, so at boot containerd
+# finds it and kubelet marks the node Ready — while /var/run is a fresh tmpfs and
+# cilium.sock does not exist yet. kubelet then starts every bound pod at once and
+# cilium-cni fails the losers after a hard 30s wait for the socket ("CNI ADD failed
+# ... failed to create cilium agent client"). CoreDNS is usually among them, so it
+# presents as a per-node DNS outage on an apparently-Ready node.
 #
-# Dropping the stale conflist before k3s starts makes the node honestly NotReady until
-# the agent rewrites it — the write-cni-conf-when-ready gate Cilium already implements.
-# Note the kubelet --register-with-taints=node.cilium.io/agent-not-ready approach does
-# NOT fix this: taints are applied only at first Node registration and are never
-# re-applied on reboot or kubelet restart.
+# Dropping the stale conflist first makes the node honestly NotReady until the agent
+# rewrites it. Note --register-with-taints=node.cilium.io/agent-not-ready does NOT
+# work here: taints apply only at first Node registration, never on reboot.
 #
-# Guarded on the socket so `systemctl restart k3s` against a healthy agent is a no-op:
-# KillMode=process leaves running containers (the agent included) alive across a k3s
-# restart, and the agent only writes the conflist during its own startup.
+# Guarded on the socket so `systemctl restart k3s` against a healthy agent is a
+# no-op — KillMode=process keeps the running agent alive across a k3s restart, and
+# it only writes the conflist during its own startup.
 #
-# That guard is also what permits the split-brain described below, and it is kept anyway —
-# deliberately. Reaping the agent here was tried (84ca78e) and reverted: it only ever fires
-# on a k3s restart, which is also the only time it could help, so it trades a rare silent
-# failure for a routine one. Worst case is the containerd wedge, where `systemctl restart
-# k3s` is the documented remediation and killing the agent risks the replacement container
-# failing to start, leaving the node with no Cilium at all. The invariant belongs in the new
-# agent's own startup, not in k3s's. Detection lives in the CiliumAgentDuplicate alert
-# (system/monitoring/), which fires on the fingerprint below.
-#
-# The split-brain: KillMode=process means `systemctl stop k3s` leaves the containerd-shims
-# running, so the cilium-agent process outlives k3s. systemd says so itself —
-#   k3s.service: Unit process 1836 (containerd-shim) remains running after unit stopped.
-# Normally k3s reattaches to that shim on restart and nothing is duplicated. But when it
-# instead builds a *new* agent container — an image, pod-spec or snapshotter change across
-# the restart — the old process is still alive and you get two cilium-agents on one node.
-# Observed on worker-00 2026-07-29: k3s stopped 01:57:43 mid-snapshotter-migration, the new
-# agent came up 01:58:57 and could not bind either of its ports, because the old one held
-# them:
-#   Failed to launch hubble ... listen tcp :4244: bind: address already in use
-#   Failed to serve cilium-health API ... listen tcp 192.168.30.129:4240: bind: address already in use
-# Both agents then wrote the same shared BPF LB maps from independent in-memory backend-ID
-# allocators, so each deleted backends the other had just written and every service whose
-# backend pod appeared after the split pointed at a backend ID that no longer existed:
-#   cilium-dbg bpf lb list | grep 'not found'   ->  "backend 235 not found"  (23 frontends)
-# It hides completely: each agent's own userspace `service list` is self-consistent, the
-# node is Ready, `status --brief` is OK, and neither agent logs anything about LB. Only the
-# BPF map disagrees. CoreDNS was recreated 62s into the split, so it presented as a
-# cluster-wide DNS outage (27 ArgoCD apps Unknown, cert-manager Degraded).
+# That guard is what allows two cilium-agents on one node when a restart builds a
+# *new* agent container while the old process survives; they then fight over the
+# shared BPF LB maps, invisibly. Reaping the old agent here was tried (84ca78e) and
+# reverted — it trades a rare silent failure for a routine one, and the containerd
+# wedge remediation is exactly `systemctl restart k3s`. The invariant belongs in the
+# new agent's startup. Detection is the CiliumAgentDuplicate alert (system/monitoring/).
 - name: Gate k3s startup on a live Cilium CNI socket
   ansible.builtin.copy:
     dest: /etc/systemd/system/k3s.service.d/cilium-cni-gate.conf
@@ -103,23 +71,18 @@
   become: true
   notify: Reload systemd
 
-# k3s.service already declares Wants=/After=network-online.target, but that target is
-# reached vacuously on these nodes: systemd-networkd-wait-online.service is enabled and
-# wanted by the target, yet it is skipped every boot on an unmet
-#   ConditionPathIsSymbolicLink=/run/systemd/generator/network-online.target.wants/systemd-networkd-wait-online.service
-# and that generator directory does not exist on any of the three nodes. So nothing
-# actually waits for DHCP, and k3s starts before there is a default route:
-#   level=fatal msg="Error: no default routes found in \"/proc/net/route\" ..."
-# Observed on the 2026-07-30 worker-02 reboot: 3 failed starts over 11s before the
-# route appeared. Restart=always eventually wins, so it self-heals on a normal reboot —
-# but during a cluster move the switch/firewall boots alongside the nodes, the window is
-# much longer, and all three nodes flap k3s (and their etcd members) until it closes.
+# k3s.service already has Wants=/After=network-online.target, but that target is
+# vacuous here: systemd-networkd-wait-online is skipped every boot on an unmet
+# ConditionPathIsSymbolicLink pointing into /run/systemd/generator/, which does not
+# exist on any of the three nodes. So nothing waits for DHCP and k3s starts with no
+# default route ("no default routes found in /proc/net/route"). Restart=always
+# self-heals a normal reboot, but during a cluster move — switch booting alongside
+# the nodes — all three flap k3s and their etcd members until the route appears.
 #
-# Clearing the condition lets the unit run, which is all network-online.target needs to
-# mean something; k3s's existing After= then does its job with no k3s-specific hack.
-# Measured cost when the network is already up: 7ms. If DHCP never completes the unit
-# fails after its own 120s timeout and k3s still starts, because k3s uses Wants= (not
-# Requires=) — worst case degrades to today's behaviour rather than blocking the boot.
+# Clearing the condition lets the unit run, which is all the target needs to mean
+# something; k3s's existing After= does the rest. Costs 7ms when the network is
+# already up, and k3s uses Wants= not Requires=, so a DHCP that never completes
+# degrades to today's behaviour rather than blocking the boot.
 - name: Create systemd-networkd-wait-online override directory
   ansible.builtin.file:
     path: /etc/systemd/system/systemd-networkd-wait-online.service.d
@@ -163,11 +126,10 @@
     state: present
   become: true
 
-# chrony is the only time source on these nodes — systemd-timesyncd is not installed.
-# On 2026-07-29 a mass `kill -TERM` sweep on worker-00 (hunting an orphaned process
-# holding :9100 during the containerd snapshotter migration) SIGTERM'd chrony, thermald
-# and fail2ban as collateral. None of the three carries Restart=, so all three stayed
-# dead silently; the clock then drifted unmonitored for 38h. Reconcile them here.
+# chrony is the only time source on these nodes — no systemd-timesyncd. It ships
+# without Restart=, so a stray SIGTERM (once collateral from a `kill` sweep) leaves
+# it dead silently and the clock drifts unmonitored. Same for thermald and fail2ban,
+# which the task below reconciles.
 - name: Create chrony systemd override directory
   ansible.builtin.file:
     path: /etc/systemd/system/chrony.service.d
@@ -175,9 +137,8 @@
     mode: "0755"
   become: true
 
-# A stray SIGTERM is a *clean* exit (status=0/SUCCESS), so Restart=on-failure would not
-# have covered it. An explicit `systemctl stop chrony` still wins — systemd never restarts
-# a unit that was deliberately stopped.
+# Restart=always, not on-failure: a SIGTERM is a clean exit (status=0/SUCCESS). An
+# explicit `systemctl stop` still wins — systemd never restarts a deliberate stop.
 # ponytail: chrony only. Clock skew on an etcd control-plane node is the one that hurts;
 # add the same override for thermald/fail2ban if either ever goes missing again.
 - name: Make chrony survive an unexpected termination
@@ -202,15 +163,12 @@
     - fail2ban
   become: true
 
-# CPU and NVMe temperatures already reach Prometheus for free: node-exporter's hwmon
-# collector reads /sys and publishes node_hwmon_temp_celsius alongside each chip's own
-# node_hwmon_temp_crit_celsius, which is what the alerts thresholds off.
-#
-# USB-attached drives have no hwmon entry — the kernel's `drivetemp` module binds to SATA
-# hosts, not usb-storage — so worker-01's 12TB WD (the cluster's only spinning disk, and
-# the hottest sensor in it at 61C against a 65C spec max) is invisible to that path. This
-# feeds it in through node-exporter's textfile collector instead of adding a second
-# exporter. Emits nothing at all on nodes with no SMART-readable non-NVMe disk.
+# CPU and NVMe temperatures already reach Prometheus free via node-exporter's hwmon
+# collector. USB-attached drives have no hwmon entry — `drivetemp` binds to SATA hosts,
+# not usb-storage — so worker-01's 12TB WD (the only spinning disk, and the hottest
+# sensor in the cluster at 61C against a 65C spec max) is invisible to it. Feeding it
+# through the textfile collector beats adding a second exporter. Emits nothing on nodes
+# with no SMART-readable non-NVMe disk.
 #
 # TODO(NAS): this exporter, its two systemd units, and the disk half of
 # system/monitoring-system/prometheusrule-temperature.yaml all exist for that one USB
@@ -223,10 +181,9 @@
     mode: "0755"
   become: true
 
-# Writes to a temp file and renames: the collector reads this directory on every scrape
-# and a half-written .prom makes it fail the whole scrape, not just this metric.
-# Every metric is omitted per-disk when unreadable rather than emitted as 0 — a missing
-# series makes the alert expression empty, where a 0 would read as a stone-cold drive.
+# Writes to a temp file and renames: a half-written .prom fails the whole scrape, not
+# just this metric. Unreadable metrics are omitted per-disk rather than emitted as 0 —
+# a missing series leaves the alert expression empty, a 0 reads as a stone-cold drive.
 - name: Install SMART drive temperature textfile exporter
   ansible.builtin.copy:
     dest: /usr/local/bin/smart-temp-textfile
@@ -250,22 +207,18 @@
         echo '# TYPE node_smart_load_cycle_count counter'
       } >"$tmp"
 
-      # NVMe is deliberately excluded: hwmon already covers it, and two sources for one
-      # device would mean two alerts for one hot disk.
+      # NVMe excluded: hwmon covers it, and two sources means two alerts for one disk.
       while read -r name type; do
         [[ "$type" == "disk" ]] || continue
         [[ "$name" == nvme* ]] && continue
         dev="/dev/$name"
 
-        # Every smartctl call needs `|| true`. Its exit status is a bitmask, and it sets
-        # bits for conditions that are not failures for our purpose: worker-01's WD
-        # returns non-zero on every invocation because the enclosure presents an invalid
-        # checksum in the SMART threshold structure, while still reporting a perfectly
-        # good temperature. Without this, pipefail plus set -e aborts the script after
-        # reading the value but before writing the file.
+        # Every smartctl call needs `|| true`: its exit status is a bitmask and sets bits
+        # for non-failures. worker-01's WD returns non-zero every time (the enclosure
+        # reports a bad SMART threshold checksum) while still giving a good temperature.
         attrs="$(smartctl -A "$dev" 2>/dev/null || true)"
-        # Field 10 of attribute 194 is the raw value. Falls back to the SCSI-style
-        # "Current Drive Temperature" line for drives that report no ATA attributes.
+        # Field 10 of attribute 194 is the raw value. Falls back to the SCSI-style line
+        # for drives reporting no ATA attributes.
         temp="$(awk '$1 == 194 { print $10; exit }' <<<"$attrs")"
         if [[ -z "$temp" ]]; then
           temp="$(awk '/Current Drive Temperature/ { print $4; exit }' <<<"$attrs")"
@@ -277,10 +230,8 @@
         printf 'node_smart_temperature_celsius{device="%s",model="%s"} %s\n' \
           "$name" "${model:-unknown}" "$temp" >>"$tmp"
 
-        # Head parking is a wear budget, not a temperature: worker-01's WD burns ~50
-        # load cycles an hour while essentially idle, which straight-lines through a
-        # 600k rating in about 14 months. Only a rate over time says whether a fix
-        # worked, so it rides along on the SMART read already happening here.
+        # Head parking is a wear budget, not a temperature, but only a rate over time
+        # shows whether the APM fix below is holding — so it rides the same SMART read.
         cycles="$(awk '$1 == 193 { print $10; exit }' <<<"$attrs")"
         if [[ "$cycles" =~ ^[0-9]+$ ]]; then
           printf 'node_smart_load_cycle_count{device="%s"} %s\n' "$name" "$cycles" >>"$tmp"
@@ -314,8 +265,8 @@
         [Service]
         Type=oneshot
         ExecStart=/usr/local/bin/smart-temp-textfile
-    # 2min, not 30s. Polling SMART holds a drive awake, and temperature is a slow signal —
-    # the alerts below need 15m sustained to fire, so a 2min gauge age costs nothing.
+    # 2min, not 30s: polling SMART holds the drive awake, and the alerts need 15m
+    # sustained to fire anyway.
     - name: smart-temp-textfile.timer
       content: |
         [Unit]
@@ -344,26 +295,21 @@
 # TODO(NAS): delete this task and the rule it installs once /mnt/storage moves off the
 # USB drive. It is pinned to one serial and is dead weight the moment that drive leaves.
 #
-# worker-01's 12TB WD shipped at APM 128 ("minimum power consumption without standby"),
-# which parks the heads roughly 50 times an hour on a drive that is 0.02% busy — about 9%
-# of a 600k load-cycle rating burned in five weeks. APM 254 stops the parking outright,
-# measured at zero cycles over the following hour with no temperature penalty.
+# worker-01's 12TB WD ships at APM 128, which parks the heads ~50 times an hour on a
+# drive that is 0.02% busy — 9% of its 600k load-cycle rating in five weeks. APM 254
+# stops it outright with no temperature penalty.
 #
-# APM is volatile: it resets to the drive default whenever the drive loses power, which on
-# a USB enclosure includes bus re-enumeration with the node still up. A boot-time unit
-# would miss that, so this hangs off the udev add/change event instead.
+# On udev add/change, not a boot-time unit: APM is volatile and resets whenever the
+# drive loses power, which on USB includes bus re-enumeration with the node still up.
 #
-# smartctl, not idle3ctl or hdparm: WD120EDGZ is an Ultrastar He12 white-label, an HGST
-# platform with no idle3 timer, so unload is APM and APM alone. APM is a standard ATA
-# feature reachable over SAT with smartmontools, already installed above — no vendor
-# commands aimed at the disk backing every NFS PVC in the cluster.
+# smartctl, not idle3ctl or hdparm: the WD120EDGZ is an Ultrastar He12 white-label with
+# no idle3 timer, so unload is APM alone — and APM over SAT needs no vendor commands
+# aimed at the disk backing every NFS PVC in the cluster.
 #
-# Matched on vendor+model, not serial: the drive was shucked from its WD Elements
-# enclosure on 2026-08-01 and now hangs off a generic SATA-USB bridge that does not pass
-# the ATA serial through. Udev sees a fabricated identity that is also *unstable* —
-# ID_SERIAL_SHORT and ID_WWN both read 5000000000000001, and the usb-* by-id link carries
-# a fresh random hex on each enumeration. The SCSI INQUIRY vendor/model strings are the
-# only bridge-independent fields left, and worker-01 has exactly one USB disk.
+# Matched on vendor+model, not serial: the shucked drive hangs off a generic SATA-USB
+# bridge that fabricates an unstable identity (ID_SERIAL_SHORT and ID_WWN both
+# 5000000000000001, by-id link re-randomised per enumeration). The SCSI INQUIRY strings
+# are the only bridge-independent fields left, and worker-01 has exactly one USB disk.
 - name: Stop the 12TB USB drive parking its heads every minute
   ansible.builtin.copy:
     dest: /etc/udev/rules.d/60-wd-elements-apm.rules
@@ -376,16 +322,12 @@
   become: true
   notify: Reload udev rules
 
-# The kernel default fs.inotify.max_user_instances=128 is charged per-UID, and every
-# containerd-shim holds 2 inotify fds — one shim per running pod. worker-00 hit 129/128
-# with 37 pods (72 shim fds + 44 from k3s-server + ~11 from systemd/tailscaled/agetty),
-# after which even PID 1 logged "Failed to allocate inotify fd: Too many open files" and
-# path units could not enter their waiting state.
-# Audited before raising it (.claude/scripts/inotify-audit.py): not a leak — zero holders
-# had an idle instance, and worker-02's 35x-older k3s-server held *fewer* fds. The only
-# growth term is pod count, which kubelet caps at 110/node, so 1024 is real headroom at
-# the measured ~2.2 fds/pod.
-# max_user_watches is not currently near its limit (288 used of 123584); raised for symmetry.
+# The default fs.inotify.max_user_instances=128 is charged per-UID and every
+# containerd-shim holds 2 — worker-00 hit 129/128 at 37 pods, after which even PID 1
+# could not allocate an inotify fd. Audited first (.claude/scripts/inotify-audit.py):
+# not a leak, the only growth term is pod count, which kubelet caps at 110/node, so
+# 1024 is real headroom at the measured ~2.2 fds/pod. max_user_watches is nowhere near
+# its limit; raised for symmetry.
 - name: Raise inotify limits for Kubernetes pod density
   ansible.posix.sysctl:
     name: "{{ item.name }}"
@@ -493,11 +435,8 @@
     state: enabled
   become: true
 
-# The Ubuntu installer allocates only part of the volume group to the root LV.
-# Container images are the dominant consumer on these nodes, so claim the whole
-# VG. (This was originally written when the native snapshotter was in use and
-# stored a full copy of every layer; that override has since been removed above,
-# but the headroom is still worth having.)
+# The Ubuntu installer allocates only part of the volume group to the root LV, and
+# container images are the dominant consumer here — claim the whole VG.
 - name: Check for unallocated space in the root volume group
   ansible.builtin.command: vgs --noheadings --nosuffix --units b -o vg_free ubuntu-vg
   register: root_vg_free

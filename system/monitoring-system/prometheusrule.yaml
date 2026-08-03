@@ -1,16 +1,15 @@
 ---
 # Alerts on ArgoCD's own view of the cluster. The chart's default rules cover pods and
-# nodes but say nothing about whether GitOps is still reconciling.
+# nodes but say nothing about whether GitOps is still reconciling — all 27 apps once sat at
+# sync_status="Unknown" for ~1h with nothing watching, after a DNS fault stopped the
+# application-controller resolving argocd-repo-server.
 #
-# Motivating incident (2026-07-28): a node-local Cilium datapath fault killed cluster DNS
-# for every pod on that node, so the application-controller could not resolve
-# argocd-repo-server. All 27 apps sat at sync_status="Unknown" with a ComparisonError for
-# ~1h with nothing watching. `Unknown` means ArgoCD cannot compare desired vs live state
-# at all — it is not the same as OutOfSync, and it is the signal that fires when
-# something underneath ArgoCD (DNS, repo-server, git creds) is broken.
+# `Unknown` is the signal here, not OutOfSync: it means ArgoCD cannot compare desired vs
+# live state at all, which is what happens when something underneath it breaks (DNS,
+# repo-server, git creds).
 #
-# Requires the ServiceMonitor in argocd-servicemonitor.yaml; without a scrape target
-# these expressions are simply empty and never fire.
+# Requires the ServiceMonitor in argocd-servicemonitor.yaml — with no scrape target these
+# expressions are empty and never fire.
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:

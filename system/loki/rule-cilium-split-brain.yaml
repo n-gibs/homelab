@@ -1,20 +1,15 @@
 ---
-# Detects two cilium-agent processes running on one node — the root cause of the
-# 2026-07-28 worker-00 outage (23 dangling BPF LB backends -> node-wide DNS loss ->
-# 27 ArgoCD apps Unknown, cert-manager Degraded).
+# Detects two cilium-agent processes on one node — the dangling-BPF-backend condition that
+# caused a node-wide DNS loss and took 27 ArgoCD apps with it.
 #
-# Why this is a log rule and not a PrometheusRule: the condition is invisible to
-# Kubernetes (the DaemonSet only knows about the agent it created) and Cilium's
-# Prometheus endpoint is not enabled on this cluster. The one reliable fingerprint is
-# the losing agent failing to bind ports the survivor still holds:
-#   Failed to launch hubble ... listen tcp :4244: bind: address already in use
-#   Failed to serve cilium-health API ... listen tcp <nodeIP>:4240: bind: address already in use
-# Nothing else on a node binds 4244 or 4240, so this is specific.
+# A log rule, not a PrometheusRule: the condition is invisible to Kubernetes (the DaemonSet
+# only knows the agent it created) and Cilium's Prometheus endpoint is off here. The only
+# reliable fingerprint is the losing agent failing to bind a port the survivor holds, and
+# nothing else on a node binds 4244 or 4240.
 #
-# Consumed by the loki-sc-rules sidecar: it copies any ConfigMap carrying the
-# `loki_rule` label into the ruler's rule directory. The annotation places the file in
-# the per-tenant subdirectory the local rule store requires (`fake`, because
-# auth_enabled is false) — see the rulerConfig comment in values.yaml.
+# Consumed by the loki-sc-rules sidecar, which copies any ConfigMap labelled `loki_rule`
+# into the ruler's rule directory. The annotation puts it in the per-tenant subdirectory
+# the local store requires — `fake`, because auth_enabled is false. See values.yaml.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -32,11 +27,9 @@ data:
         # maps, rather than after something depending on DNS has already failed.
         interval: 1m
         rules:
-          # No `for:` — the bind failure is logged once, at agent startup, and never
-          # repeats. A `for:` clause would require the condition to still be true on a
-          # later evaluation and would therefore never fire. count_over_time supplies
-          # the persistence instead: the 10m window keeps the series above 0 long
-          # enough for the dispatcher to pick it up.
+          # No `for:` — the bind failure is logged once at agent startup and never repeats,
+          # so a `for:` would need the condition true on a later evaluation and could never
+          # fire. count_over_time's 10m window supplies the persistence instead.
           - alert: CiliumAgentDuplicate
             expr: |
               sum by (pod) (

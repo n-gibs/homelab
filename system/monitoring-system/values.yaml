@@ -53,9 +53,8 @@ kubelet:
         regex: '.+;'
 
 prometheusOperator:
-  # One config-reloader sidecar rides in both the Prometheus and the Alertmanager pod, and
-  # neither had a request. 7-day peak was 0m / 20Mi each — trivial individually, but they
-  # are two of the seventeen requestless containers that made worker-00 look empty.
+  # Trivial on their own (7-day peak 0m / 20Mi each), but these two sidecars were part of
+  # the seventeen requestless containers that made worker-00 look empty to the scheduler.
   prometheusConfigReloader:
     resources:
       requests:
@@ -72,14 +71,12 @@ kube-state-metrics:
           replacement: homelab
 
 prometheus-node-exporter:
-  # Points the textfile collector at the host directory that smart-temp-textfile.timer
-  # writes (see ansible/roles/common/tasks/main.yml). No new volume needed: the chart
-  # already bind-mounts / at /host/root, and the collector only ever reads.
+  # Points the textfile collector at what smart-temp-textfile.timer writes (see
+  # ansible/roles/common). No new volume: the chart already bind-mounts / at /host/root.
   #
-  # The two filesystem excludes are the chart's own `extraArgs` defaults, repeated verbatim
-  # because Helm replaces lists rather than merging them — dropping them would make
-  # node-exporter scrape every container overlay and kubelet bind mount. Re-check them
-  # against the chart when Renovate bumps kube-prometheus-stack.
+  # The two filesystem excludes are the chart's own defaults, repeated verbatim because
+  # Helm replaces lists rather than merging — without them node-exporter would scrape
+  # every container overlay and kubelet bind mount. Re-check on a chart bump.
   extraArgs:
     - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|run/containerd/.+|var/lib/docker/.+|var/lib/kubelet/.+)($|/)
     - --collector.filesystem.fs-types-exclude=^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|iso9660|mqueue|nsfs|overlay|proc|procfs|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|sysfs|tracefs|erofs)$
@@ -94,18 +91,13 @@ prometheus-node-exporter:
 
 prometheus:
   prometheusSpec:
-    # Prometheus is the single largest consumer in the cluster and shipped with no requests,
-    # so the scheduler saw a free pod and parked it on worker-00 — the 4-core node — where
-    # it was actually using 179m and 2.9Gi. A container with no request is invisible to
-    # scheduling: it scores the same on a 4-core node as on a 12-core one.
+    # The cluster's largest consumer shipped requestless, so the scheduler saw a free pod
+    # and parked it on the 4-core node while it used 179m / 2.9Gi. Memory is 3Gi rather
+    # than trimmed to that peak because a TSDB's working set grows with retention and
+    # series count.
     #
-    # 7-day peak from Prometheus itself was 179m / 2979Mi. Memory is requested at 3Gi
-    # rather than trimmed to the peak because a TSDB's working set grows with retention and
-    # series count, and under-requesting the one workload that dominates the node is what
-    # produced this imbalance to begin with.
-    #
-    # No limits: a memory limit on a TSDB converts a slow query into an OOMKill that loses
-    # the WAL, and this pod is the alerting path — see prometheusrule-alert-escalation.yaml.
+    # No limits, deliberately: a memory limit on a TSDB turns a slow query into an OOMKill
+    # that loses the WAL, and this pod is the alerting path.
     resources:
       requests:
         cpu: 250m
@@ -149,8 +141,8 @@ grafana:
 
 alertmanager:
   alertmanagerSpec:
-    # 7-day peak was 14m / 46Mi. Small, but it shipped requestless like the rest, which is
-    # how it ended up co-located with Prometheus on the 4-core node.
+    # 7-day peak 14m / 46Mi. Small, but it shipped requestless like the rest, which is how
+    # it ended up co-located with Prometheus on the 4-core node.
     resources:
       requests:
         cpu: 25m
@@ -179,14 +171,12 @@ alertmanager:
       repeat_interval: 12h
       receiver: 'null'
       routes:
-        # Dead-man's switch. Watchdog fires continuously while Prometheus and Alertmanager
-        # are healthy, so healthchecks.io alerting on the ABSENCE of these pings is what
-        # catches a broken alerting path — the failure mode that let the 2026-07-28 outage
-        # run ~1h unnoticed. If cluster DNS breaks, Alertmanager cannot resolve hc-ping.com,
-        # the ping stops and the switch fires: that is the point, don't pin an IP.
-        # group_interval must be well under repeat_interval: the dispatcher only
-        # re-evaluates on group_interval ticks, so 5m/5m yields a ping every 10m, not 5m
-        # (measured) — which would leave the 15m/10m check tolerating only one missed ping.
+        # Dead-man's switch. Watchdog fires continuously while the alerting path is healthy,
+        # so healthchecks.io alerting on the ABSENCE of these pings is what catches a broken
+        # alerting path. Don't pin hc-ping.com's IP — if cluster DNS breaks, the ping
+        # stopping IS the signal.
+        # group_interval must be well under repeat_interval: the dispatcher only re-evaluates
+        # on group_interval ticks, so 5m/5m yields a ping every 10m, not 5m (measured).
         - receiver: 'deadmanssnitch'
           matchers: ['alertname = "Watchdog"']
           group_wait: 0s
@@ -194,12 +184,10 @@ alertmanager:
           repeat_interval: 5m
         # Criticals re-notify hourly instead of inheriting the 12h below. Must stay ABOVE the
         # warning|critical route — routes match in order and the broader one would swallow it.
-        # This is the delivery half of Item 6: prometheusrule-alert-escalation.yaml turns a
-        # warning firing >2h into a critical, and this makes that critical keep arriving until
-        # it is fixed or silenced. It does not touch warnings, so nothing already being seen
-        # gets louder — and nothing was firing at critical when this shipped.
+        # Delivery half of prometheusrule-alert-escalation.yaml, which turns a warning firing
+        # >2h into a critical.
         # group_by overrides the top-level ['namespace'] because node-level alerts carry no
-        # namespace label at all: without alertname/escalated_alert every namespace-less alert
+        # namespace label: without alertname/escalated_alert every namespace-less alert
         # collapses into one group sharing a single repeat_interval timer.
         - receiver: 'ntfy'
           matchers: ['severity = "critical"']

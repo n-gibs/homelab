@@ -1,11 +1,8 @@
 ---
-# Scrapes the ArgoCD application-controller, which is what exports argocd_app_info
-# (the metric the ArgoCD alerts in prometheusrule.yaml are built on).
-#
-# This lives here rather than in bootstrap/values/argocd.yaml because a ServiceMonitor
-# needs the Prometheus Operator CRDs, and ArgoCD is bootstrapped by helmfile *before*
-# monitoring-system exists. The Service itself is created by the ArgoCD chart
-# (controller.metrics.enabled). Port name is `http-metrics`, not `metrics`.
+# Scrapes the ArgoCD application-controller for argocd_app_info, which prometheusrule.yaml
+# builds on. Lives here rather than bootstrap/values/argocd.yaml because a ServiceMonitor
+# needs the Prometheus Operator CRDs, and helmfile bootstraps ArgoCD before
+# monitoring-system exists. Port name is `http-metrics`, not `metrics`.
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:

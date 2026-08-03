@@ -12,9 +12,8 @@ spec:
     updateMode: "Recreate"
   resourcePolicy:
     containerPolicies:
-      # minAllowed bounds the ratchet from below: VPA preserves the
-      # request:limit ratio, so an unbounded downward request also lowers the
-      # ceiling.
+      # minAllowed bounds the ratchet from below: VPA preserves request:limit, so
+      # an unbounded downward request also lowers the ceiling.
       - containerName: "nextcloud"
         minAllowed:
           cpu: 100m

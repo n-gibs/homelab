@@ -1,11 +1,8 @@
 nextcloud:
   host: nextcloud.nik-homelab.dev          # also templates NEXTCLOUD_TRUSTED_DOMAINS
-  # Relocated out of /var/www/html on purpose. The default puts the data volume at
-  # /var/www/html/data — inside the app-tree volume — which with the tree on
-  # local-path and data on NFS would be a nested local-path-parent/NFS-child mount.
-  # A top-level path makes them siblings instead. subPath is unchanged, so files
-  # still land at /mnt/storage/nextcloud/data. A datadir outside the webroot is also
-  # upstream's own security recommendation.
+  # Top-level, not the default /var/www/html/data — that would nest the NFS data
+  # volume inside the local-path app-tree volume. Files still land at
+  # /mnt/storage/nextcloud/data.
   datadir: /nc-data
   existingSecret:
     enabled: true
@@ -13,13 +10,10 @@ nextcloud:
     usernameKey: username
     passwordKey: password
   defaultConfigs:
-    # No Redis. The chart emits REDIS_URL referencing $(REDIS_HOST) unconditionally;
-    # harmless, but writing no Redis config at all beats relying on that.
+    # No Redis, so don't let the chart write a Redis config at all.
     redis.config.php: false
-  # fsGroup: 33 does not apply to NFS volumes, so without this the entrypoint cannot
-  # write into the data dir. Works because the export carries no_root_squash and this
-  # container runs as root. Volume name is a hardcoded chart literal, not templated
-  # off the release name.
+  # fsGroup does not apply to NFS volumes, so without this chown the entrypoint
+  # cannot write the data dir. Volume name is a chart literal, not release-templated.
   extraInitContainers:
     - name: fix-data-perms
       image: busybox:1.37
@@ -55,13 +49,9 @@ nextcloud:
           'OC\Preview\PDF'
         ),
       );
-    # Declared here rather than left to NEXTCLOUD_TRUSTED_DOMAINS. The entrypoint
-    # writes that env var into config.php only on the INITIAL install, and this
-    # instance was installed while metrics were still off — so config.php ended up
-    # with just localhost + the public hostname, and the exporter's requests to the
-    # in-cluster service DNS came back HTTP 400 "untrusted domain" (not 401, so it
-    # looks nothing like a credentials problem). A config file is re-applied on
-    # every pod start, so this survives pod recreation and reinstalls.
+    # A config file, not NEXTCLOUD_TRUSTED_DOMAINS — that env var is only honoured
+    # on the initial install. The service DNS entry is what the metrics exporter
+    # uses; drop it and its requests get HTTP 400 "untrusted domain".
     trusted_domains.config.php: |-
       <?php
       $CONFIG = array (
@@ -72,25 +62,19 @@ nextcloud:
         ),
       );
 
-  # Envoy terminates TLS and forwards plain HTTP to port 8080, so without these
-  # Nextcloud believes it is being served over http and generates http:// URLs.
-  # The symptom is a login that hangs: POST /login authenticates fine and returns
-  # 303, but the Location header points at http://, which the browser cannot
-  # follow, so no follow-up request ever reaches the pod. All three are read via
-  # getenv() by the chart's reverse-proxy.config.php on every request, so unlike
-  # trusted_domains they are not install-time-only.
+  # Envoy terminates TLS and forwards plain HTTP, so without these Nextcloud
+  # generates http:// URLs — the symptom is a login that hangs on a 303 to an
+  # http:// Location the browser won't follow.
   extraEnv:
-    # Generated URLs for cron, emails and share links. Default is http://localhost.
+    # URLs for cron, emails and share links. Default is http://localhost.
     - name: OVERWRITECLIURL
       value: https://nextcloud.nik-homelab.dev
-    # Lets Nextcloud honour X-Forwarded-For from the gateway, so logs, rate
-    # limiting and brute-force protection see the real client IP instead of an
-    # Envoy pod IP. Scoped to the pod CIDR.
+    # Honour X-Forwarded-For so logs and brute-force protection see the real
+    # client IP, not an Envoy pod IP.
     - name: TRUSTED_PROXIES
       value: 10.42.0.0/16
 
-# Sets OVERWRITEPROTOCOL=https. Chart-native knob for the same reverse-proxy
-# problem as the extraEnv block above; protocol defaults to https.
+# Sets OVERWRITEPROTOCOL=https — same reverse-proxy fix as the extraEnv above.
 phpClientHttpsFix:
   enabled: true
 
@@ -100,8 +84,7 @@ internalDatabase:
 externalDatabase:
   enabled: true
   type: postgresql
-  # The CNPG-generated secret's keys map 1:1 onto what the chart wants, so the
-  # database needs no sealed secret of its own.
+  # CNPG's generated secret maps 1:1 onto the chart's keys — no sealed secret needed.
   existingSecret:
     enabled: true
     secretName: nextcloud-database-app
@@ -121,10 +104,8 @@ imaginary:
 
 metrics:
   enabled: true
-  # The exporter talks to the ClusterIP service over plain http in-cluster.
   https: false
-  # Both series exist only to feed the two chart alerts we decline below, so
-  # there is no reason to have the exporter poll for them.
+  # Only feed the two chart alerts declined below, so don't poll for them.
   info:
     apps: false
     update: false
@@ -137,14 +118,12 @@ metrics:
       memory: 128Mi
 
 prometheus:
-  # Unusable as shipped — matches both Services and creates a permanently-down
-  # target under a job TargetDown watches. Replaced by servicemonitor.yaml.
+  # Matches both Services, so it creates a permanently-down target that trips
+  # TargetDown. Replaced by servicemonitor.yaml.
   serviceMonitor:
     enabled: false
-  # Of the three alerts the chart ships, only reachability is worth having, and
-  # it lives in prometheusrule.yaml alongside the ServiceMonitor we already had
-  # to hand-write. The other two latch the moment upstream releases anything and
-  # stay firing until you upgrade.
+  # Two of the three chart alerts latch on any upstream release and stay firing
+  # until you upgrade. The third (reachability) is in prometheusrule.yaml.
   rules:
     enabled: false
 
@@ -153,13 +132,9 @@ cronjob:
   # Not 'sidecar' — that runs crond, which needs root in the app pod.
   type: cronjob
   cronjob:
-    # REQUIRED. Without this the cron pod runs as uid 0 and every run exits 1 with
-    # "Console has to be executed with the user that owns the file config/config.php.
-    # Current user id: 0 / Owner id of config.php: 33" — so background jobs never
-    # run at all, previews and trash expiry silently stop, and the admin panel
-    # shows a permanent cron warning. The chart's own values say the cron pod
-    # "should run as same user as the Nextcloud pod" but ship securityContext
-    # empty, so nothing enforces it.
+    # REQUIRED — the chart ships this empty. Without it the cron pod runs as uid 0,
+    # occ refuses to run as a non-owner of config.php, and every run exits 1, so
+    # background jobs silently never run.
     securityContext:
       runAsUser: 33
       runAsGroup: 33
@@ -178,17 +153,14 @@ persistence:
     enabled: true
     existingClaim: nextcloud-data
 
-# The app tree is on local-path, which pins the pod to whichever node it first
-# lands on. Pinning deliberately to worker-01 makes that a choice rather than
-# chance (worker-00 is the known density hotspot), and worker-01 IS the NFS
-# server, so file I/O stays local. Reuses the existing label rather than adding
-# a second name for the same node. No toleration — worker-01 carries no taint.
+# local-path pins the pod to one node regardless; this makes it a choice. worker-01
+# is the NFS server, so file I/O stays local. Reuses the media label rather than
+# inventing a second name for the same node.
 nodeSelector:
   homelab.io/media: "true"
 
-# REQUIRED. livenessProbe is on by default and starts killing the pod ~40s in,
-# which is far less than a first boot needs to rsync ~15k files and run the
-# installer. failureThreshold 60 x periodSeconds 10 = a 10-minute budget.
+# REQUIRED. The default livenessProbe starts killing the pod ~40s in, well before a
+# first boot can rsync ~15k files and run the installer. 60 x 10s = 10 min budget.
 startupProbe:
   enabled: true
   initialDelaySeconds: 30
@@ -196,9 +168,8 @@ startupProbe:
   timeoutSeconds: 5
   failureThreshold: 60
 
-# Ratios kept tight (1:4 CPU, 1:2.7 memory). VPA preserves the request:limit
-# ratio, so a wide ratio means a request VPA lowers drags the ceiling down with
-# it — throttling hardest exactly when a burst arrives.
+# Ratios kept tight — VPA preserves request:limit, so a wide ratio lets a lowered
+# request drag the limit down with it. See vpa.yaml.
 resources:
   requests:
     cpu: 250m
@@ -219,8 +190,7 @@ httpRoute:
         - path:
             type: PathPrefix
             value: "/"
-      # Large uploads outlive Envoy's default stream timeout. Envoy Gateway sets
-      # no request-body size limit, so 4G should pass; if uploads cut off
+      # Large uploads outlive Envoy's default stream timeout. If they still cut off
       # mid-transfer the lever is a ClientTrafficPolicy, not this.
       timeouts:
         request: 3600s

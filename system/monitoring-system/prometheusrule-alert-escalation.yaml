@@ -1,30 +1,22 @@
 ---
-# Duration-based escalation, added 2026-07-30 (post-outage follow-up Item 6).
+# Duration-based escalation. A `severity: warning` that never escalates is
+# indistinguishable from noise: the ntfy route inherits repeat_interval 12h, so 30h of
+# continuous firing yields two or three notifications interleaved with everything else.
+# NodeClockNotSynchronising went unnoticed for 38h that way.
 #
-# NodeClockNotSynchronising fired for 38h as a `severity: warning`. Prometheus evaluated it,
-# Alertmanager routed it, ntfy accepted every POST (0 failures) — and nobody noticed, because
-# the ntfy route inherits `repeat_interval: 12h`. ~30h of continuous firing yields two or three
-# notifications, interleaved with whatever else 148 alert rules emit. A warning that never
-# escalates is indistinguishable from noise.
+# Escalates the whole class on duration rather than reclassifying alerts one at a time.
+# Pairs with the `severity = "critical"` child route in values.yaml, which re-notifies
+# hourly — escalation alone would just add one more message to the same stream.
 #
-# This escalates the whole class on duration instead of reclassifying alerts one at a time.
-# It pairs with the `severity = "critical"` child route in values.yaml, which re-notifies
-# hourly: escalation alone would produce one more message in the same stream.
+# No feedback loop: matches `severity="warning"`, emits `severity: critical`, so it cannot
+# match itself. Do not change the emitted severity to warning.
 #
-# No feedback loop: this rule matches `severity="warning"` and emits `severity: critical`,
-# so it cannot match itself. Do not change the emitted severity to warning.
+# ALERTS_FOR_STATE timestamps the PENDING transition, not firing, and carries no
+# `alertstate` label — hence the join against ALERTS, which does. So a source with
+# `for: 15m` trips at 1h45m of firing, not 2h. Erring early is fine.
 #
-# ALERTS_FOR_STATE holds the unix timestamp the source alert went PENDING, not firing, and it
-# carries no `alertstate` label — hence the join against ALERTS, which does. For a source with
-# `for: 15m` the real firing time at trip is 1h45m, not 2h. Close enough; erring early is fine.
-#
-# `label_replace` copies the source alertname into `escalated_alert` because Prometheus
-# overwrites `alertname` with this rule's name, which would otherwise leave the notification
-# unable to say which alert escalated.
-#
-# Validated against live Prometheus: with severity="none" this returns Watchdog (39.9h old);
-# with the threshold inverted to > 99999999 it returns empty, so the comparison genuinely
-# gates rather than always-matching.
+# `label_replace` saves the source alertname into `escalated_alert` because Prometheus
+# overwrites `alertname` with this rule's own.
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:

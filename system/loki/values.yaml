@@ -25,20 +25,14 @@ loki:
   pattern_ingester:
     enabled: true
 
-  # Enables the ruler so log-only conditions can alert. Needed because the one reliable
-  # fingerprint for a Cilium split brain is a log line, never a metric — Cilium's Prometheus
-  # endpoint is not enabled here, and "two agents on one node" is invisible to Kubernetes
-  # anyway (the DaemonSet only ever knows about the one it created).
+  # Enables the ruler so log-only conditions can alert — see rule-cilium-split-brain.yaml.
   #
   # storage.type must be local to read rule files off disk, and the local store expects
-  # <directory>/<tenant>. auth_enabled is false, so the tenant is literally `fake` — Loki
-  # states this itself if the path is wrong:
-  #   unable to read rule dir /var/loki/rules/fake: no such file or directory
-  # /rules is where the chart's already-running loki-sc-rules sidecar writes, so point the
-  # ruler there rather than at the default /var/loki/rules.
-  # alertmanager_url reuses the existing kube-prometheus-stack Alertmanager, so these alerts
-  # inherit the ntfy routing and inhibition rules already configured for Prometheus alerts.
-  # enable_alertmanager_v2 is not set: it already defaults to true in Loki 3.x.
+  # <directory>/<tenant>, where the tenant is literally `fake` because auth_enabled is
+  # false. /rules is where the chart's loki-sc-rules sidecar already writes, so point the
+  # ruler there rather than the default /var/loki/rules.
+  # alertmanager_url reuses the kube-prometheus-stack Alertmanager, so these alerts inherit
+  # the existing ntfy routing and inhibitions. enable_alertmanager_v2 already defaults true.
   rulerConfig:
     wal:
       dir: /var/loki/ruler-wal

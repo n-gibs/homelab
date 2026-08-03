@@ -1,22 +1,13 @@
 ---
 # Hardware temperature alerts for the three ProDesk Minis.
 #
-# Motivating observation (2026-07-31): a manual temp sweep found worker-01's 12TB WD
-# WD120EDGZ sitting at 61C with a lifetime high of 63C against a vendor-specified 65C
-# maximum — 4C of headroom on the disk that holds every byte of media and all NFS-backed
-# PVCs — while nothing in the cluster was watching any thermal sensor at all.
+# Thresholds are relative to each sensor's OWN limit, not one literal: worker-00's 8th-gen
+# coretemp reports crit=82C where the other two report 100C, and the NVMe drives report
+# 81.85C to 87.85C. One number would be deaf on the G4 or hair-trigger elsewhere.
 #
-# Thresholds are relative to each sensor's OWN limit rather than one hardcoded number,
-# because the hardware disagrees about what hot means: worker-00's 8th-gen coretemp reports
-# crit=82C where the 10th/12th-gen chips in worker-02 and worker-01 report crit=100C, and
-# the three NVMe drives report 81.85C, 81.85C and 87.85C. A single literal would be either
-# deaf on the G4 or hair-trigger on the other two.
-#
-# Sensors with no crit/limit value published are silently outside these rules — the `on()`
-# joins drop them. In practice that means NVMe alerting covers the Composite sensor only
-# (the drive's headline temperature) and not its per-die Sensor 1/Sensor 2 readings, and
-# that node_hwmon_temp_max_celsius is deliberately unused: several NVMe sensors report it
-# as 65261.85C, which would produce a threshold no reading could ever cross.
+# Sensors publishing no crit/limit drop out of the `on()` joins silently. So NVMe covers
+# the Composite sensor only, and node_hwmon_temp_max_celsius is deliberately unused —
+# several NVMe sensors report it as 65261.85C, a threshold nothing could cross.
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
@@ -26,16 +17,13 @@ metadata:
     release: monitoring-system
 spec:
   groups:
-    # Both rules here precompute sensor_name because Homepage's dynamic-list display takes
-    # each row's name from a field in the data. That makes the widget independent of the
-    # order Prometheus returns series in — indexing rows positionally would silently
-    # relabel every reading if that order ever shifted. They also keep the widget URL
-    # short enough to review instead of carrying a whole expression percent-encoded on one
-    # line.
+    # Both rules precompute sensor_name because Homepage's dynamic-list display names each
+    # row from a field in the data — indexing positionally would silently relabel every
+    # reading if Prometheus ever returned the series in a different order.
     - name: temperature-recording
       rules:
-        # Read by the Grafana dashboard's panel 1 only. NVMe is deliberately absent: panel 1
-        # gets it from a separate query, so adding it here would double-count.
+        # Read by the Grafana dashboard's panel 1 only. NVMe deliberately absent: panel 1
+        # gets it from a separate query, so including it here would double-count.
         - record: node:temperature_celsius:max
           expr: >-
             label_replace(
@@ -54,22 +42,13 @@ spec:
               "sensor_name", "$1 HDD", "nodename", "(.*)"
             )
 
-        # Read by the Homepage widget. Degrees left before each sensor hits its OWN ceiling,
-        # not raw temperature: 57C is 8 degrees from death on the 12TB WD and 43 degrees of
-        # slack on worker-01's CPU, so one absolute number on a glanceable list means
-        # nothing. Small number = attention needed, which is the only reading a dashboard
-        # row has room to convey.
+        # Read by the Homepage widget. Degrees of headroom, not raw temperature: 57C is 8
+        # degrees from death on the 12TB WD and 43 degrees of slack on a CPU, so one
+        # absolute number on a glanceable list means nothing. Small = needs attention.
         #
-        # Kept separate from :max above rather than replacing it — the dashboard's panel 1
-        # plots absolute temperature over time and still needs that. This is also NOT the
-        # same shape as the dashboard's panel 2, which reduces to one worst-sensor value per
-        # node; here each sensor class gets its own row so a hot disk cannot hide behind a
-        # cool CPU.
-        #
-        # Sensors with no published crit drop out of the `on()` joins silently, same caveat
-        # as the alerts: NVMe is the Composite sensor (temp1) only, and
-        # node_hwmon_temp_max_celsius stays unused because several NVMe sensors report it as
-        # 65261.85C.
+        # Separate from :max above, which panel 1 still needs for absolute-over-time. Also
+        # not the same shape as panel 2, which reduces to one worst sensor per node — here
+        # each sensor class gets a row, so a hot disk cannot hide behind a cool CPU.
         - record: node:temperature_headroom_celsius:min
           expr: >-
             label_replace(
@@ -104,15 +83,13 @@ spec:
 
     - name: temperature-cpu-nvme
       rules:
-        # thermal_zone chips are excluded on purpose. They duplicate the coretemp and PCH
-        # readings that are already covered here, and worker-01's acpitz zone reports a
-        # constant -268.3C — a broken ACPI sensor, not a cold node.
+        # thermal_zone chips excluded on purpose: they duplicate coretemp/PCH readings, and
+        # worker-01's acpitz reports a constant -268.3C — a broken sensor, not a cold node.
         #
-        # The group_left join onto node_uname_info exists only to put a hostname in the
-        # notification instead of 192.168.30.x:9100. It costs a suppression risk: an
-        # instance missing node_uname_info would drop out of the alert entirely. That
-        # metric is core node-exporter and present whenever the target is up at all, and a
-        # target that is down has no temperature to report either, so NodeDown covers it.
+        # The group_left onto node_uname_info only buys a hostname in the notification
+        # instead of 192.168.30.x:9100. An instance missing that metric would drop out of
+        # the alert, but it is core node-exporter, and a down target has no temperature to
+        # report either — NodeDown covers that case.
         - alert: NodeSensorTemperatureHigh
           expr: >-
             (
@@ -162,9 +139,8 @@ spec:
     # and these rules would sit here matching no series.
     - name: temperature-disk
       rules:
-        # Fed by smart-temp-textfile.timer on the host, not by hwmon: USB-attached drives
-        # get no hwmon entry, so this is the only path by which worker-01's 12TB WD has a
-        # temperature in Prometheus at all.
+        # Fed by smart-temp-textfile.timer on the host, not hwmon — USB drives get no hwmon
+        # entry, so this is the only path to a temperature for worker-01's 12TB WD.
         - alert: DiskTemperatureAboveSpec
           expr: >-
             (
@@ -205,11 +181,10 @@ spec:
               {{ $value | printf "%.0f" }}C, more than 5C past its rated maximum. Move data
               off or power the enclosure down.
 
-        # Without this the disk alerts above fail silent: if the systemd timer stops, the
-        # series simply disappears and both expressions go permanently empty. worker-01 owns
-        # the cluster's only non-NVMe disk, so "no node is reporting any SMART temperature"
-        # is exactly equivalent to "worker-01's feed is broken" without hardcoding a node
-        # here. 30m tolerates a reboot or an Ansible run.
+        # Without this the disk alerts above fail silent: if the timer stops, the series
+        # disappears and both expressions go permanently empty. worker-01 owns the only
+        # non-NVMe disk, so absent() is equivalent to "worker-01's feed is broken" without
+        # hardcoding a node. 30m tolerates a reboot or an Ansible run.
         - alert: DiskTemperatureMetricsMissing
           expr: absent(node_smart_temperature_celsius)
           for: 30m
@@ -225,17 +200,15 @@ spec:
               /host/root/var/lib/node_exporter/textfile_collector.
 
         # Wear, not heat. The drive shipped at APM 128 and parked its heads ~50 times an
-        # hour while 0.02% busy; a udev rule in ansible/roles/common now pins APM to 254 on
-        # every add/change event, which took the rate to zero. This alert exists because
-        # that rule can stop matching silently: it keys on ID_SERIAL_SHORT, and a different
-        # USB bridge may expose its own serial instead of passing the drive's through.
-        # Re-enclosing the drive is exactly when that would happen, and the symptom is
-        # otherwise invisible for about a year.
+        # hour while 0.02% busy; a udev rule in ansible/roles/common pins APM to 254 on
+        # every add/change event, taking the rate to zero. This alert exists because that
+        # rule can stop matching silently — it keys on the bridge's ID_VENDOR/ID_MODEL, so
+        # re-enclosing the drive can break it, and the symptom is otherwise invisible for
+        # about a year.
         #
-        # 10/hr sits well clear of both states — zero when the rule holds, ~50 when it does
-        # not. The 1h window plus for:1h is deliberately slow: a reboot or a re-plug parks
-        # the heads legitimately a few times, and a wear budget measured in years does not
-        # need a fast alert.
+        # 10/hr sits clear of both states (zero when the rule holds, ~50 when it does not).
+        # The 1h window plus for:1h is deliberately slow: a reboot or re-plug parks the
+        # heads legitimately a few times, and a wear budget in years needs no fast alert.
         - alert: DiskHeadParkingResumed
           expr: >-
             (
@@ -252,7 +225,8 @@ spec:
               {{ $labels.device }} on {{ $labels.nodename }} is back to loading and
               unloading its heads {{ $value | printf "%.0f" }} times an hour, which burns a
               600k-cycle rating in roughly 14 months. APM has reverted to a power-saving
-              level. Check that /etc/udev/rules.d/60-wd-elements-apm.rules still matches the
-              drive — `udevadm info --query=property --name=/dev/sda | grep ID_SERIAL_SHORT`
-              — and that `smartctl --get=apm /dev/sda` reads 254. If the serial changed, the
-              rule needs the new one.
+              level. Confirm `smartctl --get=apm /dev/sda` reads 254, and that
+              /etc/udev/rules.d/60-wd-elements-apm.rules still matches the drive —
+              `udevadm info --query=property --name=/dev/sda | grep -E 'ID_VENDOR|ID_MODEL'`.
+              A new USB bridge reports its own vendor/model strings, so re-enclosing the
+              drive means the rule needs the new pair.

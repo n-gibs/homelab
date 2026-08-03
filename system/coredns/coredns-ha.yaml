@@ -1,30 +1,21 @@
 ---
 # Additive CoreDNS replicas + a disruption budget for the kube-dns service.
 #
-# Why a SECOND deployment instead of scaling kube-system/coredns:
-# k3s owns kube-system/coredns as a k3s.cattle.io Addon -- a packaged manifest
-# at /var/lib/rancher/k3s/server/manifests/coredns.yaml applied by wrangler.
-# It is NOT a HelmChart, so there is no HelmChartConfig to attach a values
-# override to, and anything ArgoCD wrote onto that Deployment would fight the
-# k3s deploy controller on every re-apply.
+# A SECOND deployment rather than scaling kube-system/coredns, because k3s owns that as a
+# k3s.cattle.io Addon, not a HelmChart — there is no HelmChartConfig to override, and
+# anything ArgoCD wrote there would fight the k3s deploy controller on every re-apply.
 #
-# These pods carry k8s-app=kube-dns, so the existing kube-dns Service
-# (10.43.0.10) picks them up as additional endpoints with no Service change.
-# The spread constraint below selects on that same label, so it counts k3s's
-# pod too -- no two CoreDNS pods ever land on the same node.
+# These pods carry k8s-app=kube-dns, so the existing kube-dns Service picks them up with
+# no Service change, and the spread constraint below counts k3s's pod too. Config is not
+# duplicated — we mount k3s's own ConfigMap, including the NodeHosts file it keeps current.
 #
-# Config is not duplicated: we mount k3s's own `coredns` ConfigMap, which
-# includes the NodeHosts file k3s keeps current as nodes come and go.
+# ponytail: the Deployment selector deliberately overlaps k3s's broader `k8s-app=kube-dns`.
+# Safe (a pod with a controllerRef is never claimed by another ReplicaSet) but it means
+# `kubectl get deploy coredns` reports 1/1 while three pods serve DNS. If that ambiguity
+# ever bites: k3s --disable=coredns and own the addon wholesale, NodeHosts upkeep included.
 #
-# ponytail: the Deployment selector deliberately overlaps k3s's broader
-# `k8s-app=kube-dns` selector. That is safe -- a pod already carrying a
-# controllerRef is never claimed or reaped by another ReplicaSet -- but it does
-# mean `kubectl get deploy coredns` reports 1/1 while three pods serve DNS.
-# The upgrade path, if that ambiguity ever bites: k3s --disable=coredns and
-# take the addon over wholesale (also means owning NodeHosts upkeep).
-#
-# Rollback: delete this file and let ArgoCD prune, or scale coredns-ha to 0.
-# k3s's own replica is untouched throughout and keeps serving DNS either way.
+# Rollback: delete this file and let ArgoCD prune, or scale to 0. k3s's own replica is
+# untouched throughout and keeps serving DNS either way.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

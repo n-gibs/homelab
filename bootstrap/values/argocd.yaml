@@ -1,7 +1,7 @@
 server:
-  # Measured 7-day peak 20m / 71Mi. Keep this inside the existing server block — adding a
-  # second top-level `server:` key silently wins over the first in YAML, which drops the
-  # annotations, ingress and httproute config below and deletes the ArgoCD HTTPRoute.
+  # Measured 7-day peak 20m / 71Mi. Keep this inside the existing server block — a second
+  # top-level `server:` key silently wins in YAML, dropping everything below it and
+  # deleting the ArgoCD HTTPRoute.
   resources:
     requests:
       cpu: 50m
@@ -36,22 +36,15 @@ controller:
     enabled: true
   # Resource requests for this and every component below.
   #
-  # All seven ArgoCD components shipped with no requests at all, and all seven landed on
-  # worker-00 — a 4-core node, against 12 cores each on worker-01 and worker-02. That is
-  # the mechanism, not a coincidence: kube-scheduler scores nodes on *requested*
-  # resources, so a container with no request looks free everywhere, scoring collapses to
-  # a near-tie, and placement is effectively arbitrary. Nothing rebalances afterwards, so
-  # wherever a pod landed at bootstrap is where it stays. worker-00 reported 24% of its
-  # CPU as requested while actually serving 60% of the cluster's real CPU load.
+  # All seven components shipped requestless and all seven landed on worker-00, the 4-core
+  # node. That is the mechanism, not chance: kube-scheduler scores on *requested*
+  # resources, so a requestless container looks free everywhere and placement is arbitrary
+  # — and nothing rebalances afterwards.
   #
-  # Values are 7-day peak usage from Prometheus (max_over_time of the 5m rate), rounded
-  # up — not guesses. Measured peaks: controller 164m/730Mi, repo-server 93m/151Mi,
-  # server 20m/71Mi, redis 9m/35Mi, dex 1m/118Mi, applicationset 1m/58Mi,
-  # notifications 0m/90Mi.
-  #
-  # Requests only, no limits. A CPU limit would throttle the controller mid-reconcile for
-  # no benefit on a homelab with 28 cores and ~2.5 of them requested, and a memory limit
-  # turns a slow sync into an OOMKill.
+  # Values are 7-day peak usage from Prometheus (max_over_time of the 5m rate) rounded up,
+  # not guesses. Requests only, no limits: a CPU limit throttles the controller
+  # mid-reconcile for no benefit at 28 cores, and a memory limit turns a slow sync into an
+  # OOMKill.
   resources:
     requests:
       cpu: 200m

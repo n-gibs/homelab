@@ -11,21 +11,16 @@ spec:
         memory: 128Mi
       # No default CPU limit on purpose, unlike every other app's LimitRange.
       #
-      # Homepage is one single-threaded Node process that fans out ~15 server-side widget
-      # fetches on every page load, so it wants most of a core for a second or two and
-      # nothing at all in between. A CPU limit turns that burst into a stall: the container
-      # spent 93% of its CFS periods throttled, page loads took 15s+, and Envoy's 15s route
-      # timeout then returned a plain-text "upstream request timeout" that the customapi
-      # widgets tried to JSON.parse — "Unexpected token 'u'".
+      # Homepage is one single-threaded Node process fanning out ~15 widget fetches per page
+      # load: it wants most of a core for a second, then nothing. Any CPU limit turns that
+      # burst into a stall — it sat 93% throttled with 15s+ page loads, tripping Envoy's
+      # route timeout, whose plain-text body the customapi widgets then tried to JSON.parse.
       #
-      # The limit that did it was not this 500m. VPA preserves the request:limit ratio it
-      # finds, so once it settled the request at 15m against this file's 50m/500m 10x ratio,
-      # it scaled the ceiling down to 150m — 15% of a core. Raising the default here would
-      # only move that number; VPA would keep dividing it. Removing it leaves nothing to
-      # scale, so the burst runs at whatever the node has spare, which is the behaviour a
-      # latency-sensitive single-threaded process needs.
+      # Raising the default would not fix it: VPA preserves the request:limit ratio, so it
+      # keeps dividing whatever ceiling is here (a 15m request against a 10x ratio gave
+      # 150m). Removing it leaves nothing to scale.
       #
-      # The memory limit stays: an unbounded Node heap on a 16GB node is a real risk, and
-      # memory is not a burst-and-idle resource here.
+      # The memory limit stays — an unbounded Node heap is a real risk, and memory is not a
+      # burst-and-idle resource here.
       default:
         memory: 512Mi
