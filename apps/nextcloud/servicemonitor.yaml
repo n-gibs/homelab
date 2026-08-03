@@ -1,0 +1,22 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: nextcloud-exporter
+  namespace: nextcloud
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nextcloud
+      app.kubernetes.io/instance: nextcloud
+      # The discriminator the chart's own ServiceMonitor omits. Without it this
+      # also matches the main Service, whose /metrics path serves nothing.
+      app.kubernetes.io/component: metrics
+  namespaceSelector:
+    matchNames:
+      - nextcloud
+  endpoints:
+    # The metrics Service exposes port 9100 named "http", targeting the
+    # container's 9205. The port name here is the Service's, not the container's.
+    - port: http
+      path: /metrics
+      interval: 60s

@@ -1,0 +1,22 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: nextcloud
+  namespace: nextcloud
+spec:
+  groups:
+    - name: nextcloud
+      rules:
+        - alert: NextcloudDown
+          expr: 'avg without(endpoint,container,pod,instance) (nextcloud_up{namespace="nextcloud"}) < 1'
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Nextcloud is not reachable by its metrics exporter"
+            description: >-
+              The nextcloud-exporter cannot reach Nextcloud's serverinfo API. Either
+              Nextcloud is down, or the admin credential in the nextcloud-admin secret
+              no longer matches the actual password — the exporter authenticates with
+              that same secret, and changing the password in the Nextcloud UI instead
+              of resealing desyncs it.

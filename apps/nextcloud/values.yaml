@@ -81,12 +81,32 @@ collabora:
 imaginary:
   enabled: false
 
-# Metrics land in a follow-up commit, so a first-boot failure has fewer causes.
 metrics:
-  enabled: false
+  enabled: true
+  # The exporter talks to the ClusterIP service over plain http in-cluster.
+  https: false
+  # Both series exist only to feed the two chart alerts we decline below, so
+  # there is no reason to have the exporter poll for them.
+  info:
+    apps: false
+    update: false
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
 prometheus:
+  # Unusable as shipped — matches both Services and creates a permanently-down
+  # target under a job TargetDown watches. Replaced by servicemonitor.yaml.
   serviceMonitor:
     enabled: false
+  # Of the three alerts the chart ships, only reachability is worth having, and
+  # it lives in prometheusrule.yaml alongside the ServiceMonitor we already had
+  # to hand-write. The other two latch the moment upstream releases anything and
+  # stay firing until you upgrade.
   rules:
     enabled: false
 
