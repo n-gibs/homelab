@@ -475,22 +475,22 @@ invoked.
   not OpenSSH format (`ssh-keygen -e -m RFC4716` converts) — a common silent failure.
   Fallback is the account password via `rclone obscure`. Either way this changes only the
   sealed secret's contents and the rclone remote definition.
-- **Two paths for the `media` category, which may differ.** ProFTPD commonly chroots SFTP to the
-  home directory, so qBittorrent's absolute `/home/<user>/downloads/media` can appear as
-  `/downloads/media` over SFTP. Both are needed, in different places:
+- **The `media` category's save path.** Under `/home/seedit4me/torrents/`; exact subdirectory
+  still to be read off `ls torrents` and cross-checked against the WebUI's Default Save Path.
 
-  | Path | Used for | How to read it |
-  |------|----------|----------------|
-  | SFTP-visible | rclone source in the CronJob | `sftp -P 2097 <user>@nl137.seedit4.me`, then `pwd`/`ls` |
-  | qBittorrent absolute | *arr Remote Path Mapping "remote path" | WebUI → Options → Downloads → Default Save Path |
-
-  Crossing these is the classic silent import failure: rclone copies correctly and the *arr never
-  resolve anything. No shell is needed for either — SFTP is a file-transfer subsystem, and the
-  WebUI displays the absolute path as text.
+  **SFTP is not chrooted** — `pwd` returns `/home/seedit4me`, the same absolute namespace
+  qBittorrent reports. So one path string serves both the rclone source and the *arr Remote Path
+  Mapping; there is no second namespace to translate between. (Had ProFTPD chrooted to the home
+  directory, the two would have differed and crossing them would have been a silent import
+  failure — rclone copying correctly while the *arr resolved nothing.)
 
   Validate the rclone side before writing manifests:
   `rclone lsd ":sftp,host=nl137.seedit4.me,port=2097,user=<user>,shell_type=none,disable_hashcheck=true:"`
   — this confirms the credential and both required settings in one command.
+
+  Also present in the home directory: `rwatch`, a watch directory for dropping `.torrent` files.
+  Unused — autobrr and the *arr both use the qBittorrent API, which reports status a watch
+  directory cannot.
 - **qBittorrent WebUI URL** as exposed by seedit4.me, for the download client config.
 - **CronJob interval.** Frequent enough that imports feel prompt, infrequent enough not to
   hammer the SFTP endpoint. Start at 15 minutes, adjust on observed behaviour.
