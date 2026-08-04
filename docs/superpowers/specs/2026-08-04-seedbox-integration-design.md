@@ -475,9 +475,22 @@ invoked.
   not OpenSSH format (`ssh-keygen -e -m RFC4716` converts) — a common silent failure.
   Fallback is the account password via `rclone obscure`. Either way this changes only the
   sealed secret's contents and the rclone remote definition.
-- **The `media` category's completed-downloads path** on the slot — the CronJob source and the
-  *arr remote path mapping. Specifically the category's path, not the global save path, per the
-  separate-save-paths requirement above.
+- **Two paths for the `media` category, which may differ.** ProFTPD commonly chroots SFTP to the
+  home directory, so qBittorrent's absolute `/home/<user>/downloads/media` can appear as
+  `/downloads/media` over SFTP. Both are needed, in different places:
+
+  | Path | Used for | How to read it |
+  |------|----------|----------------|
+  | SFTP-visible | rclone source in the CronJob | `sftp -P 2097 <user>@nl137.seedit4.me`, then `pwd`/`ls` |
+  | qBittorrent absolute | *arr Remote Path Mapping "remote path" | WebUI → Options → Downloads → Default Save Path |
+
+  Crossing these is the classic silent import failure: rclone copies correctly and the *arr never
+  resolve anything. No shell is needed for either — SFTP is a file-transfer subsystem, and the
+  WebUI displays the absolute path as text.
+
+  Validate the rclone side before writing manifests:
+  `rclone lsd ":sftp,host=nl137.seedit4.me,port=2097,user=<user>,shell_type=none,disable_hashcheck=true:"`
+  — this confirms the credential and both required settings in one command.
 - **qBittorrent WebUI URL** as exposed by seedit4.me, for the download client config.
 - **CronJob interval.** Frequent enough that imports feel prompt, infrequent enough not to
   hammer the SFTP endpoint. Start at 15 minutes, adjust on observed behaviour.
