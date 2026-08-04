@@ -236,6 +236,16 @@ this design does not depend on that version.
 | Inactive seeding time limit + `RemoveWithContent` | qBittorrent → Options → BitTorrent → Seeding Limits |
 | Grab rate, size ceilings, freeleech preference | autobrr → filters |
 
+**autobrr's "Release Cleanup Jobs" are not disk cleanup.** They delete autobrr's own release
+*history* records — database rows, not torrents or files — so they reclaim no seedbox space
+whatsoever. Configuring one in the belief that it manages disk would let the disk fill while
+the job reports success. Disk reclamation is the qBittorrent share limit, and only that.
+
+Pruning history is optional housekeeping (the table grows with every announce processed across
+two `#announce` channels). If enabled, keep a generous window — 30 days or more — because
+autobrr uses release history for duplicate detection, and an aggressive window risks re-grabbing
+releases it already handled. Deletion is permanent. Not enabled for now.
+
 **Separate save paths per category are load-bearing, not cosmetic.** The CronJob's rclone
 source is the `media` directory alone. Sharing one save path would make `rclone copy` pull
 ratio-only grabs home as well — content whose entire purpose is to seed in place — wasting
