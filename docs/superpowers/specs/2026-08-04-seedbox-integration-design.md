@@ -50,19 +50,29 @@ Rejected alternatives:
 |------|-------|
 | Storage | 1500 GB HDD |
 | Network | 2 Gbit in / 1 Gbit out |
-| Upload allowance | 5 TB/month (downloads uncounted) |
-| Root access | No |
+| Upload allowance | 5 TB/month\* |
+| Root access | No\* |
 | IP | Shared |
 | Apps | Up to 8; qBittorrent confirmed available |
+
+\* Both figures carry an asterisk on seedit4.me's pricing page whose footnote has not been
+read. "Downloads uncounted" is inferred from third-party reviews, not from the Pro plan card
+itself — confirm before relying on it, since a combined allowance would change the sizing
+argument entirely (this is exactly the ambiguity that ruled out seedhost).
 
 Sizing rationale: **storage is the one resource already abundant at home** (12 TB on
 worker-01), so the smallest tier is correct. The slot only holds what is actively seeding;
 finished content is pulled home and seeds from the box for the tracker's required duration.
-5 TB/month upload is roughly 10× expected need at homelab grab volume.
+
+**Assumption, not a measurement:** monthly grab volume is taken as ~500 GB, which makes the
+5 TB allowance ~10× need. This number was never measured. If actual grabs run past ~1.5
+TB/month the tier choice should be revisited, since sustained ratio 3:1 on that volume would
+approach the cap.
 
 Chose the metered "Pro" family over the €16.99 unmetered "NL" family deliberately: unmetered
 carries an unpublished Fair Use Policy, while 5 TB is a hard number that can be planned
-against. Upgrading is a billing change, not a migration.
+against. Upgrading is a billing change, not a migration. **But see the open item on plan
+family below — this choice is not yet safe to act on.**
 
 Chose seedit4.me over seedhost.eu (cheaper per TB, 10 Gbps on every tier) because
 seedhost's "Monthly Traffic" column tracks disk size almost exactly at low tiers
@@ -132,7 +142,7 @@ download speed. The seedbox keeps its own copy and continues seeding.
 
 | Component | Change | Notes |
 |-----------|--------|-------|
-| `apps/rclone-mount/{app.yaml,values.yaml,vpa.yaml}` | new | app-template; privileged; `--read-only`; `--vfs-cache-mode=off`; `preStop` fusermount -u |
+| `apps/rclone-mount/{app.yaml,values.yaml,vpa.yaml}` | new | app-template; privileged; `--read-only`; `--vfs-cache-mode=off`; `preStop` fusermount -u; explicit `resources.requests/limits`; liveness probe |
 | `apps/rclone-mount/rclone-ssh-key.yaml` | new | sealed secret, SFTP credential |
 | `apps/radarr/values.yaml` | modify | add `persistence.seedbox` hostPath mount |
 | `apps/sonarr/values.yaml` | modify | add `persistence.seedbox` hostPath mount |
@@ -155,6 +165,18 @@ download speed. The seedbox keeps its own copy and continues seeding.
 - **VPA `updateMode: "Off"`**, not the old plan's `"Auto"`. VPA evicting the rclone pod tears
   down the FUSE mount, and Radarr/Sonarr holding it `HostToContainer` would see a broken
   directory mid-import. Recommendations only; resize by hand during a quiet window.
+  Consequence: since VPA will not set them, `resources.requests/limits` must be written
+  explicitly in `values.yaml` per CLAUDE.md, not left to the recommender.
+- **Liveness probe required.** A stale FUSE mount does not kill the rclone process — the
+  mount hangs while the container stays "up", so nothing restarts it and the *arr see a
+  wedged directory indefinitely. The old plan had no health check. Probe by statting the
+  mountpoint (an `exec` probe, since there is no HTTP endpoint) so a stale mount recycles the
+  pod.
+- **`hostPathType: DirectoryOrCreate` on the *arr side too**, not the old plan's `Directory`.
+  With `Directory`, Radarr and Sonarr fail to start whenever they are scheduled before
+  rclone-mount has created `/mnt/rclone-seedbox` — a fresh worker-01 or a reboot would break
+  two working apps for a feature that is only additive. This is a hard requirement: the
+  seedbox path must never be able to take down the existing media stack.
 
 ### Storage rule compliance
 
@@ -167,8 +189,8 @@ exception.
 
 | Failure | Effect | Handling |
 |---------|--------|----------|
-| Seedbox unreachable | rclone mount stales; *arr imports fail | rclone pod restarts; imports retry on next *arr scan |
-| rclone pod evicted/rescheduled | hostPath empties; *arr see empty dir | VPA `updateMode: Off`; pod pinned to worker-01 |
+| Seedbox unreachable | rclone mount stales; *arr imports fail | liveness probe stats the mountpoint and recycles the pod; imports retry on next *arr scan |
+| rclone pod evicted/rescheduled | hostPath empties; *arr see empty dir | VPA `updateMode: Off`; pod pinned to worker-01; *arr keep running (`DirectoryOrCreate`) |
 | Upload allowance exhausted | seeding stops until billing reset | monitor; upgrade tier if it recurs |
 | Import copy interrupted | partial file in library | *arr retry; seedbox copy is authoritative |
 
@@ -192,6 +214,18 @@ exception.
 
 ## Open items
 
+- **BLOCKING — which plan family does TorrentLeech require?** The Pro cards read "PUBLIC
+  TRACKERS / Public Trackers Allowed"; the unmetered NL cards read "No Public Trackers".
+  The intended reading is that Pro permits both and NL is private-only, so Pro is a superset.
+  Two things make that worth confirming before paying:
+  1. Public-tracker-permitted IP ranges see DMCA traffic, which is precisely why private
+     trackers blocklist ranges. TL may accept only the private-only NL plans.
+  2. The TL invite is the stated reason for choosing this provider over cheaper seedhost. If
+     the invite is tied to the NL family, the correct plan is **Sidekick NL at €16.99**, not
+     Sidekick Pro at €11.99 — and the metered-vs-unmetered argument above is moot.
+
+  Ask seedit4.me pre-sales which plans the TorrentLeech invite applies to. A €5/month
+  difference is not worth guessing at when the tracker access is the whole point.
 - **SFTP auth method.** Key auth is preferred, but a no-root shared slot may not allow
   installing `~/.ssh/authorized_keys`. If not, fall back to the account password via
   `rclone obscure`. Resolve during implementation; it changes only the secret's contents and
@@ -200,3 +234,7 @@ exception.
   Read it off the box after signup.
 - **qBittorrent WebUI URL/port** as exposed by seedit4.me, needed for the download client
   config.
+- **`--vfs-cache-mode=off` is a starting point, not a conclusion.** Sequential import copies
+  are fine, but *arr media probing seeks, and seeks over SFTP with no cache are expensive.
+  If imports are slow or flaky, `--vfs-cache-mode=full` with a bounded `--vfs-cache-max-size`
+  is the knob — it needs writable scratch space, so it changes the pod's volumes.
