@@ -326,15 +326,17 @@ invoked.
   it on without these numbers risks exactly the hit-and-run penalties the seedbox exists to
   avoid. Until then, run with auto-delete off and prune by hand.
 - **autobrr IRC announce credentials** for both trackers: tracker passkey/RSS key (autobrr
-  builds the `.torrent` URL from it), IRC nick, NickServ password if the network requires
-  registration, and the IRC key pasted into autobrr's pre-filled invite command. Adding an
-  indexer auto-configures its IRC network and channels, so only credentials are manual. All of
-  it is seedbox-side UI config, outside the repo — no GitOps artifacts.
+  builds the `.torrent` URL from it), IRC nick, and the IRC key pasted into autobrr's
+  pre-filled invite command. **No NickServ registration was required** — the bot nick alone
+  was accepted, and the invite command does the authorization. Adding an indexer
+  auto-configures its IRC network and channels. All seedbox-side UI config, outside the repo —
+  no GitOps artifacts.
 
-  Two silent-failure modes: some trackers require a `|autodl`/`|bot` nick suffix to be invited
-  to `#announce` (you connect fine and simply never get invited), and some gate `#announce`
-  behind a minimum user class or a nick linked in your tracker profile. Give autobrr its own
-  dedicated nick — it holds the connection 24/7 and will collide with personal IRC use.
+  Two silent-failure modes to check rather than assume: connected-but-not-joined means the
+  invite command was refused; joined-but-silent means the nick format lacks a required
+  `|autodl`/`|bot` suffix, or `#announce` is gated behind a minimum user class. Verify the
+  network shows connected *and* the channel joined, then prove the chain end-to-end with one
+  deliberately narrow throwaway filter before trusting it.
 - **TorrentLeech in Prowlarr**, if not already present — Prowlarr is the *arr search path and
   is configured independently of autobrr. Indexers must be registered in *both*; autobrr does
   not read Prowlarr's config.
