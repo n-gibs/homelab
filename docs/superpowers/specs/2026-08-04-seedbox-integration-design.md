@@ -174,12 +174,20 @@ Two independent paths now feed the seedbox qBittorrent:
 
 1. **Prowlarr → Radarr/Sonarr → seedbox qBittorrent.** Curated — content actually wanted,
    pulled home and imported.
-2. **autobrr → seedbox qBittorrent** (running on the seedbox). Reacts to tracker IRC
-   announces in seconds, where Prowlarr RSS polls on an interval. This is what actually wins
-   the burst window the whole design is built around.
+2. **autobrr → seedbox qBittorrent** (running on the seedbox, targeting localhost). Reacts to
+   tracker IRC announces in seconds, where Prowlarr RSS polls on an interval. This is what
+   actually wins the burst window the whole design is built around.
 
 Path 2 content is grabbed for ratio, is not in the *arr wanted lists, and never leaves the
 box. That is intentional — but see the disk-pressure requirement below.
+
+**The two paths keep separate indexer configs.** autobrr does not read Prowlarr's; both
+IPTorrents and TorrentLeech must be registered in each. Prowlarr answers "find me this thing"
+for the *arr; autobrr answers "something just dropped." Both are confirmed present in
+[autobrr's supported IRC-announce indexer list](https://autobrr.com/configuration/indexers).
+
+autobrr's action targets the seedbox's local qBittorrent with category `ratio` — **not**
+Radarr or Sonarr, which would turn ratio grabs into library imports and defeat the purpose.
 
 ## Components
 
@@ -317,6 +325,10 @@ invoked.
   here; read them off the rules/FAQ pages. Required *before* auto-delete is enabled — turning
   it on without these numbers risks exactly the hit-and-run penalties the seedbox exists to
   avoid. Until then, run with auto-delete off and prune by hand.
-- **autobrr IRC announce setup** for both trackers: network, announce channel, and the
-  per-tracker announce credentials from your tracker profile. Confirm both have definitions in
-  autobrr's built-in indexer list before relying on this path.
+- **autobrr IRC announce credentials** for both trackers: tracker passkey/RSS key (autobrr
+  builds the `.torrent` URL from it), IRC nick, NickServ password if the network requires
+  registration, and the announce bot's invite command. Adding an indexer in autobrr
+  auto-configures its IRC network and channels, so only the credentials are manual.
+- **TorrentLeech in Prowlarr**, if not already present — Prowlarr is the *arr search path and
+  is configured independently of autobrr. Indexers must be registered in *both*; autobrr does
+  not read Prowlarr's config.
