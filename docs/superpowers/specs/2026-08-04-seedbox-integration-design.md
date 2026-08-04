@@ -214,10 +214,15 @@ both grab paths.** This is a required part of the design.
 The mechanism is **separate qBittorrent categories per grab path**, because the two have
 incompatible deletion rules:
 
-| Category | Fed by | Share limit | On limit reached |
-|----------|--------|-------------|------------------|
-| `ratio` | autobrr | global floor (below), plus margin | remove torrent **and files** |
-| `media` | Radarr/Sonarr | global floor **plus transfer margin** | remove torrent and files |
+| Category | Fed by | Save path | Share limit | On limit reached |
+|----------|--------|-----------|-------------|------------------|
+| `ratio` | autobrr | its own dir | global floor (below), plus margin | remove torrent **and files** |
+| `media` | Radarr/Sonarr | its own dir | global floor **plus transfer margin** | remove torrent and files |
+
+**Separate save paths per category are load-bearing, not cosmetic.** The CronJob's rclone
+source is the `media` directory alone. Sharing one save path would make `rclone copy` pull
+ratio-only grabs home as well — content whose entire purpose is to seed in place — wasting
+home download bandwidth and NFS capacity on data that is never imported.
 
 **One global floor, not per-tracker floors.** Only two trackers are in scope (IPTorrents,
 TorrentLeech), so the floor is the stricter of the two requirements applied to both. Splitting
@@ -305,6 +310,8 @@ invoked.
 - **Also on the box:** ProFTPD, ffmpeg, autobrr. Only qBittorrent and autobrr are used here.
 - **autobrr's role:** ratio grabbing (Path 2), not merely a faster feed into the *arr. This is
   what makes seedbox disk management a required component rather than a later nicety.
+- **Trackers:** IPTorrents and TorrentLeech, both configured in autobrr with IRC announce. No
+  NickServ registration needed on either; nick-to-account linking done via the channel bot.
 
 ## Open items
 
@@ -314,8 +321,9 @@ invoked.
   not OpenSSH format (`ssh-keygen -e -m RFC4716` converts) — a common silent failure.
   Fallback is the account password via `rclone obscure`. Either way this changes only the
   sealed secret's contents and the rclone remote definition.
-- **Exact completed-downloads path** on the slot — needed for both the CronJob source and the
-  *arr remote path mapping. Read it off the box.
+- **The `media` category's completed-downloads path** on the slot — the CronJob source and the
+  *arr remote path mapping. Specifically the category's path, not the global save path, per the
+  separate-save-paths requirement above.
 - **qBittorrent WebUI URL** as exposed by seedit4.me, for the download client config.
 - **CronJob interval.** Frequent enough that imports feel prompt, infrequent enough not to
   hammer the SFTP endpoint. Start at 15 minutes, adjust on observed behaviour.
