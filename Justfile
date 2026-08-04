@@ -232,6 +232,138 @@ wire-media:
     echo "                                              → Radarr → host: radarr.radarr.svc.cluster.local:7878"
     echo "  Lidarr:  run 'just tune-lidarr-quality' to apply recommended FLAC quality/custom-format tuning"
 
+# Configure the seedbox qBittorrent as a second download client in Radarr/Sonarr,
+# with a remote path mapping, and create the Prowlarr tag that routes to it.
+wire-seedbox:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source secrets/.secrets
+    source secrets/.secrets.generated
+    PF_PIDS=()
+    cleanup() { for p in "${PF_PIDS[@]}"; do kill "$p" 2>/dev/null; done; }
+    trap cleanup EXIT
+
+    # Split SEEDBOX_QBT_URL into the host / urlBase / ssl fields the *arr expect.
+    # Shared seedbox slots serve qBittorrent on a subfolder behind HTTPS, so
+    # urlBase is required — leaving it empty is the usual "looks right, won't
+    # connect" failure.
+    QBT_HOST=$(echo "$SEEDBOX_QBT_URL" | sed -E 's#^https?://##; s#/.*$##')
+    QBT_BASE=$(echo "$SEEDBOX_QBT_URL" | sed -E 's#^https?://[^/]+##; s#/$##')
+    case "$SEEDBOX_QBT_URL" in
+      https://*) QBT_SSL=true;  QBT_PORT=443 ;;
+      http://*)  QBT_SSL=false; QBT_PORT=80  ;;
+      *) echo "SEEDBOX_QBT_URL must start with http:// or https://" >&2; exit 1 ;;
+    esac
+    echo "Seedbox qBittorrent: host=$QBT_HOST port=$QBT_PORT ssl=$QBT_SSL urlBase='$QBT_BASE'"
+
+    echo "Waiting for Sonarr, Radarr, Prowlarr pods to be ready..."
+    kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=sonarr   -n sonarr   --timeout=60s
+    kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=radarr   -n radarr   --timeout=60s
+    kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=prowlarr -n prowlarr --timeout=60s
+
+    echo "Port-forwarding Sonarr, Radarr, Prowlarr..."
+    kubectl port-forward -n sonarr   svc/sonarr   8989:8989 &
+    PF_PIDS+=($!)
+    kubectl port-forward -n radarr   svc/radarr   7878:7878 &
+    PF_PIDS+=($!)
+    kubectl port-forward -n prowlarr svc/prowlarr 9696:9696 &
+    PF_PIDS+=($!)
+    for i in $(seq 1 20); do
+      nc -z localhost 8989 && nc -z localhost 7878 && nc -z localhost 9696 && break
+      sleep 0.2
+    done
+
+    SONARR="http://localhost:8989"
+    RADARR="http://localhost:7878"
+    PROWLARR="http://localhost:9696"
+
+    REMOTE_PATH="/home/seedit4me/torrents/qbittorrent/media"
+    LOCAL_PATH="/data/downloads/seedbox"
+
+    ensure_tag() {
+      local url="$1" api_key="$2" api_ver="$3" label="$4"
+      local id
+      id=$(curl -sf -H "X-Api-Key: $api_key" "$url/api/$api_ver/tag" \
+        | jq -r --arg l "$label" '(.[] | select(.label == $l) | .id) // empty')
+      if [ -z "$id" ]; then
+        id=$(curl -sf -X POST -H "X-Api-Key: $api_key" -H "Content-Type: application/json" \
+          "$url/api/$api_ver/tag" -d "$(jq -n --arg l "$label" '{label:$l}')" | jq -r '.id')
+        echo "tag created: $label (id=$id)" >&2
+      else
+        echo "tag exists: $label (id=$id)" >&2
+      fi
+      echo "$id"
+    }
+
+    ensure_download_client() {
+      local url="$1" api_key="$2" label="$3" tag_id="$4"
+      if curl -sf -H "X-Api-Key: $api_key" "$url/api/v3/downloadClient" \
+          | jq -e --arg n "Seedbox" 'any(.[]; .name == $n)' >/dev/null 2>&1; then
+        echo "$label download client: already configured"
+        return
+      fi
+      # seedCriteria intentionally omitted: qBittorrent's global seeding limit
+      # governs deletion. Setting it here would override that per-torrent and
+      # risk deleting before TorrentLeech's 10-day class minimum.
+      curl -sf -X POST -H "X-Api-Key: $api_key" -H "Content-Type: application/json" \
+        "$url/api/v3/downloadClient" -d "$(jq -n \
+          --arg host "$QBT_HOST" --arg base "$QBT_BASE" \
+          --arg user "$SEEDBOX_QBT_USER" --arg pass "$SEEDBOX_QBT_PASS" \
+          --argjson port "$QBT_PORT" --argjson ssl "$QBT_SSL" --argjson tag "$tag_id" \
+          '{
+            name: "Seedbox",
+            implementation: "QBittorrent",
+            configContract: "QBittorrentSettings",
+            protocol: "torrent",
+            enable: true,
+            priority: 1,
+            removeCompletedDownloads: false,
+            removeFailedDownloads: true,
+            tags: [$tag],
+            fields: [
+              {name:"host",     value:$host},
+              {name:"port",     value:$port},
+              {name:"useSsl",   value:$ssl},
+              {name:"urlBase",  value:$base},
+              {name:"username", value:$user},
+              {name:"password", value:$pass},
+              {name:"category", value:"media"}
+            ]
+          }')" > /dev/null
+      echo "$label download client: created"
+    }
+
+    ensure_path_mapping() {
+      local url="$1" api_key="$2" label="$3"
+      if curl -sf -H "X-Api-Key: $api_key" "$url/api/v3/remotePathMapping" \
+          | jq -e --arg h "$QBT_HOST" --arg r "$REMOTE_PATH" \
+            'any(.[]; .host == $h and .remotePath == $r)' >/dev/null 2>&1; then
+        echo "$label remote path mapping: already configured"
+        return
+      fi
+      curl -sf -X POST -H "X-Api-Key: $api_key" -H "Content-Type: application/json" \
+        "$url/api/v3/remotePathMapping" -d "$(jq -n \
+          --arg h "$QBT_HOST" --arg r "$REMOTE_PATH/" --arg l "$LOCAL_PATH/" \
+          '{host:$h, remotePath:$r, localPath:$l}')" > /dev/null
+      echo "$label remote path mapping: created"
+    }
+
+    PROWLARR_TAG=$(ensure_tag "$PROWLARR" "$PROWLARR_API_KEY" v1 seedbox)
+    RADARR_TAG=$(ensure_tag "$RADARR" "$RADARR_API_KEY" v3 seedbox)
+    SONARR_TAG=$(ensure_tag "$SONARR" "$SONARR_API_KEY" v3 seedbox)
+
+    ensure_download_client "$RADARR" "$RADARR_API_KEY" Radarr "$RADARR_TAG"
+    ensure_download_client "$SONARR" "$SONARR_API_KEY" Sonarr "$SONARR_TAG"
+
+    ensure_path_mapping "$RADARR" "$RADARR_API_KEY" Radarr
+    ensure_path_mapping "$SONARR" "$SONARR_API_KEY" Sonarr
+
+    echo ""
+    echo "Manual step remaining — Prowlarr UI:"
+    echo "  Tag the IPTorrents and TorrentLeech indexers with 'seedbox' (id=$PROWLARR_TAG)."
+    echo "  Releases from tagged indexers then route to the Seedbox download client;"
+    echo "  everything else keeps using the local qBittorrent behind gluetun."
+
 # Tunes Lidarr's FLAC quality thresholds and custom formats (run once, after wire-media).
 # Recommendations from https://wiki.servarr.com/lidarr/tips-and-tricks#custom-formats
 tune-lidarr-quality:
