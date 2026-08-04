@@ -269,13 +269,17 @@ source is the `media` directory alone. Sharing one save path would make `rclone 
 ratio-only grabs home as well — content whose entire purpose is to seed in place — wasting
 home download bandwidth and NFS capacity on data that is never imported.
 
-Layout, as siblings under qBittorrent's default save path:
+Layout, as siblings under qBittorrent's base directory on the slot:
 
 ```
-<default save path>/media       category "media" — rclone's source
-<default save path>/ratio       category "ratio"
-<default save path>/incomplete  in-progress torrents
+/home/seedit4me/torrents/qbittorrent/media       category "media" — rclone's source
+/home/seedit4me/torrents/qbittorrent/ratio       category "ratio"
+/home/seedit4me/torrents/qbittorrent/incomplete  in-progress torrents
 ```
+
+`torrents/rtorrent` is the other client's tree and is unused. Confirm against the WebUI's
+Default Save Path before creating these — if it already points at a subdirectory, nest the
+categories under that rather than beside it.
 
 **Enable "Keep incomplete torrents in:" pointed at `incomplete`** (Options → Downloads). This
 guarantees the `media` directory only ever holds completed files, so `rclone copy` can never
@@ -475,8 +479,10 @@ invoked.
   not OpenSSH format (`ssh-keygen -e -m RFC4716` converts) — a common silent failure.
   Fallback is the account password via `rclone obscure`. Either way this changes only the
   sealed secret's contents and the rclone remote definition.
-- **The `media` category's save path.** Under `/home/seedit4me/torrents/`; exact subdirectory
-  still to be read off `ls torrents` and cross-checked against the WebUI's Default Save Path.
+- **Confirm qBittorrent's Default Save Path** in the WebUI matches
+  `/home/seedit4me/torrents/qbittorrent`. If it points at a subdirectory instead, nest the
+  category paths under that. The WebUI is the authority — it is what qBittorrent reports to the
+  *arr.
 
   **SFTP is not chrooted** — `pwd` returns `/home/seedit4me`, the same absolute namespace
   qBittorrent reports. So one path string serves both the rclone source and the *arr Remote Path
