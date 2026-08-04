@@ -214,10 +214,10 @@ both grab paths.** This is a required part of the design.
 The mechanism is **separate qBittorrent categories per grab path**, because the two have
 incompatible deletion rules:
 
-| Category | Fed by | Save path | Share limit | On limit reached |
-|----------|--------|-----------|-------------|------------------|
-| `ratio` | autobrr | its own dir | global floor (below), plus margin | remove torrent **and files** |
-| `media` | Radarr/Sonarr | its own dir | global floor **plus transfer margin** | remove torrent and files |
+| Category | Fed by | Save path | Ratio limit | Total seed time | Inactive seed time | Action |
+|----------|--------|-----------|-------------|-----------------|--------------------|--------|
+| `ratio` | autobrr | its own dir | unlimited | unlimited | shorter | `RemoveWithContent` |
+| `media` | Radarr/Sonarr | its own dir | unlimited | unlimited | **longer** — must exceed worst-case pull-home time | `RemoveWithContent` |
 
 **Separate save paths per category are load-bearing, not cosmetic.** The CronJob's rclone
 source is the `media` directory alone. Sharing one save path would make `rclone copy` pull
@@ -228,6 +228,90 @@ home download bandwidth and NFS capacity on data that is never imported.
 TorrentLeech), so the floor is the stricter of the two requirements applied to both. Splitting
 into per-tracker categories doubles the config to buy back ratio only on the more lenient
 tracker — do it later if the two requirements turn out to diverge meaningfully, not now.
+
+#### Evict on inactive seeding time only
+
+qBittorrent's three share-limit conditions — ratio, total seeding time, and **inactive**
+seeding time — are **concurrent: the action fires as soon as any one is met**
+([API reference](https://qbittorrent-api.readthedocs.io/en/latest/apidoc/torrents.html)).
+Action is `RemoveWithContent`.
+
+Therefore: **set the inactive-seeding-time limit and leave ratio and total seeding time
+unlimited.** Setting a ratio limit would delete a torrent the moment it hit that ratio — which
+means deleting the best earners exactly when they are earning. Inactive time evicts dead
+weight instead: torrents nobody is pulling from any more, which are precisely the ones
+occupying disk without producing upload.
+
+#### The two trackers' actual rules
+
+| | Account-wide | Per-torrent |
+|---|---|---|
+| **IPTorrents** | ratio above **0.96** (warning below; download **freeze below 0.3**) | none |
+| **TorrentLeech** | ratio **0.4** after 6 GB downloaded (warning, 7 days to cure) | **1:1, or seed the user-class minimum time — else Hit & Run** |
+
+IPTorrents is the stricter **account-wide** floor (0.96 covers TL's 0.4). TorrentLeech is the
+only source of a **per-torrent** obligation, so it sets the eviction floor.
+
+#### Deriving the safe inactive-time floor
+
+TL's per-torrent obligation is satisfied by ratio ≥ 1:1 **or** by elapsed seed time ≥ the
+user-class minimum. The risk with inactive-time eviction is a torrent nobody leeches being
+removed at ratio 0.2 before that time elapses — an HnR warning.
+
+Set the **inactive-seeding-time limit ≥ TL's user-class minimum seed time** and that cannot
+happen: inactive time only accrues while the torrent is idle, so total elapsed seeding time is
+always ≥ inactive time. When the inactive limit fires, the class minimum has necessarily
+already passed, and the obligation is met regardless of ratio.
+
+That also restores the single-global-floor simplification: the floor is TL's class minimum,
+applied to both trackers. IPT, having no per-torrent rule, is safe under it automatically.
+
+**TL minimum seeding time by user class:**
+
+| Class | Minimum |
+|-------|---------|
+| Registered | **10 days** |
+| Power User | 8 days |
+| Super User | 7 days |
+| Extreme User | 6 days |
+| TL God | 4 days |
+| VIP User | none |
+
+**Floor = 10 days** on a new Registered account. Revisit on class promotion — dropping to 4
+days at TL God nearly triples effective disk capacity, so this number is worth re-reading
+rather than setting once and forgetting.
+
+#### The 10-day floor sets a hard grab-rate ceiling
+
+Every torrent occupies disk for at least 10 days, so steady-state usage is
+`grab rate × 10 days`. Against 1500 GB:
+
+**≈150 GB/day sustainable, or ~4.5 TB/month.**
+
+Two things follow. First, that is remarkably close to the plan's 5 TB/month upload allowance —
+the two limits are balanced, so neither is obviously the binding one. Second, **autobrr filter
+discipline has to bound grab *rate*, not just per-release size.** A per-release size ceiling
+alone permits unlimited small grabs, and 1500 GB divided by a 10-day hold fills quietly.
+
+#### Never abandon a partially-downloaded TL torrent
+
+TL's seeding clock **only accrues on fully-downloaded torrents. Partial downloads can only be
+satisfied by seeding to 1:1** — there is no time-based escape. So a grab cancelled or removed
+mid-download is an HnR liability that no share-limit setting can clear. If a download is
+aborted, either let it finish and serve the 10 days, or seed the partial to 1:1.
+
+**Ratio and total-seeding-time limits stay unlimited.** Setting a ratio limit of 1.0 would
+satisfy TL and then immediately delete — capping every torrent at the minimum instead of
+letting the good ones keep earning. TL only requires 0.4 account-wide; there is no reason to
+stop a torrent at 1.0.
+
+#### Prefer freeleech in autobrr's filters
+
+IPTorrents freeleech torrents **count upload but not download**. Filtering autobrr toward
+freeleech is the highest-leverage tactic available under an account-wide ratio rule: ratio
+rises at zero ratio cost. autobrr has explicit freeleech filter support. This is a filter
+configuration, not a code change, but it is the single most effective thing in this design for
+the stated goal.
 
 Two constraints that a single shared rule would violate:
 
@@ -312,6 +396,9 @@ invoked.
   what makes seedbox disk management a required component rather than a later nicety.
 - **Trackers:** IPTorrents and TorrentLeech, both configured in autobrr with IRC announce. No
   NickServ registration needed on either; nick-to-account linking done via the channel bot.
+- **Seed rules, both trackers:** read off their FAQs. IPT — account ratio above 0.96, freeze
+  below 0.3, no per-torrent rule. TL — account ratio 0.4 after 6 GB, plus per-torrent 1:1 or
+  the user-class minimum seed time (10 days at Registered). TL sets the eviction floor.
 
 ## Open items
 
@@ -327,12 +414,9 @@ invoked.
 - **qBittorrent WebUI URL** as exposed by seedit4.me, for the download client config.
 - **CronJob interval.** Frequent enough that imports feel prompt, infrequent enough not to
   hammer the SFTP endpoint. Start at 15 minutes, adjust on observed behaviour.
-- **Seed requirements for IPTorrents and TorrentLeech** — the only two trackers in scope.
-  Needed: minimum seed time (HnR window), minimum per-torrent ratio, and whether each applies
-  per-torrent or account-wide. These live behind each tracker's login and are not guessed
-  here; read them off the rules/FAQ pages. Required *before* auto-delete is enabled — turning
-  it on without these numbers risks exactly the hit-and-run penalties the seedbox exists to
-  avoid. Until then, run with auto-delete off and prune by hand.
+- **Grab-rate budget in autobrr's filters.** The 10-day floor caps sustainable grabs at
+  ~150 GB/day; filters must bound rate, not only per-release size. Needs a concrete filter
+  configuration, and revisiting whenever the TL user class changes.
 - **autobrr IRC announce credentials** for both trackers: tracker passkey/RSS key (autobrr
   builds the `.torrent` URL from it), IRC nick, and the IRC key pasted into autobrr's
   pre-filled invite command. **No NickServ registration was required** — the bot nick alone
