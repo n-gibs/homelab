@@ -1,0 +1,57 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/bjw-s-labs/helm-charts/main/charts/library/common/values.schema.json
+controllers:
+  main:
+    type: cronjob
+    cronjob:
+      schedule: "*/15 * * * *"
+      # Forbid: a run that overruns 15 minutes must not get a second copier
+      # competing for the same files.
+      concurrencyPolicy: Forbid
+      successfulJobsHistory: 1
+      failedJobsHistory: 3
+      backoffLimit: 2
+    containers:
+      app:
+        image:
+          repository: rclone/rclone
+          tag: 1.68.2
+        command:
+          - rclone
+        args:
+          - copy
+          - seedbox:/home/seedit4me/torrents/qbittorrent/media
+          - /data/downloads/seedbox
+          - --transfers=4
+          - --checkers=4
+          - --stats=1m
+          - --stats-one-line
+          - --log-level=INFO
+        env:
+          # rclone builds the "seedbox:" remote from these. The username and
+          # password come from the sealed secret via envFrom below.
+          RCLONE_CONFIG_SEEDBOX_TYPE: sftp
+          RCLONE_CONFIG_SEEDBOX_HOST: nl137.seedit4.me
+          RCLONE_CONFIG_SEEDBOX_PORT: "2097"
+          # ProFTPD mod_sftp serves SFTP with no login shell. Without these two,
+          # rclone probes for a remote shell and runs md5sum over it, failing
+          # every transfer.
+          RCLONE_CONFIG_SEEDBOX_SHELL_TYPE: none
+          RCLONE_CONFIG_SEEDBOX_DISABLE_HASHCHECK: "true"
+        envFrom:
+          - secretRef:
+              name: rclone-seedbox-sftp
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            cpu: 1
+            memory: 512Mi
+
+persistence:
+  data:
+    type: nfs
+    server: 192.168.30.194
+    path: /mnt/storage
+    globalMounts:
+      - path: /data
