@@ -208,8 +208,13 @@ incompatible deletion rules:
 
 | Category | Fed by | Share limit | On limit reached |
 |----------|--------|-------------|------------------|
-| `ratio` | autobrr | tracker's minimum seed time / ratio, plus margin | remove torrent **and files** |
-| `media` | Radarr/Sonarr | same tracker minimum | remove torrent and files |
+| `ratio` | autobrr | global floor (below), plus margin | remove torrent **and files** |
+| `media` | Radarr/Sonarr | global floor **plus transfer margin** | remove torrent and files |
+
+**One global floor, not per-tracker floors.** Only two trackers are in scope (IPTorrents,
+TorrentLeech), so the floor is the stricter of the two requirements applied to both. Splitting
+into per-tracker categories doubles the config to buy back ratio only on the more lenient
+tracker — do it later if the two requirements turn out to diverge meaningfully, not now.
 
 Two constraints that a single shared rule would violate:
 
@@ -306,6 +311,12 @@ invoked.
 - **qBittorrent WebUI URL** as exposed by seedit4.me, for the download client config.
 - **CronJob interval.** Frequent enough that imports feel prompt, infrequent enough not to
   hammer the SFTP endpoint. Start at 15 minutes, adjust on observed behaviour.
-- **Per-tracker minimum seed times**, to floor the share limits. Required *before* auto-delete
-  is enabled — turning it on without these numbers risks the hit-and-run penalties the whole
-  seedbox exists to avoid.
+- **Seed requirements for IPTorrents and TorrentLeech** — the only two trackers in scope.
+  Needed: minimum seed time (HnR window), minimum per-torrent ratio, and whether each applies
+  per-torrent or account-wide. These live behind each tracker's login and are not guessed
+  here; read them off the rules/FAQ pages. Required *before* auto-delete is enabled — turning
+  it on without these numbers risks exactly the hit-and-run penalties the seedbox exists to
+  avoid. Until then, run with auto-delete off and prune by hand.
+- **autobrr IRC announce setup** for both trackers: network, announce channel, and the
+  per-tracker announce credentials from your tracker profile. Confirm both have definitions in
+  autobrr's built-in indexer list before relying on this path.
