@@ -269,6 +269,27 @@ source is the `media` directory alone. Sharing one save path would make `rclone 
 ratio-only grabs home as well — content whose entire purpose is to seed in place — wasting
 home download bandwidth and NFS capacity on data that is never imported.
 
+Layout, as siblings under qBittorrent's default save path:
+
+```
+<default save path>/media       category "media" — rclone's source
+<default save path>/ratio       category "ratio"
+<default save path>/incomplete  in-progress torrents
+```
+
+**Enable "Keep incomplete torrents in:" pointed at `incomplete`** (Options → Downloads). This
+guarantees the `media` directory only ever holds completed files, so `rclone copy` can never
+pull a half-written file home — no `--min-age` heuristics needed. Without it, in-progress
+files sit in the category directory and partial transfers become a real failure mode.
+
+**Set Default Torrent Management Mode to Automatic** (Options → Downloads). In Manual mode
+qBittorrent ignores a category's save path and uses whatever path was supplied at add time —
+the categories would look correctly configured and place nothing where expected. Automatic
+makes the category authoritative, so autobrr and the *arr need only set a category.
+
+Caveat: in Automatic mode, editing a category's save path **moves** existing torrents in that
+category. Don't edit these paths once seeding is underway.
+
 **One global floor, not per-tracker floors.** Only two trackers are in scope (IPTorrents,
 TorrentLeech), so the floor is the stricter of the two requirements applied to both. Splitting
 into per-tracker categories doubles the config to buy back ratio only on the more lenient
@@ -401,7 +422,8 @@ invoked.
 |---------|--------|----------|
 | Seedbox unreachable | CronJob run fails | next scheduled run retries; *arr keep running, nothing mounted to wedge |
 | CronJob run overruns its schedule | overlapping copies | `concurrencyPolicy: Forbid` |
-| `rclone copy` interrupted mid-file | partial file on NFS | `rclone copy` resumes/re-transfers next run; *arr import retries; seedbox copy authoritative |
+| `rclone copy` interrupted mid-file | partial file on NFS | `rclone copy` re-transfers next run; *arr import retries; seedbox copy authoritative |
+| In-progress torrent copied mid-write | partial file on NFS | prevented at source: incomplete torrents live outside the category dir, so `media` holds only completed files |
 | Seedbox disk full | both grab paths stall | category share limits + autobrr size ceilings (above) |
 | Auto-delete fires before tracker minimum | hit-and-run penalty | share limits set above tracker requirement, never below |
 | Auto-delete fires before content pulled home | content lost from library, still on tracker | `media` category floor set longer than `ratio` |
