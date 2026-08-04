@@ -256,25 +256,29 @@ wire-seedbox:
     esac
     echo "Seedbox qBittorrent: host=$QBT_HOST port=$QBT_PORT ssl=$QBT_SSL urlBase='$QBT_BASE'"
 
-    echo "Waiting for Sonarr, Radarr, Prowlarr pods to be ready..."
+    echo "Waiting for Sonarr, Radarr, Lidarr, Prowlarr pods to be ready..."
     kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=sonarr   -n sonarr   --timeout=60s
     kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=radarr   -n radarr   --timeout=60s
+    kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=lidarr   -n lidarr   --timeout=60s
     kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=prowlarr -n prowlarr --timeout=60s
 
-    echo "Port-forwarding Sonarr, Radarr, Prowlarr..."
+    echo "Port-forwarding Sonarr, Radarr, Lidarr, Prowlarr..."
     kubectl port-forward -n sonarr   svc/sonarr   8989:8989 &
     PF_PIDS+=($!)
     kubectl port-forward -n radarr   svc/radarr   7878:7878 &
     PF_PIDS+=($!)
+    kubectl port-forward -n lidarr   svc/lidarr   8686:8686 &
+    PF_PIDS+=($!)
     kubectl port-forward -n prowlarr svc/prowlarr 9696:9696 &
     PF_PIDS+=($!)
     for i in $(seq 1 20); do
-      nc -z localhost 8989 && nc -z localhost 7878 && nc -z localhost 9696 && break
+      nc -z localhost 8989 && nc -z localhost 7878 && nc -z localhost 8686 && nc -z localhost 9696 && break
       sleep 0.2
     done
 
     SONARR="http://localhost:8989"
     RADARR="http://localhost:7878"
+    LIDARR="http://localhost:8686"
     PROWLARR="http://localhost:9696"
 
     REMOTE_PATH="/home/seedit4me/torrents/qbittorrent/media"
@@ -296,8 +300,8 @@ wire-seedbox:
     }
 
     ensure_download_client() {
-      local url="$1" api_key="$2" label="$3" tag_id="$4"
-      if curl -sf -H "X-Api-Key: $api_key" "$url/api/v3/downloadClient" \
+      local url="$1" api_key="$2" api_ver="$3" label="$4" tag_id="$5" category_field="$6"
+      if curl -sf -H "X-Api-Key: $api_key" "$url/api/$api_ver/downloadClient" \
           | jq -e --arg n "Seedbox" 'any(.[]; .name == $n)' >/dev/null 2>&1; then
         echo "$label download client: already configured"
         return
@@ -306,10 +310,11 @@ wire-seedbox:
       # governs deletion. Setting it here would override that per-torrent and
       # risk deleting before TorrentLeech's 10-day class minimum.
       curl -sf -X POST -H "X-Api-Key: $api_key" -H "Content-Type: application/json" \
-        "$url/api/v3/downloadClient" -d "$(jq -n \
+        "$url/api/$api_ver/downloadClient" -d "$(jq -n \
           --arg host "$QBT_HOST" --arg base "$QBT_BASE" \
           --arg user "$SEEDBOX_QBT_USER" --arg pass "$SEEDBOX_QBT_PASS" \
           --argjson port "$QBT_PORT" --argjson ssl "$QBT_SSL" --argjson tag "$tag_id" \
+          --arg catfield "$category_field" \
           '{
             name: "Seedbox",
             implementation: "QBittorrent",
@@ -327,22 +332,22 @@ wire-seedbox:
               {name:"urlBase",  value:$base},
               {name:"username", value:$user},
               {name:"password", value:$pass},
-              {name:"category", value:"media"}
+              {name:$catfield,  value:"media"}
             ]
           }')" > /dev/null
       echo "$label download client: created"
     }
 
     ensure_path_mapping() {
-      local url="$1" api_key="$2" label="$3"
-      if curl -sf -H "X-Api-Key: $api_key" "$url/api/v3/remotePathMapping" \
-          | jq -e --arg h "$QBT_HOST" --arg r "$REMOTE_PATH" \
+      local url="$1" api_key="$2" api_ver="$3" label="$4"
+      if curl -sf -H "X-Api-Key: $api_key" "$url/api/$api_ver/remotePathMapping" \
+          | jq -e --arg h "$QBT_HOST" --arg r "$REMOTE_PATH/" \
             'any(.[]; .host == $h and .remotePath == $r)' >/dev/null 2>&1; then
         echo "$label remote path mapping: already configured"
         return
       fi
       curl -sf -X POST -H "X-Api-Key: $api_key" -H "Content-Type: application/json" \
-        "$url/api/v3/remotePathMapping" -d "$(jq -n \
+        "$url/api/$api_ver/remotePathMapping" -d "$(jq -n \
           --arg h "$QBT_HOST" --arg r "$REMOTE_PATH/" --arg l "$LOCAL_PATH/" \
           '{host:$h, remotePath:$r, localPath:$l}')" > /dev/null
       echo "$label remote path mapping: created"
@@ -351,12 +356,19 @@ wire-seedbox:
     PROWLARR_TAG=$(ensure_tag "$PROWLARR" "$PROWLARR_API_KEY" v1 seedbox)
     RADARR_TAG=$(ensure_tag "$RADARR" "$RADARR_API_KEY" v3 seedbox)
     SONARR_TAG=$(ensure_tag "$SONARR" "$SONARR_API_KEY" v3 seedbox)
+    LIDARR_TAG=$(ensure_tag "$LIDARR" "$LIDARR_API_KEY" v1 seedbox)
 
-    ensure_download_client "$RADARR" "$RADARR_API_KEY" Radarr "$RADARR_TAG"
-    ensure_download_client "$SONARR" "$SONARR_API_KEY" Sonarr "$SONARR_TAG"
+    # Category field name is *arr-specific and was verified against each *arr's
+    # live qBittorrent download client field list — "category" is NOT a valid
+    # field on any of them and is silently ignored if used, leaving grabs
+    # uncategorized. Do not "correct" these back to "category".
+    ensure_download_client "$RADARR" "$RADARR_API_KEY" v3 Radarr "$RADARR_TAG" "movieCategory"
+    ensure_download_client "$SONARR" "$SONARR_API_KEY" v3 Sonarr "$SONARR_TAG" "tvCategory"
+    ensure_download_client "$LIDARR" "$LIDARR_API_KEY" v1 Lidarr "$LIDARR_TAG" "musicCategory"
 
-    ensure_path_mapping "$RADARR" "$RADARR_API_KEY" Radarr
-    ensure_path_mapping "$SONARR" "$SONARR_API_KEY" Sonarr
+    ensure_path_mapping "$RADARR" "$RADARR_API_KEY" v3 Radarr
+    ensure_path_mapping "$SONARR" "$SONARR_API_KEY" v3 Sonarr
+    ensure_path_mapping "$LIDARR" "$LIDARR_API_KEY" v1 Lidarr
 
     echo ""
     echo "Manual step remaining — Prowlarr UI:"
