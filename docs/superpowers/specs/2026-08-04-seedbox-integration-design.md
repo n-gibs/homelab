@@ -462,7 +462,12 @@ invoked.
 ## Resolved
 
 - **Plan:** Sidekick Pro, €11.99/month. Public trackers permitted, 5 TB/month upload.
-- **Transfer:** SFTP at `nl137.seedit4.me:2097`. No shell — ProFTPD `mod_sftp`.
+- **Transfer:** SFTP at `nl137.seedit4.me:2097`. No shell — ProFTPD `mod_sftp`. Not chrooted;
+  home is `/home/seedit4me`.
+- **Paths:** qBittorrent's Default Save Path is `/home/seedit4me/torrents/qbittorrent`, confirmed
+  in the WebUI. `temp` there is the pre-existing incomplete dir; `media` and `ratio` are the two
+  categories to create. One path namespace, so rclone's source and the *arr Remote Path Mapping
+  use the same string.
 - **Client:** qBittorrent 5. API v2, which is what the *arr expect.
 - **Also on the box:** ProFTPD, ffmpeg, autobrr. Only qBittorrent and autobrr are used here.
 - **autobrr's role:** ratio grabbing (Path 2), not merely a faster feed into the *arr. This is
@@ -481,12 +486,7 @@ invoked.
   not OpenSSH format (`ssh-keygen -e -m RFC4716` converts) — a common silent failure.
   Fallback is the account password via `rclone obscure`. Either way this changes only the
   sealed secret's contents and the rclone remote definition.
-- **Confirm qBittorrent's Default Save Path** in the WebUI matches
-  `/home/seedit4me/torrents/qbittorrent`. If it points at a subdirectory instead, nest the
-  category paths under that. The WebUI is the authority — it is what qBittorrent reports to the
-  *arr.
-
-  **SFTP is not chrooted** — `pwd` returns `/home/seedit4me`, the same absolute namespace
+- **SFTP is not chrooted** — `pwd` returns `/home/seedit4me`, the same absolute namespace
   qBittorrent reports. So one path string serves both the rclone source and the *arr Remote Path
   Mapping; there is no second namespace to translate between. (Had ProFTPD chrooted to the home
   directory, the two would have differed and crossing them would have been a silent import
@@ -499,7 +499,9 @@ invoked.
   Also present in the home directory: `rwatch`, a watch directory for dropping `.torrent` files.
   Unused — autobrr and the *arr both use the qBittorrent API, which reports status a watch
   directory cannot.
-- **qBittorrent WebUI URL** as exposed by seedit4.me, for the download client config.
+- **qBittorrent WebUI URL** as exposed by seedit4.me. Not a design question — it goes in
+  `secrets/.secrets` alongside the qBittorrent credentials (which need sealing regardless), so
+  manifests and `wire-seedbox` reference it as a variable rather than hardcoding it.
 - **CronJob interval.** Frequent enough that imports feel prompt, infrequent enough not to
   hammer the SFTP endpoint. Start at 15 minutes, adjust on observed behaviour.
 - **Grab-rate budget in autobrr's filters.** The 10-day floor caps sustainable grabs at
