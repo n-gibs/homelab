@@ -233,8 +233,26 @@ this design does not depend on that version.
 | Setting | Configured in |
 |---------|---------------|
 | Category and save path at grab time | autobrr → qBittorrent action |
-| Inactive seeding time limit + `RemoveWithContent` | qBittorrent → Options → BitTorrent → Seeding Limits |
+| Inactive seeding time limit + removal action | qBittorrent → Options → BitTorrent → Seeding Limits |
 | Grab rate, size ceilings, freeleech preference | autobrr → filters |
+
+Exact values for qBittorrent → Options → BitTorrent → **Seeding Limits**:
+
+| Field | Setting |
+|-------|---------|
+| When ratio reaches | unchecked |
+| When total seeding time reaches | unchecked |
+| When inactive seeding time reaches | **checked, `14400`** |
+| then | **Remove torrent and its content** |
+
+Three specifics that are easy to get wrong:
+
+- **The fields are minutes and default to 1440** — one day. Checking the box without changing
+  the value deletes after 24 hours inactive, an HnR warning on every TL grab. 10 days = 14,400.
+- **"Remove torrent" ≠ "Remove torrent and its content".** The former leaves files on disk and
+  reclaims nothing, which defeats the rule's only purpose.
+- **The `then` action is shared across all three conditions**, not per-condition — a further
+  reason to leave the ratio limit unchecked.
 
 **autobrr's "Release Cleanup Jobs" are not disk cleanup.** They delete autobrr's own release
 *history* records — database rows, not torrents or files — so they reclaim no seedbox space
