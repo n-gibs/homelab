@@ -272,19 +272,21 @@ home download bandwidth and NFS capacity on data that is never imported.
 Layout, as siblings under qBittorrent's base directory on the slot:
 
 ```
-/home/seedit4me/torrents/qbittorrent/media       category "media" — rclone's source
-/home/seedit4me/torrents/qbittorrent/ratio       category "ratio"
-/home/seedit4me/torrents/qbittorrent/incomplete  in-progress torrents
+/home/seedit4me/torrents/qbittorrent/media  category "media" — rclone's source
+/home/seedit4me/torrents/qbittorrent/ratio  category "ratio"
+/home/seedit4me/torrents/qbittorrent/temp   in-progress torrents (pre-existing)
 ```
 
-`torrents/rtorrent` is the other client's tree and is unused. Confirm against the WebUI's
-Default Save Path before creating these — if it already points at a subdirectory, nest the
-categories under that rather than beside it.
+`temp` is already configured by seedit4.me as the incomplete-downloads directory, so the
+requirement below is satisfied with no change — only the two categories need creating.
 
-**Enable "Keep incomplete torrents in:" pointed at `incomplete`** (Options → Downloads). This
-guarantees the `media` directory only ever holds completed files, so `rclone copy` can never
-pull a half-written file home — no `--min-age` heuristics needed. Without it, in-progress
-files sit in the category directory and partial transfers become a real failure mode.
+`torrents/rtorrent` is the other client's tree and is unused.
+
+**"Keep incomplete torrents in:" is already set to `temp`** (Options → Downloads) — no change
+needed. This is what guarantees the `media` directory only ever holds completed files, so
+`rclone copy` can never pull a half-written file home; no `--min-age` heuristics required. Do
+not disable it: without it, in-progress files land in the category directory and partial
+transfers become a real failure mode.
 
 **Set Default Torrent Management Mode to Automatic** (Options → Downloads). In Manual mode
 qBittorrent ignores a category's save path and uses whatever path was supplied at add time —
