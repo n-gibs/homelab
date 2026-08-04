@@ -214,10 +214,27 @@ both grab paths.** This is a required part of the design.
 The mechanism is **separate qBittorrent categories per grab path**, because the two have
 incompatible deletion rules:
 
-| Category | Fed by | Save path | Ratio limit | Total seed time | Inactive seed time | Action |
-|----------|--------|-----------|-------------|-----------------|--------------------|--------|
-| `ratio` | autobrr | its own dir | unlimited | unlimited | shorter | `RemoveWithContent` |
-| `media` | Radarr/Sonarr | its own dir | unlimited | unlimited | **longer** — must exceed worst-case pull-home time | `RemoveWithContent` |
+| Category | Fed by | Save path | Purpose |
+|----------|--------|-----------|---------|
+| `ratio` | autobrr | its own dir | seeds in place, never imported |
+| `media` | Radarr/Sonarr | its own dir | pulled home by the CronJob, then imported |
+
+**Categories separate save paths only — share limits are global.** One global
+inactive-seeding-time limit of 10 days satisfies both: `media`'s only additional requirement is
+surviving until `rclone copy` pulls it home, which takes hours, and 10 days clears that by
+orders of magnitude. Two differing limits would be config with no behavioural difference.
+
+Per-category share limits do exist, but only from **qBittorrent 5.2.0** (right-click category →
+Edit Category); before that, limits are global or per-torrent. Since the global limit suffices,
+this design does not depend on that version.
+
+**Where each setting lives** — autobrr does not know or fetch tracker rules:
+
+| Setting | Configured in |
+|---------|---------------|
+| Category and save path at grab time | autobrr → qBittorrent action |
+| Inactive seeding time limit + `RemoveWithContent` | qBittorrent → Options → BitTorrent → Seeding Limits |
+| Grab rate, size ceilings, freeleech preference | autobrr → filters |
 
 **Separate save paths per category are load-bearing, not cosmetic.** The CronJob's rclone
 source is the `media` directory alone. Sharing one save path would make `rclone copy` pull
