@@ -353,6 +353,36 @@ wire-seedbox:
       echo "$label remote path mapping: created"
     }
 
+    # Pin the Seedbox client per indexer, because TAG-BASED ROUTING DOES NOT WORK.
+    # Prowlarr tags do NOT propagate into the *arr — verified live: after a forced
+    # ApplicationIndexerSync every Prowlarr-synced indexer still had tags: [] in
+    # Radarr/Sonarr/Lidarr. Prowlarr tags only scope which indexers sync to which
+    # application. A download client that carries a tag is therefore eligible for
+    # NOTHING, and every grab silently falls through to the local gluetun client.
+    # `downloadClientId` on the indexer is the mechanism that actually routes, and
+    # it was confirmed to survive a Prowlarr full sync.
+    pin_indexer_client() {
+      local url="$1" api_key="$2" api_ver="$3" label="$4" cid idx id name
+      cid=$(curl -sf -H "X-Api-Key: $api_key" "$url/api/$api_ver/downloadClient" \
+        | jq -r '(.[] | select(.name == "Seedbox") | .id) // empty')
+      if [ -z "$cid" ]; then
+        echo "$label: no Seedbox download client found, skipping indexer pin" >&2
+        return
+      fi
+      curl -sf -H "X-Api-Key: $api_key" "$url/api/$api_ver/indexer" \
+        | jq -c --argjson cid "$cid" '.[]
+            | select(.name | test("TorrentLeech|IPTorrents"; "i"))
+            | select(.downloadClientId != $cid)
+            | .downloadClientId = $cid' \
+        | while read -r idx; do
+            id=$(printf '%s' "$idx" | jq -r '.id')
+            name=$(printf '%s' "$idx" | jq -r '.name')
+            curl -sf -X PUT -H "X-Api-Key: $api_key" -H "Content-Type: application/json" \
+              "$url/api/$api_ver/indexer/$id" -d "$idx" > /dev/null
+            echo "$label indexer pinned to Seedbox: $name"
+          done
+    }
+
     PROWLARR_TAG=$(ensure_tag "$PROWLARR" "$PROWLARR_API_KEY" v1 seedbox)
     RADARR_TAG=$(ensure_tag "$RADARR" "$RADARR_API_KEY" v3 seedbox)
     SONARR_TAG=$(ensure_tag "$SONARR" "$SONARR_API_KEY" v3 seedbox)
@@ -370,11 +400,20 @@ wire-seedbox:
     ensure_path_mapping "$SONARR" "$SONARR_API_KEY" v3 Sonarr
     ensure_path_mapping "$LIDARR" "$LIDARR_API_KEY" v1 Lidarr
 
+    # Run AFTER the clients exist — this looks the Seedbox client up by name.
+    pin_indexer_client "$RADARR" "$RADARR_API_KEY" v3 Radarr
+    pin_indexer_client "$SONARR" "$SONARR_API_KEY" v3 Sonarr
+    pin_indexer_client "$LIDARR" "$LIDARR_API_KEY" v1 Lidarr
+
     echo ""
-    echo "Manual step remaining — Prowlarr UI:"
-    echo "  Tag the IPTorrents and TorrentLeech indexers with 'seedbox' (id=$PROWLARR_TAG)."
-    echo "  Releases from tagged indexers then route to the Seedbox download client;"
-    echo "  everything else keeps using the local qBittorrent behind gluetun."
+    echo "Routing is by indexer downloadClientId, NOT by tag — the Prowlarr 'seedbox'"
+    echo "tag (id=$PROWLARR_TAG) is organisational only and does not reach the *arr."
+    echo "Releases from TorrentLeech and IPTorrents go to the Seedbox client; every"
+    echo "other indexer keeps using the local qBittorrent behind gluetun."
+    echo ""
+    echo "Adding a new private-tracker indexer later? Re-run this recipe — the pin"
+    echo "matches on the indexer NAME (TorrentLeech|IPTorrents), so a differently"
+    echo "named tracker needs that pattern extended."
 
 # Tunes Lidarr's FLAC quality thresholds and custom formats (run once, after wire-media).
 # Recommendations from https://wiki.servarr.com/lidarr/tips-and-tricks#custom-formats
