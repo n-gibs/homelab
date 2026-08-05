@@ -19,8 +19,8 @@ controllers:
       nodeSelector:
         homelab.io/media: "true"
     cronjob:
-      schedule: "*/15 * * * *"
-      # Forbid: a run that overruns 15 minutes must not get a second copier
+      schedule: "*/10 * * * *"
+      # Forbid: a run that overruns 10 minutes must not get a second copier
       # competing for the same files.
       concurrencyPolicy: Forbid
       successfulJobsHistory: 1
