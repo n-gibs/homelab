@@ -2,6 +2,14 @@
 controllers:
   main:
     type: cronjob
+    pod:
+      # worker-01 is the NFS server itself (192.168.30.194:/mnt/storage). Running
+      # anywhere else means every copied byte crosses the LAN a second time as an
+      # NFS write. No toleration: worker-01's taint was removed 2026-07-31, and no
+      # availability is lost by pinning — if worker-01 is down there is no NFS
+      # export to write to anyway.
+      nodeSelector:
+        homelab.io/media: "true"
     cronjob:
       schedule: "*/15 * * * *"
       # Forbid: a run that overruns 15 minutes must not get a second copier

@@ -299,11 +299,31 @@ wire-seedbox:
       echo "$id"
     }
 
+    # THE CLIENT MUST STAY UNTAGGED. A tag on a download client is a WHITELIST, not a
+    # route: the client becomes eligible only for releases from indexers carrying the
+    # same tag. Prowlarr never propagates tags, so every *arr indexer has tags: [], and
+    # a tagged Seedbox client is filtered out of the candidate list BEFORE the
+    # downloadClientId pin is honoured. Sonarr then reports the pin as
+    #   "Indexer specified download client does not exist for TorrentLeech (Prowlarr)"
+    # and the grab fails outright. Verified live 2026-08-04.
+    # priority 50 (vs qBittorrent's 1) keeps unpinned indexers on the local client:
+    # priority only decides when nothing is pinned, so it cannot fight the pin.
     ensure_download_client() {
-      local url="$1" api_key="$2" api_ver="$3" label="$4" tag_id="$5" category_field="$6"
-      if curl -sf -H "X-Api-Key: $api_key" "$url/api/$api_ver/downloadClient" \
-          | jq -e --arg n "Seedbox" 'any(.[]; .name == $n)' >/dev/null 2>&1; then
-        echo "$label download client: already configured"
+      local url="$1" api_key="$2" api_ver="$3" label="$4" category_field="$5"
+      local existing fixed id
+      existing=$(curl -sf -H "X-Api-Key: $api_key" "$url/api/$api_ver/downloadClient" \
+        | jq -c '(.[] | select(.name == "Seedbox")) // empty')
+      if [ -n "$existing" ]; then
+        fixed=$(printf '%s' "$existing" \
+          | jq -c 'select(.tags != [] or .priority != 50) | .tags = [] | .priority = 50')
+        if [ -n "$fixed" ]; then
+          id=$(printf '%s' "$fixed" | jq -r '.id')
+          curl -sf -X PUT -H "X-Api-Key: $api_key" -H "Content-Type: application/json" \
+            "$url/api/$api_ver/downloadClient/$id" -d "$fixed" > /dev/null
+          echo "$label download client: repaired (tags cleared, priority 50)"
+        else
+          echo "$label download client: already configured"
+        fi
         return
       fi
       # seedCriteria intentionally omitted: qBittorrent's global seeding limit
@@ -313,7 +333,7 @@ wire-seedbox:
         "$url/api/$api_ver/downloadClient" -d "$(jq -n \
           --arg host "$QBT_HOST" --arg base "$QBT_BASE" \
           --arg user "$SEEDBOX_QBT_USER" --arg pass "$SEEDBOX_QBT_PASS" \
-          --argjson port "$QBT_PORT" --argjson ssl "$QBT_SSL" --argjson tag "$tag_id" \
+          --argjson port "$QBT_PORT" --argjson ssl "$QBT_SSL" \
           --arg catfield "$category_field" \
           '{
             name: "Seedbox",
@@ -321,10 +341,10 @@ wire-seedbox:
             configContract: "QBittorrentSettings",
             protocol: "torrent",
             enable: true,
-            priority: 1,
+            priority: 50,
             removeCompletedDownloads: false,
             removeFailedDownloads: true,
-            tags: [$tag],
+            tags: [],
             fields: [
               {name:"host",     value:$host},
               {name:"port",     value:$port},
@@ -383,18 +403,17 @@ wire-seedbox:
           done
     }
 
+    # Prowlarr's tag only, and only to label the private trackers in its UI. The *arr
+    # no longer get a `seedbox` tag: nothing can use it (see ensure_download_client).
     PROWLARR_TAG=$(ensure_tag "$PROWLARR" "$PROWLARR_API_KEY" v1 seedbox)
-    RADARR_TAG=$(ensure_tag "$RADARR" "$RADARR_API_KEY" v3 seedbox)
-    SONARR_TAG=$(ensure_tag "$SONARR" "$SONARR_API_KEY" v3 seedbox)
-    LIDARR_TAG=$(ensure_tag "$LIDARR" "$LIDARR_API_KEY" v1 seedbox)
 
     # Category field name is *arr-specific and was verified against each *arr's
     # live qBittorrent download client field list — "category" is NOT a valid
     # field on any of them and is silently ignored if used, leaving grabs
     # uncategorized. Do not "correct" these back to "category".
-    ensure_download_client "$RADARR" "$RADARR_API_KEY" v3 Radarr "$RADARR_TAG" "movieCategory"
-    ensure_download_client "$SONARR" "$SONARR_API_KEY" v3 Sonarr "$SONARR_TAG" "tvCategory"
-    ensure_download_client "$LIDARR" "$LIDARR_API_KEY" v1 Lidarr "$LIDARR_TAG" "musicCategory"
+    ensure_download_client "$RADARR" "$RADARR_API_KEY" v3 Radarr "movieCategory"
+    ensure_download_client "$SONARR" "$SONARR_API_KEY" v3 Sonarr "tvCategory"
+    ensure_download_client "$LIDARR" "$LIDARR_API_KEY" v1 Lidarr "musicCategory"
 
     ensure_path_mapping "$RADARR" "$RADARR_API_KEY" v3 Radarr
     ensure_path_mapping "$SONARR" "$SONARR_API_KEY" v3 Sonarr
