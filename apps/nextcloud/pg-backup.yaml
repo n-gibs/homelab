@@ -25,6 +25,11 @@ spec:
     spec:
       backoffLimit: 2
       template:
+        metadata:
+          labels:
+            # Alloy derives the Loki `app` stream label from this; without it these pods
+            # fall back to the namespace and land in nextcloud's main log stream.
+            app.kubernetes.io/name: nextcloud-db-backup
         spec:
           restartPolicy: OnFailure
           containers:
