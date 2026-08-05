@@ -1,0 +1,391 @@
+# Media stack dashboard, loaded by the Grafana sidecar (LABEL=grafana_dashboard,
+# LABEL_VALUE=1, NAMESPACE=ALL) — same mechanism as dashboard-temperatures.yaml, and the same
+# caveat applies: no FOLDER_ANNOTATION is set on the sidecar, so this lands in the default
+# folder and a grafana_folder annotation here would be silently ignored.
+#
+# Scope is deliberately health-and-capacity, not application internals. None of the *arr apps,
+# jellyfin, or qBittorrent export Prometheus metrics on their own, so queue depth, download
+# rate, and indexer health are not available here — that needs exportarr plus an API key per
+# app. Everything below comes from signals that already exist: cAdvisor, kube-state-metrics,
+# node-exporter, and Loki.
+#
+# The $media variable is the one place the namespace list lives; every panel derives from it.
+#
+# Two traps worth knowing before editing:
+#   - kubelet_volume_stats_* is useless for these apps. Every media PVC is NFS-backed, so each
+#     one reports the whole 12TB filesystem's usage — all eight report an identical 2.9TB. The
+#     library panels read node_filesystem on worker-01 instead, selected by fstype="xfs" so
+#     they hit the local disk and not the two nfs4 client mounts of the same path.
+#   - node-exporter is a DaemonSet, so its pod label changes on every restart and
+#     node_filesystem_* silently becomes several overlapping series for one device. Without the
+#     max() wrapper, predict_linear returns one divergent projection per historical pod.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-media-stack
+  namespace: monitoring-system
+  labels:
+    grafana_dashboard: "1"
+data:
+  homelab-media-stack.json: |
+    {
+      "title": "Homelab — Media Stack",
+      "uid": "homelab-media-stack",
+      "tags": ["homelab", "media"],
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "refresh": "1m",
+      "time": { "from": "now-24h", "to": "now" },
+      "templating": {
+        "list": [
+          {
+            "name": "datasource",
+            "label": "Metrics",
+            "type": "datasource",
+            "query": "prometheus",
+            "hide": 0,
+            "current": {}
+          },
+          {
+            "name": "logs",
+            "label": "Logs",
+            "type": "datasource",
+            "query": "loki",
+            "hide": 0,
+            "current": {}
+          },
+          {
+            "name": "media",
+            "label": "Media namespaces",
+            "type": "constant",
+            "query": "sonarr|radarr|lidarr|bazarr|prowlarr|qbittorrent|jellyfin|navidrome|recyclarr|unpackerr|flaresolverr|rclone-seedbox",
+            "hide": 2,
+            "current": {}
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Replicas unavailable",
+          "description": "Sum across every media Deployment. Non-zero means something is down or stuck rolling out — start at the restarts panel, then the error log below.",
+          "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "decimals": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "red", "value": 1 }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "sum(kube_deployment_status_replicas_unavailable{namespace=~\"$media\"}) or vector(0)"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Container restarts (24h)",
+          "description": "increase() over 24h across all media containers. A steady trickle here is usually one OOMKilled container being quietly recreated — VPA will not always save you, since a falling request drags the CPU limit down with it.",
+          "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "decimals": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 1 },
+                  { "color": "red", "value": 5 }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "sum(increase(kube_pod_container_status_restarts_total{namespace=~\"$media\"}[24h])) or vector(0)"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "type": "gauge",
+          "title": "Library disk used",
+          "description": "The 12TB USB drive on worker-01 that backs /mnt/storage, read from the local xfs mount rather than a PVC.",
+          "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "decimals": 1,
+              "min": 0,
+              "max": 100,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 80 },
+                  { "color": "red", "value": 90 }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": { "showThresholdLabels": false, "showThresholdMarkers": true, "reduceOptions": { "calcs": ["lastNotNull"] } },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "100 * (1 - max(node_filesystem_avail_bytes{mountpoint=\"/mnt/storage\", fstype=\"xfs\"}) / max(node_filesystem_size_bytes{mountpoint=\"/mnt/storage\", fstype=\"xfs\"}))"
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "Library free",
+          "description": "Bytes still available on /mnt/storage.",
+          "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "decimals": 2,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "yellow", "value": 1000000000000 },
+                  { "color": "green", "value": 2000000000000 }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "max(node_filesystem_avail_bytes{mountpoint=\"/mnt/storage\", fstype=\"xfs\"})"
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "type": "bargauge",
+          "title": "Restarts by app (24h)",
+          "description": "Which app is doing the restarting. Empty is the healthy state.",
+          "gridPos": { "h": 7, "w": 12, "x": 0, "y": 4 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "decimals": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 1 },
+                  { "color": "red", "value": 5 }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": { "displayMode": "gradient", "orientation": "horizontal", "reduceOptions": { "calcs": ["lastNotNull"] } },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "sum by (namespace) (increase(kube_pod_container_status_restarts_total{namespace=~\"$media\"}[24h])) > 0",
+              "legendFormat": "{{namespace}}",
+              "instant": true
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "type": "timeseries",
+          "title": "Library free space + 30d projection",
+          "description": "Actual free space against predict_linear over a 7d window projected 30 days out. The projection is a straight line through recent history, so a single large import bends it hard — read the direction, not the exact date.",
+          "gridPos": { "h": 7, "w": 12, "x": 12, "y": 4 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "min": 0,
+              "custom": { "lineWidth": 2, "fillOpacity": 10 }
+            },
+            "overrides": [
+              {
+                "matcher": { "id": "byName", "options": "projected (30d)" },
+                "properties": [
+                  { "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [10, 10] } },
+                  { "id": "custom.fillOpacity", "value": 0 }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["lastNotNull"] },
+            "tooltip": { "mode": "multi", "sort": "none" }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "max(node_filesystem_avail_bytes{mountpoint=\"/mnt/storage\", fstype=\"xfs\"})",
+              "legendFormat": "free"
+            },
+            {
+              "refId": "B",
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "predict_linear(max(node_filesystem_avail_bytes{mountpoint=\"/mnt/storage\", fstype=\"xfs\"})[7d:10m], 30*86400)",
+              "legendFormat": "projected (30d)"
+            }
+          ]
+        },
+        {
+          "id": 7,
+          "type": "timeseries",
+          "title": "CPU by app",
+          "description": "Cores in use per namespace. Compare against the VPA-set requests rather than an absolute number — these apps idle near zero and spike on import.",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 11 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "fieldConfig": {
+            "defaults": { "unit": "short", "decimals": 3, "min": 0, "custom": { "lineWidth": 1, "fillOpacity": 15, "stacking": { "mode": "normal" } } },
+            "overrides": []
+          },
+          "options": {
+            "legend": { "displayMode": "table", "placement": "right", "calcs": ["lastNotNull", "max"] },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "sum by (namespace) (rate(container_cpu_usage_seconds_total{namespace=~\"$media\", container!=\"\"}[5m]))",
+              "legendFormat": "{{namespace}}"
+            }
+          ]
+        },
+        {
+          "id": 8,
+          "type": "timeseries",
+          "title": "Memory by app",
+          "description": "Working set per namespace. A sawtooth that resets to zero is a restart, which the restarts panel above will corroborate.",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 11 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "fieldConfig": {
+            "defaults": { "unit": "bytes", "min": 0, "custom": { "lineWidth": 1, "fillOpacity": 15, "stacking": { "mode": "normal" } } },
+            "overrides": []
+          },
+          "options": {
+            "legend": { "displayMode": "table", "placement": "right", "calcs": ["lastNotNull", "max"] },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "sum by (namespace) (container_memory_working_set_bytes{namespace=~\"$media\", container!=\"\"})",
+              "legendFormat": "{{namespace}}"
+            }
+          ]
+        },
+        {
+          "id": 9,
+          "type": "timeseries",
+          "title": "Log lines/sec by app",
+          "description": "Total log volume. Useful as a liveness signal — an app that normally chatters and goes flat has usually wedged rather than gone quiet.",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 19 },
+          "datasource": { "type": "loki", "uid": "${logs}" },
+          "fieldConfig": {
+            "defaults": { "unit": "short", "min": 0, "custom": { "lineWidth": 1, "fillOpacity": 10 } },
+            "overrides": []
+          },
+          "options": {
+            "legend": { "displayMode": "table", "placement": "right", "calcs": ["lastNotNull", "max"] },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "loki", "uid": "${logs}" },
+              "expr": "sum by (app) (rate({namespace=~\"$media\"}[5m]))",
+              "legendFormat": "{{app}}"
+            }
+          ]
+        },
+        {
+          "id": 10,
+          "type": "timeseries",
+          "title": "Error + warn lines/sec by app",
+          "description": "Grouped on Loki's detected_level structured metadata, which discover_log_levels populates at ingest — no regex to maintain. The *arr apps emit multi-line stack traces whose continuation lines land as level unknown, so a spike here undercounts the real volume of a burst.",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 19 },
+          "datasource": { "type": "loki", "uid": "${logs}" },
+          "fieldConfig": {
+            "defaults": { "unit": "short", "min": 0, "custom": { "lineWidth": 2, "fillOpacity": 10 } },
+            "overrides": []
+          },
+          "options": {
+            "legend": { "displayMode": "table", "placement": "right", "calcs": ["lastNotNull", "max"] },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "loki", "uid": "${logs}" },
+              "expr": "sum by (app, detected_level) (rate({namespace=~\"$media\"} | detected_level =~ \"error|critical|fatal|warn\" [5m]))",
+              "legendFormat": "{{app}} {{detected_level}}"
+            }
+          ]
+        },
+        {
+          "id": 11,
+          "type": "logs",
+          "title": "Recent errors across the media stack",
+          "description": "Every error-or-worse line from all media apps on one timeline, which is the point of the per-app labels: cross-app failures (prowlarr indexer down, so sonarr finds nothing) are only obvious side by side.",
+          "gridPos": { "h": 11, "w": 24, "x": 0, "y": 27 },
+          "datasource": { "type": "loki", "uid": "${logs}" },
+          "options": {
+            "showTime": true,
+            "showLabels": false,
+            "showCommonLabels": false,
+            "wrapLogMessage": true,
+            "prettifyLogMessage": false,
+            "enableLogDetails": true,
+            "dedupStrategy": "none",
+            "sortOrder": "Descending"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "loki", "uid": "${logs}" },
+              "expr": "{namespace=~\"$media\"} | detected_level =~ \"error|critical|fatal\"",
+              "maxLines": 500
+            }
+          ]
+        }
+      ]
+    }
