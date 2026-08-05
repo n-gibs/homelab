@@ -44,6 +44,20 @@ route:
     parentRefs:
       - name: homelab
         namespace: envoy-gateway-system
+    # An interactive search fans out to every indexer and can run ~60s, well past
+    # Envoy's 15s default request timeout; the resulting plain-text 504 reaches the
+    # UI as "Unable to load results". backendRefs must be spelled out here -- once
+    # rules are declared the chart no longer fills them in.
+    rules:
+      - backendRefs:
+          - name: prowlarr
+            port: 9696
+        matches:
+          - path:
+              type: PathPrefix
+              value: /
+        timeouts:
+          request: 120s
 
 persistence:
   config:
