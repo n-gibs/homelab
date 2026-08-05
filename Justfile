@@ -593,6 +593,25 @@ tune-lidarr-quality:
     echo ""
     echo "Done."
 
+# Run the seedbox copy now instead of waiting for the next 10m tick, and tail it
+sync-seedbox:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ns=rclone-seedbox
+    # concurrencyPolicy: Forbid only governs jobs the CronJob creates, so a manual
+    # run has to check for itself — two rclones copying into /data/downloads/seedbox
+    # would fight over the same .partial files.
+    if kubectl -n "$ns" get pods --field-selector=status.phase=Running -o name | grep -q .; then
+        echo "a copy is already running, not starting another" >&2
+        exit 1
+    fi
+    # Fixed name, deleted first: manual jobs are outside the CronJob's history limits,
+    # so a unique name per run would pile up forever. At most one leftover to inspect.
+    kubectl -n "$ns" delete job rclone-seedbox-manual --ignore-not-found
+    kubectl -n "$ns" create job rclone-seedbox-manual --from=cronjob/rclone-seedbox
+    kubectl -n "$ns" wait --for=create pod -l job-name=rclone-seedbox-manual --timeout=60s
+    kubectl -n "$ns" logs -f job/rclone-seedbox-manual
+
 # ── Misc ─────────────────────────────────────────────────────────────────────
 
 # Show TODOs remaining
