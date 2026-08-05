@@ -176,6 +176,13 @@ config:
               user: "{{HOMEPAGE_VAR_NAVIDROME_USER}}"
               token: "{{HOMEPAGE_VAR_NAVIDROME_TOKEN}}"
               salt: "{{HOMEPAGE_VAR_NAVIDROME_SALT}}"
+        # Link only, no qbittorrent widget: seedit4.me fronts the WebUI with nginx basic
+        # auth, and the widget's username/password are qBittorrent's own login — it has no
+        # way to send the outer Authorization header, so it would just render 401.
+        - Seedbox:
+            href: https://203.nl137.seedit4.me/qbittorrent/
+            description: qBittorrent on the seedbox
+            icon: qbittorrent.png
     - Upcoming:
         - Calendar:
             description: Releases across the arr stack
