@@ -29,6 +29,15 @@ controllers:
           - copy
           - seedbox:/home/seedit4me/torrents/qbittorrent/media
           - /data/downloads/seedbox
+          # ProFTPD's shell-less SFTP forces disable_hashcheck, so rclone falls back to
+          # comparing size + modtime — and the destination ends up stamped with the copy
+          # time rather than the source mtime, so nothing ever matches and every run
+          # re-transfers the whole payload (930 MiB per 15 min, measured 2026-08-04).
+          # Worse, each re-copy renames a new .partial into place, so the file gets a new
+          # inode under any *arr mid-import and the hardlink is orphaned.
+          # Size alone is a sound comparison here: a completed torrent's size is fixed,
+          # and unlike --ignore-existing a truncated copy still gets repaired.
+          - --size-only
           - --transfers=4
           - --checkers=4
           - --stats=1m
