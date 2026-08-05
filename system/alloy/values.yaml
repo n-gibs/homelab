@@ -72,7 +72,30 @@ alloy:
 
       loki.source.kubernetes "pods" {
         targets    = discovery.relabel.pod_logs.output
+        forward_to = [loki.process.pods.receiver]
+      }
+
+      // Rejoins the *arr apps' stack traces, which arrive one Loki entry per physical line —
+      // 56% of prowlarr's lines were trace continuations. Only these four match `^[`; adding an
+      // app whose lines don't (bazarr, navidrome, flaresolverr, rclone) would treat every line
+      // as a continuation and glue its whole log into one entry.
+      //
+      // Not `^\\[(Info|Warn|...)\\]`: the exception body sits under a `[v2.5.2.5491]` prefix, so
+      // the tighter regex merges consecutive unrelated failures (209 lines vs 37).
+      // Trade-off: the `[Error]` header stays a separate entry, so detected_level="error" still
+      // won't match the body. Set it via stage.structured_metadata if that starts mattering.
+      loki.process "pods" {
         forward_to = [loki.write.local.receiver]
+
+        stage.match {
+          selector = "{app=~\"sonarr|radarr|lidarr|prowlarr\"}"
+
+          stage.multiline {
+            firstline     = "^\\["
+            max_lines     = 200
+            max_wait_time = "3s"
+          }
+        }
       }
 
       loki.write "local" {
