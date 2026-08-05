@@ -3,6 +3,14 @@ controllers:
   main:
     type: cronjob
     pod:
+      # Copy as uid/gid 1000, the PUID/PGID every *arr runs under. rclone defaults to
+      # root, and with fs.protected_hardlinks=1 (kernel default) a user cannot hardlink
+      # a root-owned file it can't write — so Sonarr silently fell back to a full copy
+      # of every seedbox import, defeating the whole point of the shared /data mount.
+      # Local qBittorrent grabs hardlink fine precisely because it also runs as 1000.
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
       # worker-01 is the NFS server itself (192.168.30.194:/mnt/storage). Running
       # anywhere else means every copied byte crosses the LAN a second time as an
       # NFS write. No toleration: worker-01's taint was removed 2026-07-31, and no
