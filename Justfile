@@ -281,6 +281,11 @@ wire-seedbox:
     LIDARR="http://localhost:8686"
     PROWLARR="http://localhost:9696"
 
+    # The single definition of "private tracker" for this recipe: it decides both
+    # which indexers pin to the Seedbox client and which keep interactive search.
+    # A differently named private tracker must be added here.
+    PRIVATE_RE="TorrentLeech|IPTorrents"
+
     REMOTE_PATH="/home/seedit4me/torrents/qbittorrent/media"
     LOCAL_PATH="/data/downloads/seedbox"
 
@@ -373,6 +378,53 @@ wire-seedbox:
       echo "$label remote path mapping: created"
     }
 
+    # Interactive search fans out to every indexer that has it enabled. The public
+    # Cloudflare-fronted ones each take 55-68s through the single FlareSolverr, and
+    # they serialize — which blew past Envoy's route timeout and surfaced in the UI as
+    # "Unable to load results". TorrentLeech and IPTorrents answer in ~2s.
+    # *** PROWLARR HAS NO PER-INDEXER enableInteractiveSearch. *** PUTting that field
+    # onto an indexer returns 200 and is silently dropped — it is not in
+    # IndexerResource. The flag lives on the App Sync Profile that appProfileId points
+    # at, and Prowlarr pushes it down to the *arr by itself (no forced
+    # ApplicationIndexerSync needed). Verified live 2026-08-04.
+    ensure_search_profiles() {
+      local std pid idx id name
+      std=$(curl -sf -H "X-Api-Key: $PROWLARR_API_KEY" "$PROWLARR/api/v1/appprofile" \
+        | jq -r '(.[] | select(.name == "Standard") | .id) // empty')
+      # 1 is Prowlarr's built-in default profile, which ships as fully enabled.
+      std="${std:-1}"
+      pid=$(curl -sf -H "X-Api-Key: $PROWLARR_API_KEY" "$PROWLARR/api/v1/appprofile" \
+        | jq -r '(.[] | select(.name == "No Interactive") | .id) // empty')
+      if [ -z "$pid" ]; then
+        pid=$(curl -sf -X POST -H "X-Api-Key: $PROWLARR_API_KEY" \
+          -H "Content-Type: application/json" "$PROWLARR/api/v1/appprofile" \
+          -d '{"name":"No Interactive","enableRss":true,"enableAutomaticSearch":true,
+               "enableInteractiveSearch":false,"minimumSeeders":1}' | jq -r '.id')
+        echo "Prowlarr app profile created: No Interactive (id=$pid)"
+      else
+        echo "Prowlarr app profile exists: No Interactive (id=$pid)"
+      fi
+      curl -sf -H "X-Api-Key: $PROWLARR_API_KEY" "$PROWLARR/api/v1/indexer" \
+        | jq -c --argjson pid "$pid" --argjson std "$std" --arg re "$PRIVATE_RE" '.[]
+            | (if (.name | test($re; "i")) then $std else $pid end) as $want
+            | select(.appProfileId != $want)
+            | .appProfileId = $want' \
+        | while read -r idx; do
+            id=$(printf '%s' "$idx" | jq -r '.id')
+            name=$(printf '%s' "$idx" | jq -r '.name')
+            # forceSave: a normal save runs a connectivity test, which for these
+            # indexers IS the 55-68s Cloudflare challenge and times the client out.
+            curl -sf -X PUT -H "X-Api-Key: $PROWLARR_API_KEY" \
+              -H "Content-Type: application/json" \
+              "$PROWLARR/api/v1/indexer/$id?forceSave=true" -d "$idx" > /dev/null
+            if printf '%s' "$name" | grep -qiE "$PRIVATE_RE"; then
+              echo "Prowlarr interactive search ENABLED: $name"
+            else
+              echo "Prowlarr interactive search disabled: $name"
+            fi
+          done
+    }
+
     # Pin the Seedbox client per indexer, because TAG-BASED ROUTING DOES NOT WORK.
     # Prowlarr tags do NOT propagate into the *arr — verified live: after a forced
     # ApplicationIndexerSync every Prowlarr-synced indexer still had tags: [] in
@@ -390,8 +442,8 @@ wire-seedbox:
         return
       fi
       curl -sf -H "X-Api-Key: $api_key" "$url/api/$api_ver/indexer" \
-        | jq -c --argjson cid "$cid" '.[]
-            | select(.name | test("TorrentLeech|IPTorrents"; "i"))
+        | jq -c --argjson cid "$cid" --arg re "$PRIVATE_RE" '.[]
+            | select(.name | test($re; "i"))
             | select(.downloadClientId != $cid)
             | .downloadClientId = $cid' \
         | while read -r idx; do
@@ -406,6 +458,8 @@ wire-seedbox:
     # Prowlarr's tag only, and only to label the private trackers in its UI. The *arr
     # no longer get a `seedbox` tag: nothing can use it (see ensure_download_client).
     PROWLARR_TAG=$(ensure_tag "$PROWLARR" "$PROWLARR_API_KEY" v1 seedbox)
+
+    ensure_search_profiles
 
     # Category field name is *arr-specific and was verified against each *arr's
     # live qBittorrent download client field list — "category" is NOT a valid
