@@ -1,0 +1,123 @@
+---
+# Guards the five CronJobs — two Postgres dumps (immich, nextcloud), the seedbox rclone copy,
+# nextcloud's internal cron, and recyclarr. Nothing watched these before: a CronJob that stops
+# running produces no logs, no failed pod, and no alert, so the first sign of a broken backup
+# would have been needing one.
+#
+# Deliberately generic — every rule below matches all CronJobs, so an app added later is
+# covered without editing this file. The one exception is BackupCronJobMissing, which has to
+# name what it expects to exist, because you cannot detect the absence of something generically.
+#
+# Two distinct failure modes, because one rule cannot see both:
+#   - "runs but never succeeds" → CronJobNotSucceeding, off last_successful_time.
+#   - "stopped being scheduled at all" → CronJobOverdue, off next_schedule_time. A wedged
+#     CronJob controller leaves last_successful_time frozen but also stops advancing
+#     next_schedule_time, and the latter goes stale within minutes rather than a day.
+#
+# What none of these catch: a dump that runs, succeeds, and writes a truncated or empty file.
+# Only the size trend on the CronJobs dashboard shows that. A Loki rule on the "wrote N bytes"
+# line could alert on it, but any threshold would be a guess until there is more history.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: backups
+  namespace: monitoring-system
+  labels:
+    release: monitoring-system
+spec:
+  groups:
+    - name: backups
+      rules:
+        # 26h, not 24h, so the daily 03:30 and 03:45 dumps get a full extra scheduling window
+        # before this trips — a one-off slow night is not a failure. Loose for the */5 and */10
+        # jobs, but CronJobJobFailed catches their failures in minutes; this is the backstop for
+        # the silent case where nothing fails and nothing runs.
+        - alert: CronJobNotSucceeding
+          expr: time() - kube_cronjob_status_last_successful_time > 26 * 3600
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: >-
+              CronJob {{ $labels.namespace }}/{{ $labels.cronjob }} has not succeeded in
+              {{ $value | humanizeDuration }}
+            description: >-
+              No successful run in over 26h. For the db-backup jobs this means there is no
+              fresh dump on the NFS share and the newest one is aging out of the 7-day
+              retention that the job's own `find -mtime +7 -delete` enforces — so a long
+              enough outage here deletes the last good backup. Check
+              `kubectl -n {{ $labels.namespace }} get jobs` for a failing pod, and
+              `kubectl -n {{ $labels.namespace }} logs job/<name>` for why. Suspension is
+              covered separately by CronJobSuspended.
+
+        # next_schedule_time is always in the future while the controller is healthy, so any
+        # positive value means a scheduling tick was missed regardless of the job's period.
+        # 1h plus for: 1h tolerates a long-running job briefly holding the clock back.
+        - alert: CronJobOverdue
+          expr: time() - kube_cronjob_next_schedule_time > 3600
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: >-
+              CronJob {{ $labels.namespace }}/{{ $labels.cronjob }} is
+              {{ $value | humanizeDuration }} past its scheduled run
+            description: >-
+              The scheduled time came and went without a run being created, which points at
+              the CronJob controller rather than the job itself — the job never started, so
+              there are no pod logs to read. Check for a `startingDeadlineSeconds` miss, a
+              `concurrencyPolicy: Forbid` job still stuck Active
+              (`kubectl -n {{ $labels.namespace }} get jobs`), or control-plane trouble.
+              Fires far sooner than CronJobNotSucceeding for the */5 and */10 jobs.
+
+        # Suspension is a deliberate act that leaves no trace afterwards. Easy to set while
+        # debugging and forget, at which point backups stop with everything else looking green.
+        - alert: CronJobSuspended
+          expr: kube_cronjob_spec_suspend == 1
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: CronJob {{ $labels.namespace }}/{{ $labels.cronjob }} is suspended
+            description: >-
+              A suspended CronJob never runs and never alerts on staleness in a way that looks
+              like breakage. If this is intentional, unsuspend it in git rather than silencing
+              here — ArgoCD self-heals, so a `kubectl patch` to suspend will be reverted
+              anyway. Resume with
+              `kubectl -n {{ $labels.namespace }} patch cronjob {{ $labels.cronjob }} -p '{"spec":{"suspend":false}}'`.
+
+        # kube_job_failed only exists once a Job carries the Failed condition, so this is empty
+        # in the healthy state rather than a series of zeros. Matches the condition explicitly
+        # because the metric also emits condition="false".
+        - alert: CronJobJobFailed
+          expr: kube_job_failed{condition="true"} == 1
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: Job {{ $labels.namespace }}/{{ $labels.job_name }} failed
+            description: >-
+              A Job exhausted its backoffLimit and gave up. The pod logs survive until the
+              CronJob's failedJobsHistoryLimit (3) rotates it out, so read them now:
+              `kubectl -n {{ $labels.namespace }} logs job/{{ $labels.job_name }}`. For the
+              pg-dump jobs the usual causes are the CloudNativePG primary being mid-failover
+              or the NFS-backed backup PVC being unwritable.
+
+        # The staleness rules above go blind if the CronJob is deleted or has never succeeded,
+        # because both read a metric that then does not exist. Naming the expected count is the
+        # only way to catch that, at the cost of needing an edit when a backup is added.
+        # Critical rather than warning: this is the rule that notices monitoring itself stopped.
+        - alert: BackupCronJobMissing
+          expr: count(kube_cronjob_status_last_successful_time{cronjob=~".+-db-backup"}) < 2
+          for: 1h
+          labels:
+            severity: critical
+          annotations:
+            summary: Expected 2 database backup CronJobs reporting a successful run, found {{ $value }}
+            description: >-
+              immich-db-backup and nextcloud-db-backup should both be reporting a last
+              successful run. One is missing, which means it was deleted, was renamed without
+              this rule being updated, or has never once succeeded since being created — a new
+              backup that has failed every attempt looks identical to a backup that does not
+              exist, and neither CronJobNotSucceeding nor CronJobOverdue can fire on an absent
+              series. Verify with `kubectl get cronjob -A | grep db-backup`.
