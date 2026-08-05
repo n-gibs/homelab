@@ -1,0 +1,292 @@
+# CronJob and backup dashboard, loaded by the Grafana sidecar (LABEL=grafana_dashboard,
+# LABEL_VALUE=1, NAMESPACE=ALL). Same default-folder caveat as the other two dashboards.
+#
+# Companion to prometheusrule-backups.yaml, which is what should actually wake you up. This
+# answers the questions an alert cannot: is the dump growing or has it quietly collapsed, are
+# runs getting slower, did a job fail and then pass on retry.
+#
+# The dump-size panel is the reason this dashboard is worth having. Every alert here proves a
+# job ran and exited zero; none of them prove it wrote a usable file. pg_dump exiting zero
+# after producing a truncated dump is the failure that stays invisible until a restore, and a
+# size series is the cheapest thing that shows it. The values are parsed straight out of the
+# job's own "wrote <path> (N bytes)" log line, since a PVC-usage metric cannot help here — the
+# backup PVCs are NFS-backed and each reports the whole 12TB filesystem.
+#
+# Job-level metrics are keyed by job_name, which carries a per-run timestamp suffix
+# (immich-db-backup-29765010), so every panel joins through kube_job_owner to group runs under
+# the owning CronJob. Without that join each nightly run is its own unrelated series.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-cronjobs
+  namespace: monitoring-system
+  labels:
+    grafana_dashboard: "1"
+data:
+  homelab-cronjobs.json: |
+    {
+      "title": "Homelab — CronJobs & Backups",
+      "uid": "homelab-cronjobs",
+      "tags": ["homelab", "backups"],
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "refresh": "5m",
+      "time": { "from": "now-7d", "to": "now" },
+      "templating": {
+        "list": [
+          {
+            "name": "datasource",
+            "label": "Metrics",
+            "type": "datasource",
+            "query": "prometheus",
+            "hide": 0,
+            "current": {}
+          },
+          {
+            "name": "logs",
+            "label": "Logs",
+            "type": "datasource",
+            "query": "loki",
+            "hide": 0,
+            "current": {}
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "bargauge",
+          "title": "Time since last success",
+          "description": "Thresholds match prometheusrule-backups.yaml: amber at 24h, red at the 26h where CronJobNotSucceeding fires. The */5 and */10 jobs sit near zero, so anything visible on their bar is already wrong.",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "decimals": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 86400 },
+                  { "color": "red", "value": 93600 }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": { "displayMode": "gradient", "orientation": "horizontal", "reduceOptions": { "calcs": ["lastNotNull"] } },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "time() - kube_cronjob_status_last_successful_time",
+              "legendFormat": "{{namespace}}/{{cronjob}}",
+              "instant": true
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "type": "timeseries",
+          "title": "Database dump size",
+          "description": "Parsed from the pg-dump job's own log line. A flat line is healthy — these databases grow slowly. A sudden drop toward zero means pg_dump exited successfully having written almost nothing, which is the one backup failure no alert here detects. Gaps are simply days with no run, since the value only exists at run time.",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+          "datasource": { "type": "loki", "uid": "${logs}" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "min": 0,
+              "custom": { "lineWidth": 2, "fillOpacity": 10, "pointSize": 8, "showPoints": "always", "spanNulls": true }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "min"] },
+            "tooltip": { "mode": "multi", "sort": "none" }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "loki", "uid": "${logs}" },
+              "expr": "max_over_time({container=\"pg-dump\"} |= \"wrote\" | regexp \"\\\\((?P<dumpbytes>[0-9]+) bytes\\\\)\" | unwrap dumpbytes [6h]) by (namespace)",
+              "legendFormat": "{{namespace}}"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Failed jobs",
+          "description": "Jobs carrying the Failed condition — the backoffLimit was exhausted. Non-zero means CronJobJobFailed is firing or about to.",
+          "gridPos": { "h": 4, "w": 6, "x": 0, "y": 8 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "decimals": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "red", "value": 1 }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "count(kube_job_failed{condition=\"true\"} == 1) or vector(0)"
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "Suspended CronJobs",
+          "description": "Should be zero. A suspended CronJob never runs and never looks broken.",
+          "gridPos": { "h": 4, "w": 6, "x": 6, "y": 8 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "decimals": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 1 }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "sum(kube_cronjob_spec_suspend) or vector(0)"
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "type": "stat",
+          "title": "Overdue by",
+          "description": "How far past its scheduled time the most overdue CronJob is. Healthy is a negative number, meaning the next run is still ahead; positive means a scheduling tick was missed and CronJobOverdue is counting down to fire.",
+          "gridPos": { "h": 4, "w": 12, "x": 12, "y": 8 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "decimals": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "red", "value": 0 }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": { "colorMode": "value", "graphMode": "area", "textMode": "value_and_name", "reduceOptions": { "calcs": ["lastNotNull"] } },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "topk(1, time() - kube_cronjob_next_schedule_time)",
+              "legendFormat": "{{namespace}}/{{cronjob}}",
+              "instant": true
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "type": "timeseries",
+          "title": "Run duration",
+          "description": "Completion minus start per run, grouped under the owning CronJob through kube_job_owner. Watch the trend rather than the value — a dump that is steadily taking longer is a database growing, while a step change is usually NFS contention on worker-01.",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "min": 0,
+              "custom": { "lineWidth": 2, "fillOpacity": 0, "pointSize": 7, "showPoints": "always", "spanNulls": true }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "max by (namespace, owner_name) ((kube_job_status_completion_time - kube_job_status_start_time) * on(namespace, job_name) group_left(owner_name) kube_job_owner{owner_kind=\"CronJob\"})",
+              "legendFormat": "{{namespace}}/{{owner_name}}"
+            }
+          ]
+        },
+        {
+          "id": 7,
+          "type": "timeseries",
+          "title": "Successful runs completing",
+          "description": "Counts each run as its completion time advances, so a healthy job draws a steady staircase and a stalled one flatlines. Reads more clearly over 7d than a table of the three runs kube-state-metrics still remembers — successfulJobsHistoryLimit is 3, so older Jobs are gone from the API entirely.",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0,
+              "custom": { "lineWidth": 2, "fillOpacity": 20, "drawStyle": "bars" }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["sum"] },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "sum by (namespace, owner_name) (changes(kube_job_status_completion_time[1h]) * on(namespace, job_name) group_left(owner_name) kube_job_owner{owner_kind=\"CronJob\"})",
+              "legendFormat": "{{namespace}}/{{owner_name}}"
+            }
+          ]
+        },
+        {
+          "id": 8,
+          "type": "logs",
+          "title": "Backup and sync job output",
+          "description": "Every line the pg-dump, rclone and recyclarr containers wrote, newest first. The dumps log the file they wrote, its size and how many they retained, so a restore-time question is usually answerable from here without touching the NFS share.",
+          "gridPos": { "h": 11, "w": 24, "x": 0, "y": 20 },
+          "datasource": { "type": "loki", "uid": "${logs}" },
+          "options": {
+            "showTime": true,
+            "showLabels": false,
+            "showCommonLabels": false,
+            "wrapLogMessage": true,
+            "prettifyLogMessage": false,
+            "enableLogDetails": true,
+            "dedupStrategy": "none",
+            "sortOrder": "Descending"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "loki", "uid": "${logs}" },
+              "expr": "{namespace=~\"immich|nextcloud|rclone-seedbox|recyclarr\", container=~\"pg-dump|rclone-seedbox|app\"}",
+              "maxLines": 500
+            }
+          ]
+        }
+      ]
+    }
