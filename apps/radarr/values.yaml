@@ -1,5 +1,9 @@
 controllers:
   main:
+    # TEMPORARY -- config volume migration from nfs to local-path. Stopped via git
+    # rather than `kubectl scale` because the ApplicationSet sets selfHeal: true
+    # and would revert the drift mid-copy. Restored to 1 in the follow-up commit.
+    replicas: 0
     pod:
       nodeSelector:
         homelab.io/media: "true"
