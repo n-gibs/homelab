@@ -1,9 +1,5 @@
 controllers:
   main:
-    # TEMPORARY -- config volume migration from nfs to local-path. Stopped via git
-    # rather than `kubectl scale` because the ApplicationSet sets selfHeal: true
-    # and would revert the drift mid-copy. Restored to 1 in the follow-up commit.
-    replicas: 0
     pod:
       nodeSelector:
         homelab.io/media: "true"
@@ -63,10 +59,11 @@ route:
 
 persistence:
   config:
-    type: persistentVolumeClaim
-    storageClass: nfs
-    size: 2Gi
-    accessMode: ReadWriteMany
+    # local-path, not nfs -- SQLite over NFS deadlocks. See config-pvc.yaml for
+    # the rationale, the durability trade, and the restore-from-backup recovery
+    # path. Defined as its own manifest rather than inline so the comment lives
+    # with the volume; the chart just consumes it.
+    existingClaim: lidarr-config-local
     globalMounts:
       - path: /config
   data:
