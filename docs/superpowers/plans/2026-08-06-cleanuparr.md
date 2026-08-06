@@ -641,23 +641,21 @@ tolerate one backup disappearing outright."
 
 ---
 
-### Task 6: Prowlarr prerequisite
+### Task 6: Prowlarr prerequisite — ✅ DONE 2026-08-06
 
-Without this, Cleanuparr blocks a release and the next search grabs it straight back. Doing it before deploying means the blocker is effective from its first run.
+**Completed before implementation started. Do not redo.**
 
-**Files:** none — this is Prowlarr UI configuration.
+**Sync Reject Blocklisted Torrent Hashes While Grabbing** is enabled on all configured
+Prowlarr apps (Sonarr, Radarr, Lidarr). Setting it in Prowlarr propagates to the downstream
+arrs, so the per-indexer toggle inside each arr does not need touching.
 
-- [ ] **Step 1: Enable hash rejection for every Prowlarr app**
+Without this, Cleanuparr blocks a release and the next search grabs it straight back — so the
+blocker is effective from its first run.
 
-In Prowlarr → Settings → Apps, click **Show Advanced**, then for each app entry (Sonarr, Radarr, Lidarr): edit it, enable **Sync Reject Blocklisted Torrent Hashes While Grabbing**, save.
+**Files:** none — arr-side UI state, which is why nothing in git records it.
 
-- [ ] **Step 2: Verify all apps have it set**
-
-Re-open each app entry and confirm the toggle stuck. Doing it in Prowlarr covers all three arrs; there is no need to touch per-indexer settings inside each arr.
-
-- [ ] **Step 3: Record completion**
-
-No commit — this is cluster-external state. Note in the PR/session that Step 1 is done, because nothing in git records it.
+- [x] **Step 1: Enable hash rejection for every Prowlarr app**
+- [x] **Step 2: Verify all apps have it set**
 
 ---
 
