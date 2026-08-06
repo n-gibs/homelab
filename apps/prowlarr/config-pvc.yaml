@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prowlarr-config-local
+  namespace: prowlarr
+  # NO sync-wave annotation -- do not add one. local-path is WaitForFirstConsumer,
+  # so this stays Pending (= unhealthy to ArgoCD) until its consumer is scheduled.
+  # An earlier wave deadlocks the sync forever. Same reasoning as
+  # apps/nextcloud/html-pvc.yaml.
+spec:
+  accessModes:
+    - ReadWriteOnce
+  # local-path, same exception as apps/sonarr/config-pvc.yaml -- read that one for
+  # the full argument.
+  #
+  # Prowlarr logged zero "database is locked" errors, so like Radarr this is
+  # uniformity rather than a fix: same SQLite-on-NFS hazard, just the lightest
+  # write load of the four, and no reason to leave one config on the USB disk.
+  #
+  # Prowlarr is the one *arr with no /data mount of its own -- it is not a media
+  # app -- so its backups reach the USB disk through the narrow backups-only NFS
+  # mount added in values.yaml. That mount is what makes the recovery path below
+  # exist at all; do not remove it while this volume is local-path.
+  #
+  # Recovery if worker-01's NVMe dies: delete this PVC, let it recreate empty,
+  # then restore the newest zip from /data/backups/prowlarr/ via
+  # System -> Backup -> Restore. Indexer definitions and *arr sync settings come
+  # back with it; API keys in the *arr apps do not change.
+  #
+  # 10Gi against a ~100M config is headroom -- local-path cannot be expanded in
+  # place, so this is sized once.
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 10Gi
