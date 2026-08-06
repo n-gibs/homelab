@@ -46,7 +46,8 @@
       "customType": "regex",
       "fileMatch": ["(^|/)values\\.yaml$"],
       "matchStrings": [
-        "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>[^\\s]+)\\n\\s*image:\\n\\s*tag: (?<currentValue>[^\\n]+)"
+        "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>[^\\s]+)\\n\\s*image:\\n\\s*tag: (?<currentValue>[^\\n]+)",
+        "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>[^\\s]+)\\n\\s*image:\\n\\s*repository: [^\\n]+\\n\\s*tag: (?<currentValue>[^\\n]+)"
       ]
     },
     {
