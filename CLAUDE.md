@@ -96,7 +96,28 @@ spec:
 
 ## Storage
 
-All persistent storage uses the `nfs` StorageClass. Never use `local-path` in new apps — data won't survive node failure. There are two exceptions, both in the Rules section: a replicated CloudNativePG cluster, where replication provides the durability, and a volume whose contents are reconstructible from an image.
+Bulk data uses the `nfs` StorageClass; `local-path` is for volumes that can't tolerate NFS. Which
+one a volume gets is a question about the volume, not a default plus exceptions — see the Rules
+section for the three `local-path` cases.
+
+**A config volume holding a SQLite database goes on `local-path`, not `nfs`.** SQLite over NFS
+does not work: Sonarr logged 996 "database is locked" errors in a week, one of which stalled the
+nightly refresh for 35 minutes and jammed the task queue until `/api/v3/queue` stopped answering,
+timing out unpackerr 33 times. All four arrs were migrated off NFS on 2026-08-06. This covers most
+of `apps/` — the arrs, and anything else keeping state in SQLite.
+
+Declare the PVC as its own manifest so the rationale and recovery path live with the volume, and
+consume it with `existingClaim` (see `apps/sonarr/config-pvc.yaml`):
+
+```yaml
+persistence:
+  config:
+    existingClaim: myapp-config-local
+    globalMounts:
+      - path: /config
+```
+
+Non-SQLite config volumes still use `nfs`:
 
 ```yaml
 persistence:
@@ -198,15 +219,24 @@ just todos              # Show remaining TODOs in repo
 
 - **No `sleep` commands** in scripts or manifests. Use `kubectl wait`, `--timeout`, or readiness probes instead.
 - **Never use `Ingress`**. All routing uses Gateway API `HTTPRoute` only.
-- Never use `local-path` StorageClass for new PVCs, **except** in two cases. (1) Replicated databases
-  (CloudNativePG clusters with 2+ instances), where streaming replication — not the volume — provides
-  node-failure durability; NFS is not a supported CNPG configuration. (2) Volumes whose contents are
-  **reconstructible from a container image**, where the volume is a performance cache rather than a
-  system of record — Nextcloud's PHP app tree is the example (`apps/nextcloud/html-pvc.yaml`): ~15k
-  small files that would otherwise sit on a `sync`-exported USB spinning disk, and whose loss costs a
-  rebuild rather than data. Both cases pin the pod to one node, so `replicas: 1` and a `Recreate`
-  strategy are prerequisites, and the recovery path (delete the PVC, let it rebuild) must be written
-  down. Note `local-path` cannot be expanded in place, so size those volumes correctly up front.
+- Use `local-path` for PVCs in these three cases, and `nfs` otherwise. (1) **SQLite databases** —
+  required, not merely allowed: SQLite over NFS deadlocks (see Storage). Durability comes from a
+  scheduled backup to the NFS share instead of from the volume, so an app in this case needs a
+  backup path before it ships — the arrs' built-in System → Backup writing to
+  `/data/backups/<app>/`, or a CronJob if the app has none (`apps/cleanuparr/backup-cronjob.yaml`).
+  (2) **Replicated databases** (CloudNativePG clusters with 2+ instances), where streaming
+  replication — not the volume — provides node-failure durability; NFS is not a supported CNPG
+  configuration. (3) **Volumes reconstructible from a container image**, where the volume is a
+  performance cache rather than a system of record — Nextcloud's PHP app tree
+  (`apps/nextcloud/html-pvc.yaml`): ~15k small files that would otherwise sit on a `sync`-exported
+  USB spinning disk, and whose loss costs a rebuild rather than data.
+  All three pin the pod to one node, so `replicas: 1` and a `Recreate` strategy are prerequisites,
+  and the recovery path must be written down in the PVC manifest. Note the "won't survive node
+  failure" objection is weaker than it looks: worker-01 *is* the NFS server, so `nfs` was never
+  giving these volumes a second node — only a second disk (the USB spinning drive) on the same
+  node. `local-path` cannot be expanded in place, so size these correctly up front, and give the
+  PVC **no** `sync-wave` annotation — `WaitForFirstConsumer` leaves it Pending, which an earlier
+  wave reads as unhealthy and deadlocks the sync.
 - Never commit `secrets/.secrets`, `secrets/.secrets.generated`, `.vault_pass`, `pub-cert.pem`, or anything in `config/` (gitignored).
 - Chart versions in `app.yaml` are managed by Renovate — don't pin to `latest`.
 - Server-side apply only for ArgoCD managed resources (avoids annotation conflicts).

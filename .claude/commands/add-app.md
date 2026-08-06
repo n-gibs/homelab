@@ -114,7 +114,24 @@ route:
 
 If the chart has a **built-in HTTPRoute** (found in Step 2), configure it via the chart's own values and add the Homepage annotations there. Never use `Ingress` — if the chart only supports ingress, disable it (`ingress.enabled: false`) and use app-template's `route:` block instead.
 
-Add persistence if needed (always NFS, never local-path):
+Add persistence if needed. First check **whether the app stores state in SQLite** — most self-hosted
+apps do. If so the config volume must be `local-path`, not `nfs`: SQLite over NFS deadlocks. Declare
+it as its own manifest (`config-pvc.yaml`, no `sync-wave` annotation, rationale and recovery path in
+a comment — copy `apps/sonarr/config-pvc.yaml`) and consume it by name:
+
+```yaml
+persistence:
+  config:
+    existingClaim: <app>-config-local
+    globalMounts:
+      - path: /config
+```
+
+A `local-path` config volume also needs a backup to NFS before it ships — the app's own scheduled
+backup pointed at `/data/backups/<app>/`, or a CronJob if it has none
+(`apps/cleanuparr/backup-cronjob.yaml`).
+
+Otherwise, `nfs`:
 ```yaml
 persistence:
   config:
@@ -208,7 +225,7 @@ Watch sync: `kubectl get application -n argocd` or check ArgoCD UI at `argocd.ni
 - [ ] Chart inspected for built-in HTTPRoute — use it if present, otherwise use app-template `route:`
 - [ ] Homepage annotations on the route
 - [ ] `vpa.yaml` present
-- [ ] NFS StorageClass for any PVCs (not local-path)
+- [ ] Storage class chosen per volume: `local-path` for SQLite config (with a backup to NFS), `nfs` otherwise
 - [ ] nodeSelector `homelab.io/media: "true"` if accessing `/data` on NFS (no toleration — worker-01 is untainted)
 - [ ] Secrets sealed and committed, var name added to `secrets/.secrets.example`
 - [ ] Row added to `secrets/registry.tsv` if secrets needed

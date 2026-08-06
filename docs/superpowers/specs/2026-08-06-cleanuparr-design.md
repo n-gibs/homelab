@@ -326,10 +326,10 @@ period. These are convenience features; they wait until the cleanup path is trus
 None blocking. One item to check during implementation rather than design: whether
 `cleanuparr.png` exists in the Homepage icon set, with an `mdi-` fallback if not.
 
-## Follow-up
+## Documentation
 
-`CLAUDE.md`'s storage rule lists two `local-path` exceptions (replicated CNPG, and volumes
-reconstructible from an image). Today's migrations plus this deployment establish a third —
-SQLite databases kept durable by a scheduled backup to a different disk rather than by the volume
-itself. The rule text should be amended to describe that exception — "SQLite config volumes with a
-backup to NFS" — rather than having five app directories each justify it in a comment.
+`CLAUDE.md` and `.claude/commands/add-app.md` both said "always NFS, never local-path" — guidance
+that today's four migrations had already invalidated. Both were corrected alongside this spec:
+SQLite config volumes now go on `local-path` as a rule rather than an exception, with durability
+supplied by a scheduled backup to the NFS share. That is why this deployment ships a backup
+CronJob rather than treating one as optional.
