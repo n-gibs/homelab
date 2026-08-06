@@ -72,18 +72,32 @@ This matches the repo's first custom manager (`chartName` / `chartRepo` / `chart
 with a `helm` datasource), so chart bumps land in the existing `helm charts` PR group with
 `automerge: false`.
 
-The image override in `values.yaml` uses the repo's existing image-tracking comment
-pattern, identical in shape to `apps/immich`:
+The image override in `values.yaml` overrides **only the tag**:
 
 ```yaml
 # renovate: datasource=docker depName=ghcr.io/renovatebot/renovate
 image:
-  repository: ghcr.io/renovatebot/renovate
   tag: 44.14.3
 ```
 
-This matches the second `values.yaml` matchString already present in `renovate.json`
-(comment → `image:` → `repository:` → `tag:`). **No new custom manager is required.**
+This is deliberate and load-bearing, for two independent reasons.
+
+First, the chart splits the image across `image.registry` (`ghcr.io`) and
+`image.repository` (`renovatebot/renovate`). Writing
+`repository: ghcr.io/renovatebot/renovate` would produce
+`ghcr.io/ghcr.io/renovatebot/renovate`. The chart defaults are already correct, so only the
+tag needs overriding.
+
+Second, the tag-only form is what the repo's **first** `values.yaml` matchString matches
+(comment → `image:` → `tag:`). The second matchString requires `repository:` immediately
+after `image:`; because the chart's own value ordering is `registry`, `repository`, `tag`,
+any override that includes `registry` would match *neither* pattern and Renovate would
+silently stop tracking its own version — no error, just a dependency that never updates.
+
+Verified by running both `renovate.json` matchStrings against the exact `values.yaml` text
+above: the tag-only pattern returns one hit with
+`depName=ghcr.io/renovatebot/renovate`, `currentValue=44.14.3`.
+**No new custom manager is required.**
 
 Two consequences of the pin, both accepted:
 
@@ -99,8 +113,20 @@ Two consequences of the pin, both accepted:
 
 Two files, two distinct jobs. Nothing moves between them.
 
-- **`values.yaml` — where to run.** Global config passed to the container:
-  `platform: github`, `repositories: ["n-gibs/homelab"]`, `onboarding: false`, log level.
+- **`values.yaml` — where to run.** The chart's `renovate.config` is an **inline JSON
+  string**, not a YAML map — it is written verbatim into a ConfigMap as `config.json` and
+  passed as Renovate's global config:
+
+  ```yaml
+  renovate:
+    config: |
+      {
+        "platform": "github",
+        "onboarding": false,
+        "repositories": ["n-gibs/homelab"]
+      }
+  ```
+
   `onboarding: false` is explicit rather than relied upon; a committed `renovate.json`
   already suppresses onboarding, but self-hosted Renovate defaults `onboarding` to true and
   the explicit setting removes any chance of a stray onboarding PR.
@@ -122,13 +148,33 @@ page forever.
 Running daily makes the existing alert correct with **zero edits to the monitoring rules**,
 and has the side benefit of producing fresh logs on demand rather than once a week.
 
-Use the CronJob `timeZone` field with `America/Los_Angeles` to match the repo's existing
-timezone convention.
+Set via the chart's `cronjob.schedule` and `cronjob.timeZone`, the latter
+`America/Los_Angeles` to match the repo's existing timezone convention. The chart's own
+default is already `0 1 * * *` daily, so this is a shift of the hour, not of the cadence.
+
+## Cache
+
+**Leave `renovate.persistence.cache.enabled` at the chart default of `false`.**
+
+The chart's values comment recommends a persistent SQLite cache, and that advice is sound
+at scale — it spares repeated datasource lookups between runs. It is not worth it here.
+This is one small repo with roughly 15 tracked dependencies; the saving is a few seconds
+per run against the cost of a PVC. That PVC would also have to be `local-path`, since it
+holds SQLite and SQLite over NFS deadlocks — which pins the CronJob to a single node for a
+cache that is by definition reconstructible.
+
+The one argument for enabling it is that a cold cache re-queries Docker Hub every run,
+which is the same rate limit the host rules below exist to raise. If logs ever show
+rate-limit errors *despite* those credentials, enabling the cache is the next lever —
+`local-path`, sized small, per the repo's third local-path case (a performance cache, not a
+system of record).
 
 ## Secrets
 
 One sealed secret, `renovate-env`, in namespace `renovate`, consumed by the chart's
-`existingSecret` value. Sealed table-driven per `secrets/README.md` — add the values to
+top-level `existingSecret` value. The chart mounts it as `envFrom.secretRef`, so every key
+in the secret becomes an environment variable — verified by rendering the chart. Sealed
+table-driven per `secrets/README.md` — add the values to
 `secrets/.secrets`, add one row to `secrets/registry.tsv`, run `just seal renovate-env`. No
 new Justfile recipe.
 
@@ -218,7 +264,8 @@ for a tool whose entire output is already reviewed as pull requests.
 
 Two commits, deliberately.
 
-1. **Dry run.** Ship with `dryRun: full` in `values.yaml`. Let one scheduled run complete
+1. **Dry run.** Ship with `"dryRun": "full"` added to the `renovate.config` JSON string —
+   it is a Renovate config option, not a chart value. Let one scheduled run complete
    (or trigger one with `kubectl create job --from=cronjob/renovate`). Read the pod logs
    and confirm:
    - it authenticates and resolves `n-gibs/homelab`
@@ -228,6 +275,11 @@ Two commits, deliberately.
    - no config-validation error from running Renovate `44` against this `renovate.json`
 2. **Enable.** Remove `dryRun`, merge, and confirm the first real run opens PRs and creates
    the Dependency Dashboard issue.
+
+The full values file was rendered against chart `46.251.0` with `helm template` before this
+spec was finalised. It produces `image: "ghcr.io/renovatebot/renovate:44.14.3"`,
+`schedule: "0 3 * * *"`, `timeZone: America/Los_Angeles`, `envFrom.secretRef.name:
+renovate-env`, and the stated resource block.
 
 Per the repo's GitOps rule, both changes reach the cluster by merging to `main` and letting
 ArgoCD sync — no manual `kubectl apply`.
