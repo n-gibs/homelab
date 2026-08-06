@@ -67,3 +67,13 @@ persistence:
     accessMode: ReadWriteMany
     globalMounts:
       - path: /config
+  # Backups only. Prowlarr is not a media app and has no business seeing the
+  # library, so this mounts the backups subdir rather than the whole share the
+  # *arr apps get. Prowlarr creates its own prowlarr/ dir under here; the parent
+  # is owned by uid 1000, which is what the container runs as.
+  backups:
+    type: nfs
+    server: 192.168.30.194
+    path: /mnt/storage/backups
+    globalMounts:
+      - path: /data/backups
