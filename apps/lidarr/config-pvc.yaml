@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: lidarr-config-local
+  namespace: lidarr
+  # NO sync-wave annotation -- do not add one. local-path is WaitForFirstConsumer,
+  # so this stays Pending (= unhealthy to ArgoCD) until its consumer is scheduled.
+  # An earlier wave deadlocks the sync forever. Same reasoning as
+  # apps/nextcloud/html-pvc.yaml.
+spec:
+  accessModes:
+    - ReadWriteOnce
+  # local-path, same exception as apps/sonarr/config-pvc.yaml -- read that one for
+  # the full argument. Short version: the config is a SQLite database, SQLite over
+  # NFS does not work reliably, and Lidarr logged 564 "database is locked" errors
+  # in a week.
+  #
+  # The durability trade is smaller than it looks: worker-01 is itself the NFS
+  # server, so the nfs class was never buying this volume a second *node*, only a
+  # second disk on the same node (sda, a 10.9T spinning USB drive) versus the
+  # internal NVMe local-path uses. Lidarr's scheduled backup writes to
+  # /data/backups/lidarr on that USB disk, which is the different failure domain.
+  #
+  # Recovery if worker-01's NVMe dies: delete this PVC, let it recreate empty,
+  # then restore the newest zip from /data/backups/lidarr/scheduled/ via
+  # System -> Backup -> Restore. Music library and downloads are untouched.
+  #
+  # 10Gi against a ~240M config is headroom -- local-path cannot be expanded in
+  # place, so this is sized once.
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 10Gi
