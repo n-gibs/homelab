@@ -51,10 +51,11 @@ ApplicationSet (sync wave 3) via the `app.yaml` file generator.
 
 ```
 apps/cleanuparr/
-  app.yaml          # chartName/chartRepo/chartVersion — Renovate-managed
-  values.yaml       # container, service, HTTPRoute, persistence
-  config-pvc.yaml   # local-path PVC + rationale
-  vpa.yaml          # standard VPA, Recreate
+  app.yaml             # chartName/chartRepo/chartVersion — Renovate-managed
+  values.yaml          # container, service, HTTPRoute, persistence
+  config-pvc.yaml      # local-path PVC + rationale
+  backup-cronjob.yaml  # nightly SQLite backup to /data/backups/cleanuparr
+  vpa.yaml             # standard VPA, Recreate
 ```
 
 Deliberately absent:
@@ -64,24 +65,25 @@ Deliberately absent:
   There is nothing to seal.
 - **No `limitrange.yaml`.** That exists in `apps/sonarr/` for VPA request:limit-ratio reasons;
   the VPA's own `minAllowed` floor covers this app.
-- **No `/data` volume.** Follows from excluding orphan/hardlink cleanup. Blacklist Sync reads
-  its list from an HTTPS URL, not a local file, so no filesystem access to media is required.
+- **No `/data` volume on the Cleanuparr pod.** Follows from excluding orphan/hardlink cleanup.
+  Blacklist Sync reads its list from an HTTPS URL, not a local file, so the app itself needs no
+  filesystem access to media. The backup CronJob does mount NFS at `/data`, but that is a separate
+  pod with a separate lifetime — the app never sees the media share.
 
 ### Container
 
 | Field | Value |
 |---|---|
 | Image | `ghcr.io/cleanuparr/cleanuparr` |
-| Tag | `2.10.3` (latest release as of 2026-08-02) |
+| Tag | `2.10.3` (latest release, 2026-08-02) |
 | Port | `11011` |
 | Env | `PORT=11011`, `PUID=1000`, `PGID=1000`, `UMASK=022`, `TZ=America/Los_Angeles` |
 
 Pinned to a release tag, not `latest` — the project's own docs warn that `latest` ships breaking
 changes. Renovate handles bumps like every other image in the repo.
 
-**Verify before applying:** confirm the ghcr tag is `2.10.3` and not `v2.10.3`. The GitHub
-*release* tag is `v2.10.3`; the container tag convention is not documented and must be checked
-against the registry rather than assumed.
+The GitHub *release* tag is `v2.10.3`, but the container tag carries no `v` prefix. Verified
+against the registry: `ghcr.io/cleanuparr/cleanuparr:2.10.3` returns a manifest, `v2.10.3` 404s.
 
 No `nodeSelector`. Cleanuparr mounts no NFS and touches no media files, so it does not need
 `homelab.io/media`. The local-path PV binds it to whichever node it first schedules on, and the
@@ -98,15 +100,67 @@ NFS does not work reliably — Sonarr logged 996 "database is locked" errors in 
 stalled the nightly refresh for 35 minutes and jammed the task queue hard enough that
 `/api/v3/queue` stopped answering.
 
-Two details specific to this volume:
+The durability objection to `local-path` carries less weight than it appears to. worker-01 is
+itself the NFS server, so the `nfs` class was never giving this volume a second *node* — it was
+giving it a second *disk* on the same node (a 10.9T spinning USB drive) versus the internal NVMe
+that `local-path` uses. The trade is real but small, and it is bought back by the backup below.
 
-- **No backup path, deliberately.** Unlike the arrs, Cleanuparr has no scheduled-backup feature
-  writing to `/data/backups/`. Recovery from NVMe loss is: delete the PVC, let it recreate empty,
-  re-enter the arr URLs, API keys, qBittorrent credentials, and job settings in the UI. Roughly
-  15 minutes of clicking. The API keys are all recoverable from `secrets/.secrets` because they
-  are `generate:`-derived. Building a backup path for 15 minutes of re-entry is not worth it.
-- **Sized once.** `local-path` cannot be expanded in place. 2Gi against a settings database plus
-  logs is generous.
+**Sized once.** `local-path` cannot be expanded in place. 2Gi against a settings database plus
+logs is generous.
+
+### Backup
+
+Unlike the arrs, Cleanuparr has **no built-in scheduled-backup feature** — there is no
+System → Backup equivalent. So the backup is ours: a nightly CronJob in
+`apps/cleanuparr/backup-cronjob.yaml` writing to `/data/backups/cleanuparr`, alongside the arrs'
+own backups on the NFS share.
+
+This puts the backup in a different failure domain from the volume: `local-path` on worker-01's
+internal NVMe for the live database, the USB-attached spinning disk for the backups.
+
+**Mechanism.** The CronJob mounts two volumes:
+
+| Volume | Mount | Note |
+|---|---|---|
+| `cleanuparr-config-local` (existing PVC) | `/config`, read-only where possible | RWO — see below |
+| `nfs` `192.168.30.194:/mnt/storage` | `/data` | Same direct NFS mount the media apps use |
+
+**On mounting an RWO volume twice:** `ReadWriteOnce` is a per-*node* constraint, not per-pod —
+two pods on the same node may both mount it. The `local-path` PV carries node affinity, so the
+scheduler is forced to place the backup pod on the same node as Cleanuparr, which makes this safe
+rather than lucky. (`ReadWriteOncePod` would forbid it; that is not the class in use here.)
+
+**Why not `cp`.** SQLite in WAL mode spreads committed state across `.db`, `.db-wal`, and
+`.db-shm`; copying them with `cp` while the app is writing can produce a torn, unrestorable
+backup. The correct approach is SQLite's online backup API, which takes a consistent snapshot of
+a live database.
+
+**Image: `python:3.13-alpine`.** Python's stdlib `sqlite3` module exposes
+`Connection.backup()` — the online backup API — so this needs no `sqlite3` CLI, no `apk add` at
+runtime, and no new third-party image. It is an official image, so Renovate tracks it like
+everything else. (Checked first whether an image already in the cluster would do: the
+linuxserver arr images do not ship the `sqlite3` binary.)
+
+**What gets backed up.** Cleanuparr creates one database per internal context (`data`, `events`,
+`users`), so the job globs `/config/*.db` rather than naming files. It also copies
+`cleanuparr.json` and the DataProtection keys, which live in `/config` and are not in the
+databases. Log files are skipped.
+
+Output is a single dated archive per run, with `find -mtime +14 -delete` retention matching the
+pattern in `apps/nextcloud/pg-backup.yaml`.
+
+**Monitoring — do not skip this.** `system/monitoring-system/prometheusrule-backups.yaml` covers
+new CronJobs generically for the "runs but never succeeds", "stopped being scheduled", and
+"suspended" cases, so those need no edit. But `BackupCronJobMissing` is the one deliberately
+non-generic rule: it counts CronJobs matching `.+-db-backup` and alerts when the count is `< 2`.
+Naming this job **`cleanuparr-db-backup`** brings it under that guard, which means the threshold
+must be raised to `< 3` and the alert's summary and description updated to name three jobs.
+Left unchanged, the rule silently tolerates one backup disappearing entirely.
+
+**Recovery from NVMe loss:** delete the PVC, let it recreate empty, extract the newest archive
+from `/data/backups/cleanuparr/` back into `/config`, restart the pod. Failing that, the manual
+path still exists — re-enter arr URLs, API keys, and job settings in the UI, roughly 15 minutes;
+the API keys are all recoverable from `secrets/.secrets` since they are `generate:`-derived.
 
 The PVC manifest carries **no** `argocd.argoproj.io/sync-wave` annotation. `local-path` is
 `WaitForFirstConsumer`, so the PVC stays `Pending` — which ArgoCD reads as unhealthy — until its
@@ -219,9 +273,14 @@ in one place.
 
 ### Phase 1 — Deploy with everything off
 
-Merge the four files. ArgoCD syncs; the PVC binds on first consumer. Confirm the pod is Running,
-the route resolves, and the UI loads. Set **Dry Run ON** immediately, before configuring anything
-that could act.
+Merge the five files, plus the `BackupCronJobMissing` threshold bump to `< 3`. ArgoCD syncs; the
+PVC binds on first consumer. Confirm the pod is Running, the route resolves, and the UI loads. Set
+**Dry Run ON** immediately, before configuring anything that could act.
+
+Create `/data/backups/cleanuparr` on the NFS share and trigger the backup CronJob manually
+(`kubectl create job --from=cronjob/cleanuparr-db-backup`) to prove it can mount the RWO volume
+alongside the running pod and write a non-empty archive. Better to find that out now than during
+a restore.
 
 ### Phase 2 — Malware Blocker + Blacklist Sync
 
@@ -258,19 +317,19 @@ period. These are convenience features; they wait until the cleanup path is trus
 - Homepage tile appears in the Media group with a working icon.
 - "Trust Forwarded Headers" is OFF.
 - Config survives a pod delete (proves the PVC is actually mounted and written).
+- Backup CronJob completes and writes a non-empty archive to `/data/backups/cleanuparr`.
+- `BackupCronJobMissing` is not firing after the threshold bump (proves the new job is counted).
 - Phase 2 exit: Dry Run logs show correct identification and zero false positives.
 
 ## Open questions
 
-None blocking. Two items to check during implementation rather than design:
-
-1. The exact ghcr tag string for 2.10.3.
-2. Whether `cleanuparr.png` exists in the Homepage icon set.
+None blocking. One item to check during implementation rather than design: whether
+`cleanuparr.png` exists in the Homepage icon set, with an `mdi-` fallback if not.
 
 ## Follow-up
 
 `CLAUDE.md`'s storage rule lists two `local-path` exceptions (replicated CNPG, and volumes
 reconstructible from an image). Today's migrations plus this deployment establish a third —
-SQLite databases whose loss is recoverable from an arr backup or by re-entering settings. The rule
-text should be amended to describe that exception rather than having five app directories each
-justify it in a comment.
+SQLite databases kept durable by a scheduled backup to a different disk rather than by the volume
+itself. The rule text should be amended to describe that exception — "SQLite config volumes with a
+backup to NFS" — rather than having five app directories each justify it in a comment.
