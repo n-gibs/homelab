@@ -222,8 +222,12 @@ just todos              # Show remaining TODOs in repo
 - Use `local-path` for PVCs in these three cases, and `nfs` otherwise. (1) **SQLite databases** —
   required, not merely allowed: SQLite over NFS deadlocks (see Storage). Durability comes from a
   scheduled backup to the NFS share instead of from the volume, so an app in this case needs a
-  backup path before it ships — the arrs' built-in System → Backup writing to
-  `/data/backups/<app>/`, or a CronJob if the app has none (`apps/cleanuparr/backup-cronjob.yaml`).
+  backup path before it ships. **Prefer the app's own built-in backup** — the arrs' System → Backup
+  pointed at `/data/backups/<app>/`. It knows how to quiesce its own database, produces an archive
+  its own restore flow accepts, needs no extra pod, and can't drift from the schema. Write a
+  CronJob **only** when the app has no backup feature at all (`apps/cleanuparr/backup-cronjob.yaml`
+  — Cleanuparr has none), and back up SQLite with the online-backup API rather than `cp`, since WAL
+  mode spreads committed state across `.db`/`-wal`/`-shm`.
   (2) **Replicated databases** (CloudNativePG clusters with 2+ instances), where streaming
   replication — not the volume — provides node-failure durability; NFS is not a supported CNPG
   configuration. (3) **Volumes reconstructible from a container image**, where the volume is a

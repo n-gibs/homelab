@@ -110,10 +110,10 @@ logs is generous.
 
 ### Backup
 
-Unlike the arrs, Cleanuparr has **no built-in scheduled-backup feature** — there is no
-System → Backup equivalent. So the backup is ours: a nightly CronJob in
-`apps/cleanuparr/backup-cronjob.yaml` writing to `/data/backups/cleanuparr`, alongside the arrs'
-own backups on the NFS share.
+The preferred option is the app's own backup feature, but Cleanuparr has **none** — no
+System → Backup equivalent anywhere in its settings or docs. So this falls to the CronJob case: a
+nightly job in `apps/cleanuparr/backup-cronjob.yaml` writing to `/data/backups/cleanuparr`,
+alongside the arrs' own backups on the NFS share.
 
 This puts the backup in a different failure domain from the volume: `local-path` on worker-01's
 internal NVMe for the live database, the USB-attached spinning disk for the backups.
