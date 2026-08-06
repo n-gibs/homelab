@@ -127,8 +127,10 @@ persistence:
       - path: /config
 ```
 
-A `local-path` config volume also needs a backup to NFS before it ships — the app's own scheduled
-backup pointed at `/data/backups/<app>/`, or a CronJob if it has none
+A `local-path` config volume also needs a backup to NFS before it ships. **Check the app's settings
+for a built-in backup feature first and prefer it** — the arrs' System → Backup pointed at
+`/data/backups/<app>/`. It quiesces its own database, writes an archive its own restore flow
+accepts, and adds no manifest to maintain. Only write a CronJob when the app has no backup feature
 (`apps/cleanuparr/backup-cronjob.yaml`).
 
 Otherwise, `nfs`:
@@ -225,7 +227,8 @@ Watch sync: `kubectl get application -n argocd` or check ArgoCD UI at `argocd.ni
 - [ ] Chart inspected for built-in HTTPRoute — use it if present, otherwise use app-template `route:`
 - [ ] Homepage annotations on the route
 - [ ] `vpa.yaml` present
-- [ ] Storage class chosen per volume: `local-path` for SQLite config (with a backup to NFS), `nfs` otherwise
+- [ ] Storage class chosen per volume: `local-path` for SQLite config, `nfs` otherwise
+- [ ] `local-path` volume has a backup to `/data/backups/<app>/` — app's built-in backup if it has one, CronJob only if not
 - [ ] nodeSelector `homelab.io/media: "true"` if accessing `/data` on NFS (no toleration — worker-01 is untainted)
 - [ ] Secrets sealed and committed, var name added to `secrets/.secrets.example`
 - [ ] Row added to `secrets/registry.tsv` if secrets needed
