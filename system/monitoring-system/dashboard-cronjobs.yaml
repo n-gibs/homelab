@@ -266,7 +266,7 @@ data:
           "id": 8,
           "type": "logs",
           "title": "Backup and sync job output",
-          "description": "Every line the pg-dump, rclone and recyclarr containers wrote, newest first. The dumps log the file they wrote, its size and how many they retained, so a restore-time question is usually answerable from here without touching the NFS share.",
+          "description": "Every line the pg-dump, rclone and recyclarr containers wrote, newest first, each prefixed with its app since four namespaces share this panel. The dumps log the file they wrote, its size and how many they retained, so a restore-time question is usually answerable from here without touching the NFS share.",
           "gridPos": { "h": 11, "w": 24, "x": 0, "y": 20 },
           "datasource": { "type": "loki", "uid": "${logs}" },
           "options": {
@@ -283,7 +283,7 @@ data:
             {
               "refId": "A",
               "datasource": { "type": "loki", "uid": "${logs}" },
-              "expr": "{namespace=~\"immich|nextcloud|rclone-seedbox|recyclarr\", container=~\"pg-dump|rclone-seedbox|app\"}",
+              "expr": "{namespace=~\"immich|nextcloud|rclone-seedbox|recyclarr\", container=~\"pg-dump|rclone-seedbox|app\"} | line_format \"{{ printf \\\"%-22s\\\" .app }} {{ __line__ }}\"",
               "maxLines": 500
             }
           ]
