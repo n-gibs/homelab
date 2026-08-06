@@ -365,7 +365,7 @@ data:
           "id": 11,
           "type": "logs",
           "title": "Recent errors across the media stack",
-          "description": "Every error-or-worse line from all media apps on one timeline, which is the point of the per-app labels: cross-app failures (prowlarr indexer down, so sonarr finds nothing) are only obvious side by side.",
+          "description": "Every error-or-worse line from all media apps on one timeline, which is the point of the per-app labels: cross-app failures (prowlarr indexer down, so sonarr finds nothing) are only obvious side by side. line_format prefixes each line with its app, padded so the messages align — without it the panel is an unattributed wall of text, since these apps don't name themselves in their own log lines.",
           "gridPos": { "h": 11, "w": 24, "x": 0, "y": 27 },
           "datasource": { "type": "loki", "uid": "${logs}" },
           "options": {
@@ -382,7 +382,7 @@ data:
             {
               "refId": "A",
               "datasource": { "type": "loki", "uid": "${logs}" },
-              "expr": "{namespace=~\"$media\"} | detected_level =~ \"error|critical|fatal\"",
+              "expr": "{namespace=~\"$media\"} | detected_level =~ \"error|critical|fatal\" | line_format \"{{ printf \\\"%-13s\\\" .app }} {{ __line__ }}\"",
               "maxLines": 500
             }
           ]
