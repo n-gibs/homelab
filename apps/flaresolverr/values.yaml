@@ -2,9 +2,10 @@ controllers:
   main:
     containers:
       app:
+        # renovate: datasource=docker depName=ghcr.io/flaresolverr/flaresolverr
         image:
           repository: ghcr.io/flaresolverr/flaresolverr
-          tag: latest
+          tag: v3.5.0
         env:
           TZ: America/Los_Angeles
           LOG_LEVEL: info

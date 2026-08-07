@@ -10,9 +10,10 @@ controllers:
           effect: PreferNoSchedule
     containers:
       app:
+        # renovate: datasource=docker depName=lscr.io/linuxserver/prowlarr versioning=regex:^(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)\.(?<build>\d+)-ls(?<revision>\d+)$
         image:
           repository: lscr.io/linuxserver/prowlarr
-          tag: latest
+          tag: 2.5.2.5491-ls156
         env:
           PUID: "1000"
           PGID: "1000"
