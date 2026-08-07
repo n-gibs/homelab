@@ -1,6 +1,6 @@
 ---
-# Guards the five CronJobs — two Postgres dumps (immich, nextcloud), the seedbox rclone copy,
-# nextcloud's internal cron, and recyclarr. Nothing watched these before: a CronJob that stops
+# Guards the six CronJobs — two Postgres dumps (immich, nextcloud), Cleanuparr's SQLite backup,
+# the seedbox rclone copy, nextcloud's internal cron, and recyclarr. Nothing watched these before: a CronJob that stops
 # running produces no logs, no failed pod, and no alert, so the first sign of a broken backup
 # would have been needing one.
 #
@@ -108,15 +108,15 @@ spec:
         # only way to catch that, at the cost of needing an edit when a backup is added.
         # Critical rather than warning: this is the rule that notices monitoring itself stopped.
         - alert: BackupCronJobMissing
-          expr: count(kube_cronjob_status_last_successful_time{cronjob=~".+-db-backup"}) < 2
+          expr: count(kube_cronjob_status_last_successful_time{cronjob=~".+-db-backup"}) < 3
           for: 1h
           labels:
             severity: critical
           annotations:
-            summary: Expected 2 database backup CronJobs reporting a successful run, found {{ $value }}
+            summary: Expected 3 database backup CronJobs reporting a successful run, found {{ $value }}
             description: >-
-              immich-db-backup and nextcloud-db-backup should both be reporting a last
-              successful run. One is missing, which means it was deleted, was renamed without
+              immich-db-backup, nextcloud-db-backup and cleanuparr-db-backup should all be
+              reporting a last successful run. One is missing, which means it was deleted, was renamed without
               this rule being updated, or has never once succeeded since being created — a new
               backup that has failed every attempt looks identical to a backup that does not
               exist, and neither CronJobNotSucceeding nor CronJobOverdue can fire on an absent
