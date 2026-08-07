@@ -94,8 +94,19 @@ spec:
 
                   os.makedirs(DEST, exist_ok=True)
                   archive = os.path.join(DEST, f"cleanuparr-{stamp}.tar.gz")
-                  with tarfile.open(archive, "w:gz") as tar:
+                  # Write under a temp name in DEST (same filesystem, so the
+                  # rename below is atomic) and only rename onto the real name
+                  # once the archive is complete. Writing straight to `archive`
+                  # would leave a truncated file at the exact name a good
+                  # backup would have if the pod dies mid-write -- and that is
+                  # the name the restore path reaches for. The ".tmp" suffix
+                  # also keeps it out of the "cleanuparr-*.tar.gz" prune glob
+                  # below, so a leftover temp file from a crash is never
+                  # pruned as -- or counted as -- a real archive.
+                  tmp_archive = archive + ".tmp"
+                  with tarfile.open(tmp_archive, "w:gz") as tar:
                       tar.add(staging, arcname="config")
+                  os.rename(tmp_archive, archive)
                   print(f"wrote {archive} ({os.path.getsize(archive)} bytes)")
 
                   cutoff = time.time() - RETAIN_DAYS * 86400
