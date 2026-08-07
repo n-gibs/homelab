@@ -16,7 +16,8 @@
 - Image tag is exactly `44.14.3`, overriding the chart's bundled appVersion `43.288.0`.
 - Override **only** `image.tag`. Never set `image.registry` or `image.repository` — see Task 1.
 - CronJob schedule is exactly `0 3,15 * * *`, timezone `America/Los_Angeles`.
-- `renovate.config` is an inline **JSON string**, not a YAML map.
+- `renovate.config` is an inline **string**, not a YAML map, and is **JavaScript** (`configIsJavaScript: true`) so credentials can be `process.env` references rather than committed values.
+- Docker Hub `matchHost` is `docker.io`. Not `https://index.docker.io`.
 - Do **not** create `platform/renovate/vpa.yaml`. This workload is a documented exception to the repo's all-apps-get-VPA rule.
 - Do **not** modify the root `renovate.json`. Its `"schedule": ["every weekend"]` stays as the PR gate.
 - Do **not** create a namespace manifest — `bootstrap/root/templates/stack.yaml` sets `CreateNamespace=true`.
@@ -90,19 +91,27 @@ cronjob:
 existingSecret: renovate-env
 
 renovate:
+  # JavaScript, not JSON, so credentials can stay out of git as process.env
+  # references. A broken config.js makes Renovate exit loudly; the JSON
+  # RENOVATE_HOST_RULES alternative fails silently. See the spec.
+  configIsJavaScript: true
   config: |
-    {
-      "platform": "github",
-      "onboarding": false,
-      "repositories": ["n-gibs/homelab"],
-      "dryRun": "full"
-    }
-
-# Temporary, removed in Task 4 along with dryRun. Required for verification:
-# Renovate logs a malformed RENOVATE_HOST_RULES at debug level only, so at the
-# default info level a silent credential failure is invisible.
-env:
-  LOG_LEVEL: debug
+    module.exports = {
+      platform: 'github',
+      onboarding: false,
+      repositories: ['n-gibs/homelab'],
+      dryRun: 'full',
+      hostRules: [
+        {
+          hostType: 'docker',
+          matchHost: 'docker.io',
+          // Not a credential, so it stays readable in git rather than
+          // being invisible inside the sealed secret.
+          username: 'nikgibs',
+          password: process.env.DOCKER_HUB_TOKEN,
+        },
+      ],
+    };
 
 resources:
   requests:
@@ -116,30 +125,36 @@ resources:
 **Why the image block is tag-only, and why this matters more than it looks.**
 The chart splits `image.registry` (`ghcr.io`) from `image.repository` (`renovatebot/renovate`). Writing `repository: ghcr.io/renovatebot/renovate` renders `ghcr.io/ghcr.io/renovatebot/renovate`. Worse, the repo's second `values.yaml` matchString requires `repository:` *immediately* after `image:` — and since the chart orders the keys `registry`, `repository`, `tag`, any override including `registry` matches **neither** matchString. Renovate would then silently stop tracking its own version: no error, just a dependency that never updates. The tag-only form matches the first matchString. Step 6 proves it.
 
-`"dryRun": "full"` is deliberate and gets removed in Task 4. It is a Renovate config option, so it belongs inside this JSON string, not as a chart value.
+`dryRun: 'full'` is deliberate and gets removed in Task 4. It is a Renovate config option, so it belongs inside the config object, not as a chart value.
+
+`matchHost` is `docker.io` — Renovate's own documented value. Not `https://index.docker.io`.
 
 - [ ] **Step 5: Render the chart and verify the output**
 
 ```bash
 helm template renovate renovate/renovate --version 46.251.0 \
   -f platform/renovate/values.yaml \
-  | grep -E 'kind:|schedule:|timeZone:|concurrencyPolicy:|image:|secretRef|name: renovate-env|LOG_LEVEL'
+  | grep -E 'kind:|schedule:|timeZone:|concurrencyPolicy:|image:|secretRef|name: renovate-env|config\.js|RENOVATE_CONFIG_FILE|process\.env'
 ```
 
 Expected — all of these present:
 
 ```
+  config.js: |-
 kind: ConfigMap
 kind: CronJob
   schedule: "0 3,15 * * *"
   timeZone: America/Los_Angeles
   concurrencyPolicy: Forbid
               image: "ghcr.io/renovatebot/renovate:44.14.3"
-                - name: "LOG_LEVEL"
-                  value: "debug"
+          password: process.env.DOCKER_HUB_TOKEN,
+                - name: RENOVATE_CONFIG_FILE
+                  value: /usr/src/app/config.js
                 - secretRef:
                     name: renovate-env
 ```
+
+The key checks: the ConfigMap key is `config.js` (not `config.json`), `RENOVATE_CONFIG_FILE` points at it, and `process.env.DOCKER_HUB_TOKEN` passes through **literally** — Helm must not interpolate it.
 
 If `image:` shows `ghcr.io/ghcr.io/...`, an `image.registry` or `image.repository` key was added. Remove it.
 
@@ -206,7 +221,7 @@ Ships with dryRun full; removed once the first run is verified."
 
 **Interfaces:**
 - Consumes: the release from Task 1, which references `existingSecret: renovate-env`.
-- Produces: a `SealedSecret` named `renovate-env` in namespace `renovate` with keys `RENOVATE_TOKEN` and `RENOVATE_HOST_RULES`. The chart mounts it via `envFrom.secretRef`, so both keys become environment variables.
+- Produces: a `SealedSecret` named `renovate-env` in namespace `renovate` with keys `RENOVATE_TOKEN` and `DOCKER_HUB_TOKEN`. The chart mounts it via `envFrom.secretRef`, so both become environment variables — which is how the `process.env.DOCKER_HUB_TOKEN` reference in Task 1's `config.js` resolves.
 
 - [ ] **Step 1: Create the fine-grained GitHub PAT**
 
@@ -232,38 +247,45 @@ https://app.docker.com/settings/personal-access-tokens — **Public repo read-on
 
 - [ ] **Step 3: Add both values to `secrets/.secrets`**
 
-This file is gitignored and must never be committed. `secrets/seal.sh` `source`s it, so the JSON value must be single-quoted to survive shell parsing:
+This file is gitignored and must never be committed. Both are **raw values** — no JSON, no special quoting:
 
 ```bash
 RENOVATE_TOKEN=github_pat_xxxxxxxxxxxxxxxxxxxx
-RENOVATE_HOST_RULES='[{"hostType":"docker","matchHost":"https://index.docker.io","username":"YOUR_DOCKERHUB_USERNAME","password":"dckr_pat_xxxxxxxxxxxx"}]'
+DOCKER_HUB_TOKEN=dckr_pat_xxxxxxxxxxxx
 ```
 
-The JSON must be valid and must be an array. If it fails to parse, Renovate logs at `debug` level and continues with **no host rules at all** — silently falling back to anonymous, rate-limited Docker Hub pulls. Task 3 checks for this.
+`RENOVATE_TOKEN` is read by Renovate directly. `DOCKER_HUB_TOKEN` is read by the `process.env.DOCKER_HUB_TOKEN` reference in Task 1's `config.js`, so the name must match exactly. The Docker Hub *username* is not here — it is inlined in `values.yaml`, because it is an identifier rather than a credential and belongs somewhere reviewable.
 
-- [ ] **Step 4: Verify the JSON parses before sealing it**
+- [ ] **Step 4: Verify both are set and non-empty**
 
 ```bash
-bash -c 'source secrets/.secrets && echo "$RENOVATE_HOST_RULES"' | python3 -c "
-import json,sys
-v = json.load(sys.stdin)
-assert isinstance(v, list), 'must be a JSON array'
-assert v[0]['hostType'] == 'docker' and v[0]['username'] and v[0]['password']
-print('OK — host rules parse as an array of', len(v), 'rule(s)')
-"
+bash -c 'source secrets/.secrets
+for v in RENOVATE_TOKEN DOCKER_HUB_TOKEN; do
+  if [[ -z "${!v:-}" ]]; then echo "MISSING: $v"; exit 1; fi
+  echo "OK: $v"
+done
+echo "Both present."'
 ```
 
-Expected: `OK — host rules parse as an array of 1 rule(s)`
+Expected:
+
+```
+OK: RENOVATE_TOKEN
+OK: DOCKER_HUB_TOKEN
+Both present.
+```
+
+A `MISSING:` line means the variable is absent or empty in `secrets/.secrets`. Sealing it anyway produces an empty credential that fails at runtime rather than at seal time — `seal.sh` does not check. This check was verified to exit non-zero when a variable is removed.
 
 - [ ] **Step 5: Append the registry row**
 
 Add to `secrets/registry.tsv` (columns are whitespace-separated: name, namespace, outfile, `key=ENVVAR` pairs):
 
 ```
-renovate-env    renovate    platform/renovate/renovate-env.yaml    RENOVATE_TOKEN=RENOVATE_TOKEN,RENOVATE_HOST_RULES=RENOVATE_HOST_RULES
+renovate-env    renovate    platform/renovate/renovate-env.yaml    RENOVATE_TOKEN=RENOVATE_TOKEN,DOCKER_HUB_TOKEN=DOCKER_HUB_TOKEN
 ```
 
-The key names and the env var names are identical here, which is why both sides look repetitive. That is correct — Renovate reads these exact variable names.
+Each pair reads `secretKey=ENVVAR`. They are identical on both sides here because the secret key name and the environment variable name must both match what Renovate and `config.js` expect.
 
 - [ ] **Step 6: Seal it**
 
@@ -278,16 +300,21 @@ If this fails with a missing `pub-cert.pem`, run `just kubeseal-fetch-cert` firs
 - [ ] **Step 7: Verify the sealed output is encrypted and correctly targeted**
 
 ```bash
-grep -E "name:|namespace:|RENOVATE" platform/renovate/renovate-env.yaml
+grep -E "name:|namespace:|RENOVATE_TOKEN|DOCKER_HUB_TOKEN" platform/renovate/renovate-env.yaml
 ```
 
-Expected: `name: renovate-env`, `namespace: renovate`, and both key names followed by long base64 ciphertext. Confirm **no plaintext token** appears — the values must not start with `github_pat_` or `dckr_pat_`, and no `[{"hostType"` should be visible:
+Expected: `name: renovate-env`, `namespace: renovate`, and both key names each followed by long base64 ciphertext.
+
+Confirm no plaintext credential survived into the committed file:
 
 ```bash
-grep -cE 'github_pat_|dckr_pat_|hostType' platform/renovate/renovate-env.yaml
+bash -c 'source secrets/.secrets
+grep -cF -e "$RENOVATE_TOKEN" -e "$DOCKER_HUB_TOKEN" platform/renovate/renovate-env.yaml'
 ```
 
 Expected: `0`
+
+This greps for the actual secret values rather than for prefixes like `github_pat_`, so it cannot be fooled by a token format change.
 
 - [ ] **Step 8: Commit**
 
@@ -298,8 +325,10 @@ git commit -m "feat(renovate): sealed GitHub and Docker Hub credentials
 Fine-grained PAT scoped to n-gibs/homelab only, rather than a classic
 repo-scoped token whose blast radius is the whole account.
 
-RENOVATE_HOST_RULES raises the Docker Hub rate limit for the 6 of 15
-images in this repo that come from Docker Hub."
+Docker Hub username and token raise the rate limit for the 6 of 15
+images in this repo that come from Docker Hub. Stored as raw values
+and referenced by process.env from config.js, rather than as a JSON
+RENOVATE_HOST_RULES blob, which fails silently when malformed."
 ```
 
 ---
@@ -362,23 +391,21 @@ Expected: a `Repository started` line for `n-gibs/homelab` and no 401/403. A 401
 
 - [ ] **Step 6: Verify the Docker Hub host rule actually took effect**
 
-This is the silent-failure check. A successful run does **not** prove the credentials applied. It only works because Task 1 set `LOG_LEVEL: debug` — this message is never emitted at the default `info` level.
+Because the config is `config.js`, a malformed or unresolvable config makes Renovate error and exit — so the job completing in Step 3 already proves the file parsed and `hostRules` was accepted. Confirm no credential complaint appeared anyway:
 
 ```bash
-grep -c "Could not parse object array" /tmp/renovate-dryrun.log
+grep -iE "rate.?limit|toomanyrequests|401 Unauthorized|authentication required" /tmp/renovate-dryrun.log | head
 ```
 
-Expected: `0`
+Expected: no output.
 
-Any non-zero count means `RENOVATE_HOST_RULES` was malformed and dropped, and Renovate is running anonymously against Docker Hub. Fix the JSON in `secrets/.secrets`, re-run `just seal renovate-env`, and commit.
-
-Confirm debug logging was actually on, so that a `0` above means "no error" rather than "no debug output at all":
+`toomanyrequests` or a Docker Hub rate-limit line means the credentials are not being applied — most likely `DOCKER_HUB_TOKEN` is empty in the sealed secret, or the inlined username in `values.yaml` is wrong. Verify the secret decrypted with both keys:
 
 ```bash
-grep -c '"level":20\|DEBUG' /tmp/renovate-dryrun.log
+kubectl get secret -n renovate renovate-env -o jsonpath='{.data}' | tr ',' '\n' | cut -d'"' -f2
 ```
 
-Expected: a large non-zero number. If this is `0`, the `LOG_LEVEL` env var did not apply and the check above proved nothing — fix that before continuing.
+Expected: `RENOVATE_TOKEN` and `DOCKER_HUB_TOKEN`. A missing key means the registry row in Task 2 Step 5 is wrong.
 
 - [ ] **Step 7: Verify all four managers found their dependencies**
 
@@ -417,7 +444,7 @@ kubectl delete job -n renovate renovate-manual-1
 ### Task 4: Go live
 
 **Files:**
-- Modify: `platform/renovate/values.yaml` (remove the `dryRun` option and the temporary `env` block)
+- Modify: `platform/renovate/values.yaml` (remove the single `dryRun` line)
 
 **Interfaces:**
 - Consumes: a verified dry run from Task 3.
@@ -429,61 +456,70 @@ kubectl delete job -n renovate renovate-manual-1
 git checkout main && git pull && git checkout -b feat/renovate-live
 ```
 
-- [ ] **Step 2: Remove the dry-run option and the debug logging**
+- [ ] **Step 2: Remove the dry-run option**
 
-Both were verification scaffolding from Task 1. In `platform/renovate/values.yaml`, the `renovate.config` block becomes:
+Delete exactly one line from the `config.js` block in `platform/renovate/values.yaml`:
+
+```
+      dryRun: 'full',
+```
+
+Leaving:
 
 ```yaml
 renovate:
+  configIsJavaScript: true
   config: |
-    {
-      "platform": "github",
-      "onboarding": false,
-      "repositories": ["n-gibs/homelab"]
-    }
+    module.exports = {
+      platform: 'github',
+      onboarding: false,
+      repositories: ['n-gibs/homelab'],
+      hostRules: [
+        {
+          hostType: 'docker',
+          matchHost: 'docker.io',
+          // Not a credential, so it stays readable in git rather than
+          // being invisible inside the sealed secret.
+          username: 'nikgibs',
+          password: process.env.DOCKER_HUB_TOKEN,
+        },
+      ],
+    };
 ```
 
-The trailing comma after `"repositories": [...]` must go along with the `dryRun` line, or the JSON is invalid.
+Nothing else changes. Unlike JSON, the trailing comma on the preceding line is legal in JavaScript, so no other edit is needed.
 
-Then delete the whole temporary `env` block and its comment:
-
-```yaml
-# Temporary, removed in Task 4 along with dryRun. Required for verification:
-# Renovate logs a malformed RENOVATE_HOST_RULES at debug level only, so at the
-# default info level a silent credential failure is invisible.
-env:
-  LOG_LEVEL: debug
-```
-
-Debug logging on a twice-daily job is a lot of noise for Loki to hold once the thing is known-good.
-
-- [ ] **Step 3: Verify the config is valid JSON and the scaffolding is gone**
-
-```bash
-python3 -c "
-import json,sys,re
-v = open('platform/renovate/values.yaml').read()
-block = re.search(r'config: \|\n((?:    .*\n|\n)+)', v).group(1)
-cfg = json.loads(''.join(l[4:] for l in block.splitlines(True)))
-assert 'dryRun' not in cfg, 'dryRun still present'
-assert 'LOG_LEVEL' not in v, 'debug env block still present'
-assert cfg['repositories'] == ['n-gibs/homelab'] and cfg['platform'] == 'github'
-print('OK — live config:', cfg)
-"
-```
-
-Expected: `OK — live config: {'platform': 'github', 'onboarding': False, 'repositories': ['n-gibs/homelab']}`
-
-This check was verified to fail correctly when `dryRun` is still present — the assertions are not vacuous.
-
-- [ ] **Step 4: Re-render to confirm the chart still templates**
+- [ ] **Step 3: Verify dry-run is gone and the config still renders**
 
 ```bash
 helm template renovate renovate/renovate --version 46.251.0 \
-  -f platform/renovate/values.yaml | grep -cE 'LOG_LEVEL|dryRun'
+  -f platform/renovate/values.yaml > /tmp/renovate-live-render.yaml
+echo "dryRun occurrences: $(grep -c dryRun /tmp/renovate-live-render.yaml)"
+grep -E "hostRules|matchHost|username|process.env|repositories" /tmp/renovate-live-render.yaml
 ```
 
-Expected: `0`
+Expected: `dryRun occurrences: 0`, and the `hostRules` block still present with `matchHost: 'docker.io'`, `username: 'nikgibs'`, and `password: process.env.DOCKER_HUB_TOKEN`.
+
+A non-zero `dryRun` count means the line was not removed. Missing `hostRules` means too much was removed — Renovate would then run anonymously against Docker Hub.
+
+- [ ] **Step 4: Confirm the rendered config.js is syntactically valid JavaScript**
+
+A broken `config.js` makes Renovate exit at startup, so catch it here rather than in the cluster:
+
+```bash
+python3 -c "
+import re,sys
+r = open('/tmp/renovate-live-render.yaml').read()
+m = re.search(r'config\.js: \|-\n((?:    .*\n|\n)+)', r)
+open('/tmp/config.js','w').write(''.join(l[4:] for l in m.group(1).splitlines(True)))
+print(open('/tmp/config.js').read())
+"
+node --check /tmp/config.js && echo "OK — config.js parses"
+```
+
+Expected: the config printed, then `OK — config.js parses`.
+
+If `node` is not installed locally, skip this step — Task 3 already proved the same file shape parses inside the container, and Step 5's run will fail loudly if it does not.
 
 - [ ] **Step 5: Commit, push, merge**
 
@@ -492,8 +528,7 @@ git add platform/renovate/values.yaml
 git commit -m "feat(renovate): disable dry-run, go live
 
 Dry run confirmed auth, all four custom managers, and that the Docker
-Hub host rule took effect. Drops the temporary debug logging that made
-the host-rule check possible."
+Hub host rule took effect."
 git push -u origin feat/renovate-live
 gh pr create --fill --title "feat(renovate): go live"
 ```

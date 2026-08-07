@@ -118,23 +118,42 @@ Two consequences of the pin, both accepted:
 
 Two files, two distinct jobs. Nothing moves between them.
 
-- **`values.yaml` — where to run.** The chart's `renovate.config` is an **inline JSON
-  string**, not a YAML map — it is written verbatim into a ConfigMap as `config.json` and
-  passed as Renovate's global config:
+- **`values.yaml` — where to run.** The chart's `renovate.config` is an **inline string**,
+  not a YAML map. With `configIsJavaScript: true` it is written into a ConfigMap as
+  `config.js`, mounted at `/usr/src/app/config.js`, and pointed at by `RENOVATE_CONFIG_FILE`:
 
   ```yaml
   renovate:
+    configIsJavaScript: true
     config: |
-      {
-        "platform": "github",
-        "onboarding": false,
-        "repositories": ["n-gibs/homelab"]
-      }
+      module.exports = {
+        platform: 'github',
+        onboarding: false,
+        repositories: ['n-gibs/homelab'],
+        hostRules: [
+          {
+            hostType: 'docker',
+            matchHost: 'docker.io',
+            username: 'nikgibs',
+            password: process.env.DOCKER_HUB_TOKEN,
+          },
+        ],
+      };
   ```
 
   `onboarding: false` is explicit rather than relied upon; a committed `renovate.json`
   already suppresses onboarding, but self-hosted Renovate defaults `onboarding` to true and
   the explicit setting removes any chance of a stray onboarding PR.
+
+  **JavaScript rather than JSON, deliberately.** This is the shape Renovate's own Docker
+  Hub documentation uses, and it is what lets credentials stay out of git: the committed
+  file holds only `process.env.*` references, while the values come from the sealed secret
+  at runtime. The alternative — passing the whole `hostRules` array as a JSON string in
+  `RENOVATE_HOST_RULES` — works, but fails *silently*: Renovate's env parser logs a
+  malformed array at `debug` level and continues with no host rules at all, leaving a green
+  CronJob quietly making anonymous, rate-limited Docker Hub calls. A broken `config.js`, by
+  contrast, makes Renovate error and exit, which trips the existing `CronJobJobFailed`
+  alert. Loud beats silent.
 - **`renovate.json` (repo root) — what to update.** Unchanged. All four custom managers,
   all `packageRules`, the Nextcloud major-version rule, and the `every weekend` schedule
   stay exactly as they are.
@@ -205,8 +224,16 @@ new Justfile recipe.
 Registry row (tab-separated, matching the existing column layout):
 
 ```
-renovate-env    renovate    platform/renovate/renovate-env.yaml    RENOVATE_TOKEN=RENOVATE_TOKEN,RENOVATE_HOST_RULES=RENOVATE_HOST_RULES
+renovate-env    renovate    platform/renovate/renovate-env.yaml    RENOVATE_TOKEN=RENOVATE_TOKEN,DOCKER_HUB_TOKEN=DOCKER_HUB_TOKEN
 ```
+
+Both are **raw credentials**, not structured config — the structure lives in the committed
+`config.js` and reaches the token through `process.env`.
+
+The Docker Hub **username is deliberately not sealed**. It is an identifier, not a secret,
+and a sealed secret is unreviewable: config hidden in there can only be answered by
+decrypting from the live cluster. Inlining it in `values.yaml` keeps "which Docker Hub
+account is this?" a question git can answer. The repo is private, so this exposes nothing.
 
 ### `RENOVATE_TOKEN` — fine-grained PAT
 
@@ -234,13 +261,14 @@ rather than one homelab repo.
 **Rotation:** fine-grained PATs expire, capped at one year. This needs a calendar reminder.
 Expiry presents as Renovate failing with a 401 and the `CronJobJobFailed` alert firing.
 
-### `RENOVATE_HOST_RULES` — Docker Hub credentials
+### `DOCKER_HUB_TOKEN` — Docker Hub credentials
 
-A JSON array supplying a Docker Hub username and token:
+One raw value, consumed by the `hostRules` entry in `config.js` above alongside the inlined
+username `nikgibs`. The token needs only **public repo read-only** scope; Renovate reads
+tags, it does not pull images.
 
-```json
-[{"hostType":"docker","matchHost":"https://index.docker.io","username":"...","password":"..."}]
-```
+`matchHost` is `docker.io`, matching Renovate's own documented Docker Hub example. Note it
+is *not* `https://index.docker.io`, which an earlier draft of this spec had wrong.
 
 Justified by measurement, not by default: 6 of the 15 images referenced across
 `apps/`, `platform/`, and `system/` `values.yaml` files come from Docker Hub (versus 7
@@ -248,22 +276,15 @@ Justified by measurement, not by default: 6 of the 15 images referenced across
 egress IP, which would present as intermittently missed updates rather than as a clean
 failure.
 
-The env-var route was verified against Renovate's source rather than assumed:
-
-- `hostRules` is declared with `type: 'array'`, `subType: 'object'`, and **no** `env: false`.
-- `getEnvName()` returns `RENOVATE_` + the option name in screaming snake case whenever an
-  option does not opt out with `env: false` (93 options do opt out; `hostRules` is not one).
-  So `RENOVATE_HOST_RULES` is the correct variable name.
-- The env parser has an explicit `type === 'array' && subType === 'object'` branch that
-  `JSON5.parse`s the value into config.
-
-**Operational trap worth knowing.** That parser branch logs at `debug` level and continues
-when the value fails to parse or is not an array. It does not throw. A malformed
-`RENOVATE_HOST_RULES` therefore yields *no host rules at all*, silently falling back to
-anonymous Docker Hub pulls — reintroducing the exact rate limit these credentials exist to
-avoid, with a green CronJob and no alert. The dry-run verification step below is the place
-to catch this; confirm the credentials are actually in effect rather than assuming a
-successful run proves it.
+**Why not `RENOVATE_HOST_RULES`.** Passing the array as a JSON env var does work — verified
+against Renovate's source: `hostRules` declares no `env: false`, `getEnvName()` derives the
+name by default, and the env parser has an explicit `type === 'array' && subType ===
+'object'` branch that `JSON5.parse`s it. But that branch logs at `debug` and continues when
+the value fails to parse. It does not throw. A malformed string therefore yields *no host
+rules at all* — a green CronJob silently making anonymous, rate-limited calls, defeating
+the entire point of the credentials, with nothing in the logs at the default `info` level
+to say so. The `config.js` route fails loudly instead, so no special verification tooling
+is needed to trust it.
 
 ## Resources
 
@@ -305,8 +326,8 @@ for a tool whose entire output is already reviewed as pull requests.
 
 Two commits, deliberately.
 
-1. **Dry run.** Ship with `"dryRun": "full"` added to the `renovate.config` JSON string —
-   it is a Renovate config option, not a chart value. Let one scheduled run complete
+1. **Dry run.** Ship with `dryRun: 'full'` added to the `config.js` object — it is a
+   Renovate config option, not a chart value. Let one scheduled run complete
    (or trigger one with `kubectl create job --from=cronjob/renovate`). Read the pod logs
    and confirm:
    - it authenticates and resolves `n-gibs/homelab`
@@ -314,15 +335,11 @@ Two commits, deliberately.
    - the image manager finds the `app-template` image tag added earlier today
    - the k3s `github-releases` manager resolves `ansible/group_vars/k3s_cluster.yml`
    - no config-validation error from running Renovate `44` against this `renovate.json`
-   - **the Docker Hub host rule actually took effect** — grep the logs for a
-     `Could not parse object array` line, which is the only signal that
-     `RENOVATE_HOST_RULES` was malformed and silently dropped.
-
-     That message is emitted at **debug** level, and Renovate defaults to `info`, so the
-     dry-run phase must also set `LOG_LEVEL: debug` via the chart's top-level `env` —
-     otherwise the grep returns zero hits whether or not the credentials failed, and proves
-     nothing. Both `dryRun` and the `LOG_LEVEL` block come out together when going live;
-     debug logging on a twice-daily job is needless volume for Loki once it is known-good.
+   - the Docker Hub host rule took effect. With `config.js` this needs no special
+     tooling: a config file that cannot be parsed makes Renovate error and exit, so a
+     completed run is itself the evidence. (Under the rejected `RENOVATE_HOST_RULES`
+     design this would have required temporarily raising the log level to `debug`, since
+     the only signal was a debug-level `Could not parse object array` line.)
 2. **Enable.** Remove `dryRun`, merge, and confirm the first real run opens PRs and creates
    the Dependency Dashboard issue.
 
