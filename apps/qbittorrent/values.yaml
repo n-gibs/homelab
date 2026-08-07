@@ -43,7 +43,11 @@ controllers:
           VPN_TYPE: wireguard
           TZ: America/Los_Angeles
           FIREWALL_OUTBOUND_SUBNETS: "10.0.0.0/8,192.168.0.0/16"
-          FIREWALL_INPUT_PORTS: "8080,6881"
+          # 9999 is gluetun's health server, exposed so Cleanuparr's Queue Cleaner can
+          # gate on "is the tunnel up" rather than "is the internet up". A dead Mullvad
+          # tunnel stalls every torrent at once, which Queue Cleaner would otherwise
+          # read as a queue full of stalled downloads and strike them all.
+          FIREWALL_INPUT_PORTS: "8080,6881,9999"
           SERVER_COUNTRIES: "USA"
           WIREGUARD_ALLOWED_IPS: "0.0.0.0/0"
           DNS_SERVER: "off"
@@ -51,6 +55,9 @@ controllers:
           DNS_UPSTREAM_PLAIN_ADDRESSES: "10.43.0.10:53"
           WIREGUARD_MTU: "1170"
           WIREGUARD_IMPLEMENTATION: userspace
+          # Defaults to 127.0.0.1:9999 -- loopback inside the pod's network namespace,
+          # so nothing outside the pod can reach it. Bind to all interfaces instead.
+          HEALTH_SERVER_ADDRESS: "0.0.0.0:9999"
         envFrom:
           - secretRef:
               name: gluetun-vpn-creds
@@ -65,6 +72,10 @@ service:
     ports:
       http:
         port: 8080
+      # gluetun's health server. Consumed by Cleanuparr's connectivity check at
+      # http://qbittorrent.qbittorrent.svc.cluster.local:9999 -- not routed publicly.
+      health:
+        port: 9999
 
 route:
   main:
@@ -82,6 +93,13 @@ route:
     parentRefs:
       - name: homelab
         namespace: envoy-gateway-system
+    # Pin the backend port. The chart only autodetects the *service*, not the port --
+    # it takes whichever port sorts first, so adding the `health` port silently
+    # repointed this route at 9999 and broke the WebUI. Explicit from now on.
+    rules:
+      - backendRefs:
+          - identifier: main
+            port: 8080
 
 persistence:
   config:
