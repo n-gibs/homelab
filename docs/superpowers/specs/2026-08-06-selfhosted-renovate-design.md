@@ -315,9 +315,14 @@ Two commits, deliberately.
    - the k3s `github-releases` manager resolves `ansible/group_vars/k3s_cluster.yml`
    - no config-validation error from running Renovate `44` against this `renovate.json`
    - **the Docker Hub host rule actually took effect** — grep the logs for a
-     `Could not parse object array` debug line, which is the only signal that
-     `RENOVATE_HOST_RULES` was malformed and silently dropped. Its absence, plus
-     authenticated Docker Hub lookups in the log, is the confirmation.
+     `Could not parse object array` line, which is the only signal that
+     `RENOVATE_HOST_RULES` was malformed and silently dropped.
+
+     That message is emitted at **debug** level, and Renovate defaults to `info`, so the
+     dry-run phase must also set `LOG_LEVEL: debug` via the chart's top-level `env` —
+     otherwise the grep returns zero hits whether or not the credentials failed, and proves
+     nothing. Both `dryRun` and the `LOG_LEVEL` block come out together when going live;
+     debug logging on a twice-daily job is needless volume for Loki once it is known-good.
 2. **Enable.** Remove `dryRun`, merge, and confirm the first real run opens PRs and creates
    the Dependency Dashboard issue.
 
