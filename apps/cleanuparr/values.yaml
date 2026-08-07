@@ -1,0 +1,68 @@
+controllers:
+  main:
+    pod:
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        # local-path creates the volume directory root-owned. fsGroup makes /config
+        # group-writable by 1000 so the app can write regardless of whether its
+        # entrypoint chowns for PUID/PGID itself.
+        fsGroup: 1000
+    containers:
+      app:
+        # renovate: datasource=docker depName=ghcr.io/cleanuparr/cleanuparr
+        image:
+          repository: ghcr.io/cleanuparr/cleanuparr
+          tag: 2.10.3
+        env:
+          PORT: "11011"
+          PUID: "1000"
+          PGID: "1000"
+          UMASK: "022"
+          TZ: America/Los_Angeles
+        resources:
+          requests:
+            cpu: 50m
+            memory: 256Mi
+          # no cpu limit: VPA preserves the request:limit ratio, so a shrinking
+          # request drags the limit down with it and throttles the container.
+          limits:
+            memory: 1Gi
+
+service:
+  main:
+    controller: main
+    ports:
+      http:
+        port: 11011
+
+route:
+  main:
+    annotations:
+      gethomepage.dev/enabled: "true"
+      gethomepage.dev/name: "Cleanuparr"
+      gethomepage.dev/description: "Download cleanup & malware blocking"
+      gethomepage.dev/group: "Media"
+      gethomepage.dev/icon: "cleanuparr.png"
+      gethomepage.dev/href: "https://cleanuparr.nik-homelab.dev"
+    enabled: true
+    kind: HTTPRoute
+    hostnames:
+      - cleanuparr.nik-homelab.dev
+    parentRefs:
+      - name: homelab
+        namespace: envoy-gateway-system
+
+persistence:
+  # local-path, not nfs -- /config is SQLite and SQLite over NFS deadlocks. See
+  # config-pvc.yaml for the rationale, the backup that supplies durability instead,
+  # and the recovery path. Declared as its own manifest so that comment lives with
+  # the volume; the chart just consumes it.
+  config:
+    existingClaim: cleanuparr-config-local
+    globalMounts:
+      - path: /config
+# No data volume on purpose. Orphan/no-hardlink cleanup is out of scope (it would
+# need /data mounted at qBittorrent's exact paths, and a mismatch deletes library
+# files), and Blacklist Sync reads its list from an HTTPS URL rather than a file.
+# The backup CronJob mounts NFS separately -- this pod never sees the media share.
