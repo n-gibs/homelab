@@ -13,14 +13,14 @@
       "automerge": false
     },
     {
-      "matchManagers": ["regex"],
+      "matchManagers": ["custom.regex"],
       "matchFileNames": ["**/app.yaml"],
       "groupName": "helm charts",
       "automerge": false
     },
     {
       "description": "Nextcloud cannot skip major versions - 34 to 36 in one jump wedges the upgrade and needs manual occ recovery. Its own PR so a pending bump is never buried in a batch of unrelated charts.",
-      "matchManagers": ["regex"],
+      "matchManagers": ["custom.regex"],
       "matchFileNames": ["apps/nextcloud/app.yaml"],
       "groupName": "nextcloud",
       "automerge": false
@@ -29,7 +29,7 @@
   "customManagers": [
     {
       "customType": "regex",
-      "fileMatch": ["(^|/)app\\.yaml$"],
+      "managerFilePatterns": ["/(^|/)app\\.yaml$/"],
       "matchStrings": [
         "chartName: (?<depName>[^\\n]+)\\nchartRepo: (?<registryUrl>https://[^\\n]+)\\nchartVersion: (?<currentValue>[^\\n]+)"
       ],
@@ -37,22 +37,22 @@
     },
     {
       "customType": "regex",
-      "fileMatch": ["(^|/)app\\.yaml$"],
+      "managerFilePatterns": ["/(^|/)app\\.yaml$/"],
       "matchStrings": [
         "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>[^\\s]+)\\nchartName: [^\\n]+\\nchartRepo: [^\\n]+\\nchartVersion: (?<currentValue>[^\\n]+)"
       ]
     },
     {
       "customType": "regex",
-      "fileMatch": ["(^|/)values\\.yaml$"],
+      "managerFilePatterns": ["/(^|/)values\\.yaml$/"],
       "matchStrings": [
-        "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>[^\\s]+)\\n\\s*image:\\n\\s*tag: (?<currentValue>[^\\n]+)",
-        "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>[^\\s]+)\\n\\s*image:\\n\\s*repository: [^\\n]+\\n\\s*tag: (?<currentValue>[^\\n]+)"
+        "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>[^\\s]+)(?: versioning=(?<versioning>[^\\s]+))?\\n\\s*image:\\n\\s*tag: (?<currentValue>[^\\n]+)",
+        "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>[^\\s]+)(?: versioning=(?<versioning>[^\\s]+))?\\n\\s*image:\\n\\s*repository: [^\\n]+\\n\\s*tag: (?<currentValue>[^\\n]+)"
       ]
     },
     {
       "customType": "regex",
-      "fileMatch": ["ansible/group_vars/k3s_cluster\\.yml"],
+      "managerFilePatterns": ["/ansible/group_vars/k3s_cluster\\.yml/"],
       "matchStrings": ["k3s_version: \"(?<currentValue>[^\"]+)\""],
       "depNameTemplate": "k3s-io/k3s",
       "datasourceTemplate": "github-releases",
