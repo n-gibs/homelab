@@ -35,6 +35,11 @@ The platform ApplicationSet globs `platform/*/app.yaml` and hardcodes
 `destination.namespace` to the directory basename, so this is discovered automatically and
 lands in namespace `renovate`. No bootstrap change, no ApplicationSet edit.
 
+The `renovate` namespace needs no manifest: `bootstrap/root/templates/stack.yaml` sets
+`syncOptions: [CreateNamespace=true]`, so ArgoCD creates it on first sync. Note that a
+`chartVersion` bump in `app.yaml` requires an **ApplicationSet** refresh, not an
+Application refresh, per the repo's existing behaviour.
+
 There is no HTTPRoute and no Homepage annotation — Renovate has no web UI.
 
 ### Rejected alternatives
@@ -136,21 +141,40 @@ Two files, two distinct jobs. Nothing moves between them.
 
 ## Schedule
 
-**CronJob runs daily at 03:00. `renovate.json` keeps `"schedule": ["every weekend"]`.**
+**CronJob runs twice daily, at 03:00 and 15:00 (`0 3,15 * * *`). `renovate.json` keeps
+`"schedule": ["every weekend"]`.**
 
-Renovate no-ops on weekdays, so PR behaviour is unchanged from the current config's intent.
-The daily cadence looks redundant but is load-bearing for monitoring: the existing
-`CronJobNotSucceeding` alert in `system/monitoring-system/prometheusrule-backups.yaml`
-fires when a CronJob has not succeeded in 26 hours and carries **no label selector**, so it
-applies cluster-wide. A weekly CronJob would breach that threshold every single week and
-page forever.
+Renovate no-ops outside its own schedule, so PR behaviour is unchanged from the current
+config's intent. The run cadence is driven entirely by how the existing alerting reads it.
+
+The existing `CronJobNotSucceeding` alert in
+`system/monitoring-system/prometheusrule-backups.yaml` fires when a CronJob has not
+succeeded in 26 hours, and carries **no label selector** — it applies cluster-wide, to this
+CronJob, automatically. That single threshold rules out both obvious schedules:
+
+- **Weekly** breaches 26h every single week and would page forever.
+- **Daily** technically works but leaves only two hours of margin. One transient failure —
+  a blipped GitHub API call, a slow registry — pages you. For a backup job that is correct.
+  For a dependency-update bot whose entire output is reviewed as pull requests, it is noise.
+
+**Twice daily resolves it without touching a single monitoring rule.** A run every 12 hours
+means one failure self-heals well inside the window and stays silent, while 26 hours without
+success now implies *at least two consecutive failures* — which is a genuinely broken bot
+worth waking up for. The alert gets strictly more meaningful, not merely quieter.
+
+The cost is a second run per day against roughly 15 dependencies, which is negligible even
+with a cold cache. It also gets you fresh logs within twelve hours instead of twenty-four
+when debugging config.
 
 Running daily makes the existing alert correct with **zero edits to the monitoring rules**,
 and has the side benefit of producing fresh logs on demand rather than once a week.
 
 Set via the chart's `cronjob.schedule` and `cronjob.timeZone`, the latter
 `America/Los_Angeles` to match the repo's existing timezone convention. The chart's own
-default is already `0 1 * * *` daily, so this is a shift of the hour, not of the cadence.
+default is `0 1 * * *`, so this changes both the hour and the cadence.
+
+`CronJobOverdue` (schedule missed by more than an hour) is unaffected by the twice-daily
+change — it measures against the next scheduled time, not the interval.
 
 ## Cache
 
@@ -224,6 +248,23 @@ Justified by measurement, not by default: 6 of the 15 images referenced across
 egress IP, which would present as intermittently missed updates rather than as a clean
 failure.
 
+The env-var route was verified against Renovate's source rather than assumed:
+
+- `hostRules` is declared with `type: 'array'`, `subType: 'object'`, and **no** `env: false`.
+- `getEnvName()` returns `RENOVATE_` + the option name in screaming snake case whenever an
+  option does not opt out with `env: false` (93 options do opt out; `hostRules` is not one).
+  So `RENOVATE_HOST_RULES` is the correct variable name.
+- The env parser has an explicit `type === 'array' && subType === 'object'` branch that
+  `JSON5.parse`s the value into config.
+
+**Operational trap worth knowing.** That parser branch logs at `debug` level and continues
+when the value fails to parse or is not an array. It does not throw. A malformed
+`RENOVATE_HOST_RULES` therefore yields *no host rules at all*, silently falling back to
+anonymous Docker Hub pulls — reintroducing the exact rate limit these credentials exist to
+avoid, with a green CronJob and no alert. The dry-run verification step below is the place
+to catch this; confirm the credentials are actually in effect rather than assuming a
+successful run proves it.
+
 ## Resources
 
 Static requests and limits. **No VPA** — a deliberate exception to the repo's
@@ -273,6 +314,10 @@ Two commits, deliberately.
    - the image manager finds the `app-template` image tag added earlier today
    - the k3s `github-releases` manager resolves `ansible/group_vars/k3s_cluster.yml`
    - no config-validation error from running Renovate `44` against this `renovate.json`
+   - **the Docker Hub host rule actually took effect** — grep the logs for a
+     `Could not parse object array` debug line, which is the only signal that
+     `RENOVATE_HOST_RULES` was malformed and silently dropped. Its absence, plus
+     authenticated Docker Hub lookups in the log, is the confirmation.
 2. **Enable.** Remove `dryRun`, merge, and confirm the first real run opens PRs and creates
    the Dependency Dashboard issue.
 
