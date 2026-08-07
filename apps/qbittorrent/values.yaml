@@ -10,9 +10,10 @@ controllers:
           effect: PreferNoSchedule
     initContainers:
       fix-perms:
+        # renovate: datasource=docker depName=busybox
         image:
           repository: busybox
-          tag: latest
+          tag: 1.38.0
         command:
           - sh
           - -c
@@ -21,9 +22,10 @@ controllers:
           runAsUser: 0
     containers:
       app:
+        # renovate: datasource=docker depName=lscr.io/linuxserver/qbittorrent versioning=regex:^(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)_v[\d.]+-ls(?<build>\d+)$
         image:
           repository: lscr.io/linuxserver/qbittorrent
-          tag: latest
+          tag: 5.2.3_v2.0.13-ls469
         env:
           PUID: "1000"
           PGID: "1000"
@@ -35,6 +37,11 @@ controllers:
           limits:
             cpu: "2"
       gluetun:
+        # Deliberately unpinned, unlike every other image here. gluetun's
+        # `latest` is a rolling build off master; its newest release tag is
+        # weeks behind what this pod runs, so pinning would be a rollback of
+        # the VPN container rather than a no-op. Revisit if gluetun's release
+        # cadence tightens. No renovate comment, so Renovate ignores it.
         image:
           repository: qmcgaw/gluetun
           tag: latest
