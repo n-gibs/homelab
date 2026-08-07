@@ -1,0 +1,44 @@
+# renovate: datasource=docker depName=ghcr.io/renovatebot/renovate
+image:
+  tag: 44.14.3
+
+cronjob:
+  schedule: "0 3,15 * * *"
+  timeZone: America/Los_Angeles
+  # Two Renovate runs at once can open duplicate PRs for the same dependency.
+  concurrencyPolicy: Forbid
+  # k8s keeps only 1 failed pod by default; 3 gives enough log history to debug a bad run.
+  failedJobsHistoryLimit: 3
+
+existingSecret: renovate-env
+
+renovate:
+  # JavaScript, not JSON, so credentials can stay out of git as process.env
+  # references. A broken config.js makes Renovate exit loudly; the JSON
+  # RENOVATE_HOST_RULES alternative fails silently. See the spec.
+  configIsJavaScript: true
+  config: |
+    module.exports = {
+      platform: 'github',
+      onboarding: false,
+      repositories: ['n-gibs/homelab'],
+      dryRun: 'full',
+      hostRules: [
+        {
+          hostType: 'docker',
+          matchHost: 'docker.io',
+          // Not a credential, so it stays readable in git rather than
+          // being invisible inside the sealed secret.
+          username: 'nikgibs',
+          password: process.env.DOCKER_HUB_TOKEN,
+        },
+      ],
+    };
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 512Mi
+  limits:
+    cpu: 1
+    memory: 2Gi
