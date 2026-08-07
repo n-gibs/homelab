@@ -2,9 +2,10 @@ controllers:
   main:
     containers:
       app:
+        # renovate: datasource=docker depName=vaultwarden/server
         image:
           repository: vaultwarden/server
-          tag: latest
+          tag: 1.37.1
         env:
           DOMAIN: "https://vault.nik-homelab.dev"
           WEBSOCKET_ENABLED: "true"

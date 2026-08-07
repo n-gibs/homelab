@@ -13,9 +13,10 @@ controllers:
           effect: PreferNoSchedule
     containers:
       app:
+        # renovate: datasource=docker depName=ghcr.io/recyclarr/recyclarr
         image:
           repository: ghcr.io/recyclarr/recyclarr
-          tag: latest
+          tag: 8.3.2
         args: ["sync"]
         env:
           TZ: America/Los_Angeles
