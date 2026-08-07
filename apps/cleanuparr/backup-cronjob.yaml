@@ -1,0 +1,138 @@
+# Cleanuparr, unlike the arrs, has no built-in scheduled backup -- there is no
+# System -> Backup in its UI -- so this job is what makes the local-path config
+# volume acceptable. It writes to the NFS share, a different disk from the NVMe
+# that local-path uses.
+#
+# Not a `cp`: SQLite in WAL mode spreads committed state across .db, .db-wal and
+# .db-shm, so copying a live database can produce a torn, unrestorable file. This
+# uses SQLite's online backup API via Python's stdlib sqlite3 module, which is why
+# the image is python:3.13-alpine -- no sqlite3 CLI needed, no apk add at runtime,
+# and an official image Renovate already knows how to track. (The linuxserver arr
+# images do not ship the sqlite3 binary, so there was nothing to reuse.)
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  # Name must keep the -db-backup suffix: BackupCronJobMissing in
+  # system/monitoring-system/prometheusrule-backups.yaml counts CronJobs matching
+  # ".+-db-backup" and alerts if one stops reporting.
+  name: cleanuparr-db-backup
+  namespace: cleanuparr
+spec:
+  schedule: "15 4 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            # Alloy derives the Loki `app` stream label from this; without it these
+            # pods fall back to the namespace and land in cleanuparr's main stream.
+            app.kubernetes.io/name: cleanuparr-db-backup
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            # /data/backups is 1000:1000 rwxrwxr-x, so uid 1000 can create the
+            # cleanuparr/ subdirectory itself. /config is written by the app as 1000.
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+          containers:
+            - name: sqlite-backup
+              image: python:3.13-alpine
+              command:
+                - python
+                - -c
+                - |
+                  import glob, os, shutil, sqlite3, sys, tarfile, time
+
+                  CONFIG = "/config"
+                  DEST = "/data/backups/cleanuparr"
+                  RETAIN_DAYS = 14
+                  staging = "/tmp/cleanuparr-backup"
+                  stamp = time.strftime("%Y%m%d-%H%M%S")
+
+                  # Everything except logs and the live database files. The
+                  # DataProtection keys and cleanuparr.json live under /config with
+                  # names that are not documented, so copy by exclusion rather than
+                  # guessing filenames -- the .db files are replaced below by
+                  # consistent snapshots.
+                  shutil.rmtree(staging, ignore_errors=True)
+                  shutil.copytree(
+                      CONFIG,
+                      staging,
+                      ignore=shutil.ignore_patterns(
+                          "logs", "*.db", "*.db-wal", "*.db-shm"
+                      ),
+                  )
+
+                  # Cleanuparr creates one database per internal context (data,
+                  # events, users), so glob rather than naming them.
+                  dbs = sorted(glob.glob(os.path.join(CONFIG, "*.db")))
+                  if not dbs:
+                      sys.exit(
+                          "no .db files in /config -- refusing to write a backup "
+                          "with no database in it"
+                      )
+                  for db in dbs:
+                      target = os.path.join(staging, os.path.basename(db))
+                      # Read-only source: a backup job must never mutate what it is
+                      # backing up. If WAL recovery were needed this open fails and
+                      # the job fails loudly, which is the safe direction.
+                      src = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+                      dst = sqlite3.connect(target)
+                      with dst:
+                          src.backup(dst)
+                      dst.close()
+                      src.close()
+                      print(
+                          f"snapshot {os.path.basename(db)} "
+                          f"{os.path.getsize(target)} bytes"
+                      )
+
+                  os.makedirs(DEST, exist_ok=True)
+                  archive = os.path.join(DEST, f"cleanuparr-{stamp}.tar.gz")
+                  with tarfile.open(archive, "w:gz") as tar:
+                      tar.add(staging, arcname="config")
+                  print(f"wrote {archive} ({os.path.getsize(archive)} bytes)")
+
+                  cutoff = time.time() - RETAIN_DAYS * 86400
+                  kept = 0
+                  for old in sorted(
+                      glob.glob(os.path.join(DEST, "cleanuparr-*.tar.gz"))
+                  ):
+                      if os.path.getmtime(old) < cutoff:
+                          os.remove(old)
+                          print(f"pruned {os.path.basename(old)}")
+                      else:
+                          kept += 1
+                  print(f"retained: {kept} archives")
+              volumeMounts:
+                - name: config
+                  mountPath: /config
+                  readOnly: true
+                - name: data
+                  mountPath: /data
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi
+          volumes:
+            # ReadWriteOnce is a per-NODE constraint, not per-pod, so this pod may
+            # mount the volume while Cleanuparr has it. The local-path PV carries
+            # node affinity, which forces the scheduler to put this pod on the same
+            # node -- so that is guaranteed rather than lucky. (ReadWriteOncePod
+            # would forbid it; that is not the access mode in use.)
+            - name: config
+              persistentVolumeClaim:
+                claimName: cleanuparr-config-local
+                readOnly: true
+            - name: data
+              nfs:
+                server: 192.168.30.194
+                path: /mnt/storage
