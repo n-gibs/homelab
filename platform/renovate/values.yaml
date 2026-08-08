@@ -22,7 +22,6 @@ renovate:
       platform: 'github',
       onboarding: false,
       repositories: ['n-gibs/homelab'],
-      dryRun: 'full',
       hostRules: [
         {
           hostType: 'docker',

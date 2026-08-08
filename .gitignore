@@ -12,3 +12,4 @@ pub-cert.pem
 
 # Built configs with injected secrets (never commit)
 config/
+node-compile-cache/
