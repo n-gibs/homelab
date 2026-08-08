@@ -80,7 +80,9 @@ spec:
                       target = os.path.join(staging, os.path.basename(db))
                       # Read-only source: a backup job must never mutate what it is
                       # backing up. If WAL recovery were needed this open fails and
-                      # the job fails loudly, which is the safe direction.
+                      # the job fails loudly, which is the safe direction. mode=ro
+                      # is what enforces that -- not the mount, which has to stay
+                      # writable so SQLite can create the -shm file (see below).
                       src = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
                       dst = sqlite3.connect(target)
                       with dst:
@@ -121,9 +123,16 @@ spec:
                           kept += 1
                   print(f"retained: {kept} archives")
               volumeMounts:
+                # Not readOnly. Opening a WAL-mode database -- even with mode=ro --
+                # requires a -shm file, and SQLite must create it when one does not
+                # already exist. cleanuparr.db and events.db are held open by the
+                # app so their -shm is always there; users.db is idle and clean, so
+                # it has none, and on a read-only mount the backup died on it with
+                # "unable to open database file" after snapshotting the other two.
+                # mode=ro on the connection is what keeps this job from mutating
+                # the database itself.
                 - name: config
                   mountPath: /config
-                  readOnly: true
                 - name: data
                   mountPath: /data
               resources:
@@ -142,7 +151,6 @@ spec:
             - name: config
               persistentVolumeClaim:
                 claimName: cleanuparr-config-local
-                readOnly: true
             - name: data
               nfs:
                 server: 192.168.30.194
