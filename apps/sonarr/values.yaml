@@ -13,7 +13,7 @@ controllers:
         # renovate: datasource=docker depName=lscr.io/linuxserver/sonarr versioning=regex:^(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)\.(?<build>\d+)-ls(?<revision>\d+)$
         image:
           repository: lscr.io/linuxserver/sonarr
-          tag: 4.0.19.2979-ls320
+          tag: 4.0.19.2979-ls321
         env:
           PUID: "1000"
           PGID: "1000"
