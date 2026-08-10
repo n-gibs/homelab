@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace sealed-secrets as the source of truth for the cluster's 20 registry secrets with a self-hosted Infisical instance running at `system` sync wave 0, keeping exactly one sealed secret for Infisical's own bootstrap.
+**Goal:** Replace sealed-secrets as the source of truth for the cluster's 20 registry secrets with a self-hosted Infisical instance running at `system` sync wave 0, keeping exactly two sealed secrets — Infisical's own bootstrap secret and its machine identity, neither of which can come from Infisical.
 
 **Architecture:** Infisical runs in-cluster from the `infisical-standalone` chart, backed by a CloudNativePG cluster that generates its own database credential. The Infisical Kubernetes operator materialises secrets from Infisical into native Kubernetes Secrets with identical names and keys, so no application `values.yaml` changes. The operator reaches Infisical over the cluster-internal Service, so secret delivery depends on nothing outside the cluster.
 
@@ -29,9 +29,9 @@
 
 ## File Structure
 
-**Moved (git mv, no content change except `syncWave`):**
-- `platform/cloudnative-pg/` → `system/cloudnative-pg/` — CNPG operator, now a wave `-1` dependency of Infisical
-- `platform/sealed-secrets/` → `system/sealed-secrets/` — holds only `infisical-secrets` at the end of this plan
+**Untouched.** `platform/cloudnative-pg/` and `platform/sealed-secrets/` stay where they are.
+See "Deferred: stack reorganization" below — this plan is purely additive to the existing
+stacks.
 
 **Created:**
 - `system/infisical/app.yaml` — chart source for `infisical-standalone`
@@ -47,7 +47,7 @@
 - `apps/*/infisical-secret.yaml`, `system/*/infisical-secret.yaml`, `platform/*/infisical-secret.yaml` — one `InfisicalStaticSecret` per migrated secret
 
 **Modified:**
-- `secrets/registry.tsv` — 20 rows → 1 row
+- `secrets/registry.tsv` — 20 rows → 2 rows (Infisical's bootstrap secret and machine identity)
 - `secrets/README.md` — document the new model
 - `CLAUDE.md` — Secrets section rewritten
 - `system/monitoring-system/` alert rules — operator reconcile-error alert
@@ -57,127 +57,37 @@
 
 ---
 
-## Task 1: Move CNPG and sealed-secrets into the system stack
+## Deferred: stack reorganization
 
-The riskiest task in the plan. The generated ArgoCD `Application` moves between two ApplicationSets. The ApplicationSet template sets no `resources-finalizer`, so deleting an Application should orphan its resources rather than cascade-delete them, and the new Application should adopt them. **This is reasoning, not a verified fact.** If it is wrong, the `nextcloud` and `immich` CNPG clusters are destroyed.
+An earlier draft opened with moving `platform/cloudnative-pg` → `system/cloudnative-pg` and
+`platform/sealed-secrets` → `system/sealed-secrets`, both to wave `-1`, so that Infisical's
+dependencies sorted cleanly ahead of it. **That is deliberately not part of this plan.**
 
-**Files:**
-- Move: `platform/cloudnative-pg/` → `system/cloudnative-pg/`
-- Move: `platform/sealed-secrets/` → `system/sealed-secrets/`
-- Modify: `system/cloudnative-pg/app.yaml`, `system/sealed-secrets/app.yaml` (add `syncWave`)
-- Modify: `secrets/registry.tsv` (no row changes yet — outfile paths for sealed-secrets are unaffected)
+The move's only benefit is a faster, more legible cold start. Without it, on a fresh
+bootstrap Infisical's `Cluster` manifest fails to apply because the CNPG CRDs do not exist
+yet; ArgoCD retries, CNPG arrives at platform wave 2, and the next reconcile succeeds. The
+same holds for `infisical-secrets` and the sealed-secrets controller. Convergence is
+identical — it just takes a few more cycles, and only during a rebuild.
 
-**Interfaces:**
-- Produces: CNPG operator and sealed-secrets controller reconciling from the `system` ApplicationSet at wave `-1`. Task 3 depends on CNPG being able to create a `Cluster` in namespace `infisical`. Task 2 depends on the sealed-secrets controller and the existing `pub-cert.pem` still being valid — the move must not redeploy the controller with a new keypair.
+The cost was disproportionate. Moving a directory between stacks makes the source
+ApplicationSet stop generating its `Application` and delete it. If that Application carries
+`resources-finalizer.argocd.argoproj.io`, deletion cascades to the CNPG CRDs, and deleting
+`clusters.postgresql.cnpg.io` destroys every `Cluster` object in the cluster — including
+`nextcloud-database` and `immich-database`.
 
-- [ ] **Step 1: Back up both existing databases before touching anything**
+Paying a real risk of data loss for a benefit that may not exist — per-app `syncWave` may not
+be honoured across ApplicationSet-generated Applications at all — is a bad trade. Do the
+reorganization later as its own change, with its own verification, when it is not entangled
+with a migration. When that happens it needs: dumps of both databases first, a check that
+neither Application carries the finalizer, and a post-move confirmation that both `Cluster`
+objects and all six PVCs survive.
 
-```bash
-kubectl -n nextcloud exec nextcloud-database-1 -- \
-  pg_dump -U postgres -Fc app > /tmp/nextcloud-predump.dump
-kubectl -n immich exec immich-database-1 -- \
-  pg_dump -U postgres -Fc app > /tmp/immich-predump.dump
-ls -lh /tmp/nextcloud-predump.dump /tmp/immich-predump.dump
-```
-
-Expected: two non-empty files. If either is zero bytes, stop and fix before continuing.
-
-- [ ] **Step 2: Record the current state so you can detect a cascade delete**
-
-```bash
-kubectl get cluster -A -o wide
-kubectl get pvc -A | grep -E 'nextcloud-database|immich-database'
-kubectl get sealedsecret -A --no-headers | wc -l
-```
-
-Save this output. Expected: 2 Clusters, 6 PVCs (3 instances each), 20 SealedSecrets.
-
-- [ ] **Step 3: Verify the generated Applications carry no deletion finalizer**
-
-```bash
-kubectl -n argocd get application cloudnative-pg sealed-secrets \
-  -o jsonpath='{range .items[*]}{.metadata.name}{": "}{.metadata.finalizers}{"\n"}{end}'
-```
-
-Expected: empty finalizer list for both. If either shows `resources-finalizer.argocd.argoproj.io`, **stop** — moving it will cascade-delete the CNPG operator and its CRDs, and CRD deletion removes every `Cluster` object. In that case, strip the finalizer first with `kubectl -n argocd patch application <name> --type=merge -p '{"metadata":{"finalizers":null}}'` and re-run this check.
-
-- [ ] **Step 4: Move the directories**
-
-```bash
-git mv platform/cloudnative-pg system/cloudnative-pg
-git mv platform/sealed-secrets system/sealed-secrets
-```
-
-- [ ] **Step 5: Add the sync wave to both `app.yaml` files**
-
-`system/cloudnative-pg/app.yaml`:
-
-```yaml
-chartName: cloudnative-pg
-chartRepo: https://cloudnative-pg.github.io/charts
-chartVersion: 0.29.0
-syncWave: "-1"
-```
-
-`system/sealed-secrets/app.yaml`:
-
-```yaml
-chartName: sealed-secrets
-chartRepo: https://charts.bitnami.com/bitnami
-chartVersion: 2.5.19
-syncWave: "-1"
-```
-
-- [ ] **Step 6: Commit and merge to main**
-
-System-stack changes cannot be verified on a branch — the ApplicationSet generates from `main` only.
-
-```bash
-git add system/cloudnative-pg system/sealed-secrets
-git commit -m "refactor(argocd): move cloudnative-pg and sealed-secrets to the system stack
-
-Both become wave -1 dependencies of Infisical, which lands at system wave 0."
-git push origin main
-```
-
-- [ ] **Step 7: Refresh the ApplicationSets and watch the handover**
-
-Chart-source changes need an ApplicationSet refresh; an Application refresh is a no-op.
-
-```bash
-kubectl -n argocd annotate applicationset platform system \
-  argocd.argoproj.io/application-set-refresh=true --overwrite
-kubectl -n argocd get application -w
-```
-
-Expected: `cloudnative-pg` and `sealed-secrets` Applications are deleted from the `platform` set and recreated by the `system` set, reaching `Synced`/`Healthy`.
-
-- [ ] **Step 8: Verify nothing was destroyed**
-
-```bash
-kubectl get cluster -A -o wide
-kubectl get pvc -A | grep -E 'nextcloud-database|immich-database'
-kubectl get sealedsecret -A --no-headers | wc -l
-kubectl -n nextcloud get pods -l cnpg.io/cluster=nextcloud-database
-kubectl -n immich get pods -l cnpg.io/cluster=immich-database
-```
-
-Expected: identical to Step 2 — 2 Clusters, 6 PVCs, 20 SealedSecrets, all Postgres pods `Running`.
-
-If Clusters or PVCs are gone: `git revert` the merge, push, refresh the ApplicationSets, and restore from the Step 1 dumps. Do not proceed to Task 2 until this task's verification passes.
-
-- [ ] **Step 9: Confirm the sealed-secrets keypair is unchanged**
-
-```bash
-kubeseal --fetch-cert --controller-name sealed-secrets-controller \
-  --controller-namespace sealed-secrets | diff - pub-cert.pem && echo "CERT UNCHANGED"
-```
-
-Expected: `CERT UNCHANGED`. If the cert differs, the controller was redeployed with a new keypair and every existing SealedSecret is now undecryptable — reseal all with `just seal` after re-fetching the cert.
+Consequence for this plan: **it is purely additive.** Nothing existing moves, and every task
+can be reverted independently.
 
 ---
 
-## Task 2: Seal Infisical's bootstrap secret
+## Task 1: Seal Infisical's bootstrap secret
 
 `ENCRYPTION_KEY` and `AUTH_SECRET` are arbitrary internal values that never have to match an external system, so they use the registry's existing `generate:` prefix. `seal.sh` generates via `uuidgen | tr -d '-' | tr '[:upper:]' '[:lower:]'`, producing exactly 32 lowercase hex characters — the same shape as `openssl rand -hex 16`, which is what Infisical expects for `ENCRYPTION_KEY`.
 
@@ -187,7 +97,7 @@ Expected: `CERT UNCHANGED`. If the cert differs, the controller was redeployed w
 - Create: `system/infisical/infisical-secrets.yaml` (generated, committed)
 
 **Interfaces:**
-- Produces: Secret `infisical-secrets` in namespace `infisical` with keys `ENCRYPTION_KEY`, `AUTH_SECRET`, `SITE_URL`. Task 3's `values.yaml` references it by name via the chart's `kubeSecretRef`.
+- Produces: Secret `infisical-secrets` in namespace `infisical` with keys `ENCRYPTION_KEY`, `AUTH_SECRET`, `SITE_URL`. Task 2's `values.yaml` references it by name via the chart's `kubeSecretRef`.
 
 - [ ] **Step 1: Add `INFISICAL_SITE_URL` to the gitignored secrets file**
 
@@ -252,18 +162,18 @@ git add secrets/registry.tsv system/infisical/infisical-secrets.yaml
 git commit -m "feat(infisical): seal bootstrap secret with generated encryption and auth keys"
 ```
 
-Do not push yet — Task 3 pushes the whole deployment together, so an `infisical-secrets` Secret never sits in the cluster without the workload that consumes it.
+Do not push yet — Task 2 pushes the whole deployment together, so an `infisical-secrets` Secret never sits in the cluster without the workload that consumes it.
 
 ---
 
-## Task 3: Deploy Infisical and its database
+## Task 2: Deploy Infisical and its database
 
 **Files:**
 - Create: `system/infisical/app.yaml`, `values.yaml`, `postgres.yaml`, `vpa.yaml`
 
 **Interfaces:**
-- Consumes: `infisical-secrets` from Task 2; the CNPG operator from Task 1.
-- Produces: Service `infisical.infisical.svc.cluster.local:8080`, consumed by Task 4's `InfisicalConnection`. CNPG Secret `infisical-database-app` with key `uri`.
+- Consumes: `infisical-secrets` from Task 1; the CNPG operator already running in `platform/`.
+- Produces: Service `infisical.infisical.svc.cluster.local:8080`, consumed by Task 3's `InfisicalConnection`. CNPG Secret `infisical-database-app` with key `uri`.
 
 - [ ] **Step 1: Confirm the chart versions against the live repo**
 
@@ -440,7 +350,7 @@ Expected: 3 Postgres pods and 2 Infisical pods `Running`, logs showing a success
 
 ---
 
-## Task 4: Expose the UI and deploy the operator
+## Task 3: Expose the UI and deploy the operator
 
 **Files:**
 - Create: `system/infisical/httproute.yaml`
@@ -448,8 +358,8 @@ Expected: 3 Postgres pods and 2 Infisical pods `Running`, logs showing a success
 - Create: `system/infisical/connection-auth.yaml`
 
 **Interfaces:**
-- Consumes: the `infisical` Service from Task 3.
-- Produces: `InfisicalAuth` named `infisical-auth` in namespace `infisical`, referenced by every `InfisicalStaticSecret` from Task 6 onward via `infisicalAuthRef: {name: infisical-auth, namespace: infisical}`.
+- Consumes: the `infisical` Service from Task 2.
+- Produces: `InfisicalAuth` named `infisical-auth` in namespace `infisical`, referenced by every `InfisicalStaticSecret` from Task 5 onward via `infisicalAuthRef: {name: infisical-auth, namespace: infisical}`.
 
 - [ ] **Step 1: Create `system/infisical/httproute.yaml`**
 
@@ -627,7 +537,7 @@ Expected: the `InfisicalAuth` reports a ready/authenticated status and the opera
 
 ---
 
-## Task 5: Pilot migration — `ntfy-webhook-url`
+## Task 4: Pilot migration — `ntfy-webhook-url`
 
 One key, non-critical, and its failure mode is visible (alerts stop reaching ntfy) without breaking any workload. This is the task that proves the whole mechanism.
 
@@ -637,8 +547,8 @@ One key, non-critical, and its failure mode is visible (alerts stop reaching ntf
 - Modify: `secrets/registry.tsv`
 
 **Interfaces:**
-- Consumes: `infisical-auth` from Task 4.
-- Produces: the `InfisicalStaticSecret` pattern that Task 6 repeats 19 times.
+- Consumes: `infisical-auth` from Task 3.
+- Produces: the `InfisicalStaticSecret` pattern that Task 5 repeats 19 times.
 
 - [ ] **Step 1: Read the current value so you can put it into Infisical**
 
@@ -725,9 +635,9 @@ If the Secret disappears, the SealedSecret and the `InfisicalStaticSecret` were 
 
 ---
 
-## Task 6: Migrate the remaining 19 secrets
+## Task 5: Migrate the remaining 19 secrets
 
-Repeat Task 5's pattern per namespace. Batch by namespace so a failure is scoped to one app. **Migrate `cert-manager`, `external-dns`, and `tailscale` last** — those are wave 1–3 platform dependencies whose failure is most disruptive.
+Repeat Task 4's pattern per namespace. Batch by namespace so a failure is scoped to one app. **Migrate `cert-manager`, `external-dns`, and `tailscale` last** — those are wave 1–3 platform dependencies whose failure is most disruptive.
 
 **Files:**
 - Create: `<stack>/<app>/infisical-secret.yaml` × 15 (some namespaces hold several secrets, which combine into one manifest)
@@ -735,7 +645,7 @@ Repeat Task 5's pattern per namespace. Batch by namespace so a failure is scoped
 - Modify: `secrets/registry.tsv` (down to the two `infisical` rows)
 
 **Interfaces:**
-- Consumes: `infisical-auth` from Task 4; the pattern from Task 5.
+- Consumes: `infisical-auth` from Task 3; the pattern from Task 4.
 - Produces: Kubernetes Secrets with names and keys identical to today's, so no `values.yaml` changes anywhere.
 
 Migration order and the exact Secret name → key mapping to preserve:
@@ -781,7 +691,7 @@ done
 
 - [ ] **Step 3: Write the batch's `infisical-secret.yaml` files**
 
-Use Task 5 Step 3 verbatim, changing only `metadata.name`, `metadata.namespace`, `secretPath`, and `targets[0].name`/`namespace`. Where a namespace holds several secrets (`homepage` has four), put each `InfisicalStaticSecret` in the same `infisical-secret.yaml`, separated by `---`, since files that change together live together.
+Use Task 4 Step 3 verbatim, changing only `metadata.name`, `metadata.namespace`, `secretPath`, and `targets[0].name`/`namespace`. Where a namespace holds several secrets (`homepage` has four), put each `InfisicalStaticSecret` in the same `infisical-secret.yaml`, separated by `---`, since files that change together live together.
 
 For `cert-manager`, note that its SealedSecret currently lives in `config/cert-manager/` which is gitignored — the `InfisicalStaticSecret` replaces it with a committed manifest at `system/cert-manager/infisical-secret.yaml`. This is a strict improvement: the manifest becomes visible in git for the first time.
 
@@ -826,14 +736,14 @@ Expected: `2` (`infisical-secrets`, `infisical-machine-identity`), and only thos
 
 ---
 
-## Task 7: Back up the database to NFS
+## Task 6: Back up the database to NFS
 
 **Files:**
 - Create: `system/infisical/backup-cronjob.yaml`
 
 **Interfaces:**
-- Consumes: CNPG Secret `infisical-database-app` from Task 3.
-- Produces: dumps at `/data/backups/infisical/` on the NFS share, consumed by Task 9's restore rehearsal.
+- Consumes: CNPG Secret `infisical-database-app` from Task 2.
+- Produces: dumps at `/data/backups/infisical/` on the NFS share, consumed by Task 8's restore rehearsal.
 
 - [ ] **Step 1: Create `system/infisical/backup-cronjob.yaml`**
 
@@ -923,7 +833,7 @@ Expected: a dump file of at least a few hundred KB.
 
 ---
 
-## Task 8: Alert on operator sync failure
+## Task 7: Alert on operator sync failure
 
 Infisical going stale is silent — workloads keep running on the Secrets they already have. Without an alert, a broken operator is invisible until a secret change mysteriously fails to take effect.
 
@@ -931,7 +841,7 @@ Infisical going stale is silent — workloads keep running on the Secrets they a
 - Modify: the Prometheus rules under `system/monitoring-system/`
 
 **Interfaces:**
-- Consumes: metrics from the operator Deployment created in Task 4.
+- Consumes: metrics from the operator Deployment created in Task 3.
 
 - [ ] **Step 1: Confirm the operator exposes controller-runtime metrics**
 
@@ -996,7 +906,7 @@ git push origin main
 
 ---
 
-## Task 9: Rehearse recovery and document the runbook
+## Task 8: Rehearse recovery and document the runbook
 
 The Talos migration is months out, gated on the NAS. That runway is the mitigation for this design's riskiest path — rehearse it now, on your own schedule, rather than attempting it for the first time mid-rebuild.
 
@@ -1074,14 +984,15 @@ git push origin main
 
 ## Self-Review Notes
 
-**Spec coverage.** Every spec section maps to a task: sequencing (Task 9 rationale), architecture and boot order (Tasks 1, 3, 4), database (Task 3), bootstrap secret and the three key copies (Task 2), ingress (Task 4), org layout (Task 4 Step 6), per-app pattern (Tasks 5–6), backup (Task 7), failure modes and alerting (Task 8), migration sequence (Tasks 5–6), recovery rehearsal (Task 9).
+**Spec coverage.** Every spec section maps to a task: bootstrap secret and the three key copies (Task 1), architecture and database (Task 2), ingress, operator, and org layout (Task 3), per-app pattern (Tasks 4–5), migration sequence (Tasks 4–5), backup (Task 6), failure modes and alerting (Task 7), sequencing rationale and recovery rehearsal (Task 8).
 
-**Correction against the spec.** The spec says 15 secrets; `secrets/registry.tsv` actually holds **20** rows. Task 6's table enumerates all 19 remaining after the pilot. The spec should be corrected to say 20.
+**Deviation from the spec.** The spec's migration step 1 moves `cloudnative-pg` and `sealed-secrets` into the `system` stack. That is deferred — see "Deferred: stack reorganization". The spec's boot-order diagram therefore describes the end state after that separate change, not the state this plan produces. Everything else in the spec is implemented as written.
+
+**Correction against the spec.** The spec originally said 15 secrets; `secrets/registry.tsv` holds **20** rows. Task 5's table enumerates all 19 remaining after the pilot. The spec has been corrected.
 
 **Known-unverified items**, each with an explicit check in the plan rather than an assumption:
-- ApplicationSet handover behaviour (Task 1, Steps 3 and 8) — the data-loss risk.
-- Whether ArgoCD honours per-app `syncWave` across ApplicationSet-generated Applications at all. The plan does not depend on it: every task verifies convergence directly.
-- The operator's Deployment name for the VPA `targetRef` (Task 4, Step 5).
-- The operator's metrics endpoint and metric name (Task 8, Step 1).
-- Live chart versions (Task 3, Step 1).
-- Whether Renovate resolves the Cloudsmith Helm index — check after the first Renovate run following Task 3; `lscr.io` already needed an auth workaround in this repo.
+- Whether ArgoCD honours per-app `syncWave` across ApplicationSet-generated Applications at all. The plan does not depend on it: every task verifies convergence directly, and with the stack reorganization deferred, wave ordering is now purely cosmetic to this plan.
+- The operator's Deployment name for the VPA `targetRef` (Task 3, Step 5).
+- The operator's metrics endpoint and metric name (Task 7, Step 1).
+- Live chart versions (Task 2, Step 1).
+- Whether Renovate resolves the Cloudsmith Helm index — check after the first Renovate run following Task 2; `lscr.io` already needed an auth workaround in this repo.
