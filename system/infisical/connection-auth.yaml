@@ -1,0 +1,30 @@
+apiVersion: secrets.infisical.com/v1beta1
+kind: InfisicalConnection
+metadata:
+  name: infisical-connection
+  namespace: infisical
+spec:
+  # Cluster-internal. Secret delivery must not depend on Envoy Gateway,
+  # cert-manager, external-dns, or the internet.
+  address: http://infisical-infisical-standalone-infisical.infisical.svc.cluster.local:8080
+---
+apiVersion: secrets.infisical.com/v1beta1
+kind: InfisicalAuth
+metadata:
+  name: infisical-auth
+  namespace: infisical
+spec:
+  infisicalConnectionRef:
+    name: infisical-connection
+    namespace: infisical
+  # CRD enum is "universal", not "universal-auth"; field is spec.universal, not universalAuth.
+  method: universal
+  universal:
+    clientIdRef:
+      name: infisical-machine-identity
+      namespace: infisical
+      key: clientId
+    clientSecretRef:
+      name: infisical-machine-identity
+      namespace: infisical
+      key: clientSecret
