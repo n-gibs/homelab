@@ -1,0 +1,44 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: infisical-database
+  namespace: infisical
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  instances: 3
+  imageName: ghcr.io/cloudnative-pg/postgresql:18-standard-trixie
+
+  storage:
+    # local-path per the CNPG exception in CLAUDE.md: streaming replication, not
+    # the volume, provides node-failure durability, and NFS is not a supported
+    # CNPG configuration. This DB holds Infisical's encrypted secrets only —
+    # small and slow-growing. local-path cannot be expanded in place.
+    size: 5Gi
+    storageClass: local-path
+
+  # local-path already pins each instance to its node permanently, so "required"
+  # adds no constraint local-path has not already imposed.
+  affinity:
+    podAntiAffinityType: required
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: infisical-database
+  namespace: infisical
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  name: app
+  owner: app
+  cluster:
+    name: infisical-database
