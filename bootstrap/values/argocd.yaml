@@ -87,6 +87,13 @@ configs:
   cm:
     users.anonymous.enabled: "true"
     accounts.readonly: apiKey
+    # infisical-standalone stamps `updatedAt: {{ now }}` on its Deployment and pod
+    # template with no way to disable it, so every refresh looks like drift and
+    # selfHeal rolls the pods. No other chart here emits this annotation.
+    resource.customizations.ignoreDifferences.apps_Deployment: |
+      jsonPointers:
+        - /metadata/annotations/updatedAt
+        - /spec/template/metadata/annotations/updatedAt
   rbac:
     policy.default: "role:admin"
     policy.csv: "g, readonly, role:readonly"
