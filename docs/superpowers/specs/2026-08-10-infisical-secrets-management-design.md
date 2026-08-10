@@ -107,11 +107,24 @@ sealed manifest and `.secrets.generated` are unavailable after a cluster rebuild
 sealed-secrets keypair is regenerated, and `.secrets.generated` is gitignored. This is the
 single highest-consequence item in the design.
 
-Store it in Vaultwarden, **and** confirm at least one Bitwarden client (desktop or phone)
-has synced and holds an offline cache of that vault entry. Vaultwarden itself runs in this
-cluster, so it is unavailable in precisely the scenario where the key is needed; the synced
-client is what puts a copy outside the failure domain. Vaultwarden alone is not a backup of
-this key.
+Three copies, each covering a failure the others don't:
+
+1. **Vaultwarden** — the working copy, where you'd look first.
+2. **A synced Bitwarden client** (desktop or phone) holding an offline cache of that entry.
+   Vaultwarden runs in this cluster, so it is unavailable in precisely the scenario where
+   the key is needed; the synced client is what puts a copy outside the cluster's failure
+   domain. Vaultwarden alone is not a backup of this key.
+3. **An `age`-encrypted copy in a private off-site repo**, with the age passphrase stored in
+   Vaultwarden. Covers loss of the house, which the first two do not. The ciphertext is
+   useless on its own, so the repo's exposure is not the key's exposure.
+
+GitHub Actions secrets were considered and rejected: they are write-only, so recovering the
+value requires a workflow that deliberately defeats Actions' log masking — which would then
+let anyone with push access to the repo extract the key. Hard to read when needed, easy to
+read when not.
+
+The recovery runbook therefore depends on `age`. Note that dependency where the restore
+procedure is written down.
 
 ### Ingress
 
@@ -201,8 +214,9 @@ restores them and ArgoCD re-applies.
    be orphaned and re-adopted rather than cascade-deleted. **Confirm this before merging**,
    with a database backup taken first.
 2. Deploy Infisical + operator at wave 0. Create the project, environment, and machine
-   identity through the UI. Copy `ENCRYPTION_KEY` into Vaultwarden and verify a Bitwarden
-   client has synced it before proceeding — this gates everything after it.
+   identity through the UI. Store `ENCRYPTION_KEY` in all three places — Vaultwarden, a
+   verified synced Bitwarden client, and the age-encrypted off-site copy — before
+   proceeding. This gates everything after it.
 3. Pilot on `ntfy-webhook-url` (namespace `monitoring-system`): single key, non-critical,
    easy to verify. Confirm the Secret materializes and that changing the value in Infisical
    propagates.
