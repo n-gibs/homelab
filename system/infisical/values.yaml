@@ -1,0 +1,39 @@
+infisical:
+  replicaCount: 2
+  kubeSecretRef: infisical-secrets
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+# useExistingPostgresSecret belongs here, not under infisical: — misplaced, Helm
+# ignores it silently and no DB env vars render at all.
+postgresql:
+  enabled: false
+  useExistingPostgresSecret:
+    enabled: true
+    existingConnectionStringSecret:
+      name: infisical-database-app
+      key: uri
+
+# Cache and queues only. persistence off: the chart's 8Gi local-path PVC would
+# pin Redis to one node with no reschedule on node failure.
+# Password is plaintext by necessity, not oversight — the chart bakes REDIS_URL
+# as an explicit `env` entry and `env` beats `envFrom`, so a SealedSecret can't
+# override it. Overrides the chart's public default. Private repo, cache only.
+redis:
+  enabled: true
+  auth:
+    password: "352aeabb5b3a5e1829f77bf9e200aa36f3d5b50ec22cab8c"
+  master:
+    persistence:
+      enabled: false
+
+# Repo is Gateway API only. The chart would otherwise deploy ingress-nginx.
+ingress:
+  enabled: false
+  nginx:
+    enabled: false
