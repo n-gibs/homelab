@@ -219,12 +219,16 @@ restores them and ArgoCD re-applies.
 
 ## Migration sequence
 
-1. Move `platform/cloudnative-pg` → `system/cloudnative-pg`, `platform/sealed-secrets` →
-   `system/sealed-secrets`, both at wave `-1`. Verify the existing `nextcloud` and `immich`
-   Clusters survive the ApplicationSet handover — the generated Application moves between
-   two ApplicationSets, and the template sets no `resources-finalizer`, so resources should
-   be orphaned and re-adopted rather than cascade-deleted. **Confirm this before merging**,
-   with a database backup taken first.
+1. **Deferred to a separate change.** Moving `platform/cloudnative-pg` and
+   `platform/sealed-secrets` into the `system` stack at wave `-1` would sort Infisical's
+   dependencies ahead of it, but its only benefit is a faster cold start — without it,
+   ArgoCD retries until CNPG and sealed-secrets arrive at platform wave 2 and converges
+   anyway. Against that sits a real data-loss risk: moving a directory between stacks makes
+   the source ApplicationSet delete its generated Application, and if that Application
+   carries `resources-finalizer.argocd.argoproj.io`, deletion cascades to the CNPG CRDs and
+   destroys every `Cluster` object, including `nextcloud` and `immich`. Not worth pairing
+   with a migration. The wave `-1` placement in the Components table above describes the
+   end state after that separate change; this migration is purely additive without it.
 2. Deploy Infisical + operator at wave 0. Create the project, environment, and machine
    identity through the UI. Store `ENCRYPTION_KEY` in all three places — Vaultwarden, a
    verified synced Bitwarden client, and the age-encrypted off-site copy — before
