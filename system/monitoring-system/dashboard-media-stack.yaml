@@ -58,7 +58,7 @@ data:
             "name": "media",
             "label": "Media namespaces",
             "type": "constant",
-            "query": "sonarr|radarr|lidarr|bazarr|prowlarr|qbittorrent|jellyfin|navidrome|recyclarr|unpackerr|flaresolverr|rclone-seedbox",
+            "query": "sonarr|radarr|lidarr|bazarr|prowlarr|qbittorrent|jellyfin|navidrome|recyclarr|unpackerr|flaresolverr|rclone-seedbox|cleanuparr",
             "hide": 2,
             "current": {}
           }
