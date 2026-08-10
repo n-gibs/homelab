@@ -6,6 +6,8 @@ k3s homelab on HP ProDesk Mini PCs. Ansible provisioning, ArgoCD GitOps.
 
 k3s + Cilium (VXLAN) + ArgoCD (GitOps) + Envoy Gateway + cert-manager + sealed-secrets + Tailscale (in-cluster subnet router for remote access to services — not used for node SSH)
 
+Observability is kube-prometheus-stack (`system/monitoring-system`) plus Loki + Alloy for logs. Dependency updates are a self-hosted Renovate CronJob (`platform/renovate`) that opens PRs against this repo.
+
 ## Nodes
 
 | Hostname | Hardware | Role | IP |
@@ -49,6 +51,10 @@ Two remaining steps stay fully manual (`just wire-media` prints these as a remin
 - **Jellyfin**: add TV (`/data/media/tv`) and Movies (`/data/media/movies`) libraries via `jellyfin.nik-homelab.dev` → Dashboard → Libraries.
 - **Bazarr**: point it at Sonarr (`sonarr.sonarr.svc.cluster.local:8989`) and Radarr (`radarr.radarr.svc.cluster.local:7878`) via `bazarr.nik-homelab.dev` → Settings — Bazarr has no REST API for this, so it can't be scripted.
 
+### Post-Bootstrap: Wire the Seedbox
+
+Private-tracker grabs go to a remote seedbox; public grabs stay on the in-cluster qBittorrent behind gluetun. `just wire-seedbox` configures the arrs' download clients for that split, and `just sync-seedbox` triggers the rclone copy to NFS on demand (it also runs on a CronJob). See [`apps/rclone-seedbox/README.md`](apps/rclone-seedbox/README.md) for host details, seed reaping, and the no-shell debugging trick.
+
 ---
 
 ## OS Install
@@ -66,9 +72,10 @@ Ubuntu Server 26.04 LTS — installed manually from USB.
 ## Repo Structure
 
 ```
-apps/           # user-facing applications (arr stack, jellyfin, vaultwarden, etc.)
-platform/       # cluster platform services (sealed-secrets, tailscale, cloudnative-pg)
-system/         # low-level cluster infrastructure (cilium, cert-manager, nfs-provisioner, vpa)
+apps/           # user-facing applications (arr stack, jellyfin, immich, nextcloud, vaultwarden, etc.)
+platform/       # cluster platform services (sealed-secrets, tailscale, cloudnative-pg, renovate)
+system/         # low-level cluster infrastructure (cert-manager, coredns, envoy-gateway,
+                #   external-dns, nfs-provisioner, vpa, monitoring-system, loki, alloy)
 bootstrap/      # one-time helmfile bootstrap (Cilium, ArgoCD, root ApplicationSet)
 ansible/        # node provisioning (Ubuntu install, k3s setup) — see ansible/README.md
 config/         # sealed secrets that live outside app dirs (gitignored)
