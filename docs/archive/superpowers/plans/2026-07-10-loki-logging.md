@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add cluster-wide log aggregation (Loki + Alloy) and wire it into the existing Grafana instance, per `docs/superpowers/specs/2026-07-10-loki-logging-design.md`.
+**Goal:** Add cluster-wide log aggregation (Loki + Alloy) and wire it into the existing Grafana instance, per `docs/archive/superpowers/specs/2026-07-10-loki-logging-design.md`.
 
 **Architecture:** Two new `system/` apps — `loki` (grafana-community/loki chart, Monolithic mode, filesystem storage on NFS, 7-day retention) and `alloy` (grafana/alloy chart, single Deployment replica, `loki.source.kubernetes` tailing all pod logs via the K8s API, no DaemonSet/hostPath/privileged container needed). Grafana gets one new `additionalDataSources` entry pointing at Loki.
 

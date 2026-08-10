@@ -8,7 +8,7 @@
 
 **Tech Stack:** Helm (`kube-prometheus-stack` 86.2.0), Prometheus Alertmanager config, `kubeseal`/sealed-secrets, ArgoCD (auto-sync from `main`).
 
-**Spec:** `docs/superpowers/specs/2026-07-15-ntfy-alerting-design.md`
+**Spec:** `docs/archive/superpowers/specs/2026-07-15-ntfy-alerting-design.md`
 
 ## Global Constraints
 

@@ -8,7 +8,7 @@
 
 **Tech Stack:** Helm chart `renovate` 46.251.0, image `ghcr.io/renovatebot/renovate:44.14.3`, ArgoCD, sealed-secrets, kubeseal.
 
-**Spec:** `docs/superpowers/specs/2026-08-06-selfhosted-renovate-design.md`
+**Spec:** `docs/archive/superpowers/specs/2026-08-06-selfhosted-renovate-design.md`
 
 ## Global Constraints
 

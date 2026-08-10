@@ -129,7 +129,7 @@ marked `TODO(NAS)` in place, so `just todos` lists them.
 | APM udev rule (serial-pinned, meaningless without this drive) | `ansible/roles/common/tasks/main.yml` + `handlers/main.yml` |
 | `smart-temp-textfile` exporter, its two systemd units, and `node_smart_load_cycle_count` | `ansible/roles/common/tasks/main.yml` |
 | `temperature-disk` alert group | `system/monitoring-system/prometheusrule-temperature.yaml` |
-| this document | `.claude/hdd-running-hot.md` |
+| this document | `docs/archive/hdd-running-hot.md` |
 
 Out of scope of the thermal work but part of the same migration: the NFS server role on
 worker-01, the `nfs` StorageClass, and every media app's direct `192.168.30.194:/mnt/storage`

@@ -16,7 +16,7 @@ Observability is kube-prometheus-stack (`system/monitoring-system`) plus Loki + 
 | worker-01 | HP ProDesk Mini G9 — i5 12th gen, 16GB RAM, 12TB USB | k3s server + worker, NFS server, media workloads (label, no taint) | 192.168.30.194 |
 | worker-02 | HP ProDesk Mini G6 | k3s server + worker (schedulable) | 192.168.30.136 |
 
-All 3 nodes are k3s server+worker (HA etcd control plane) and all 3 are normal scheduling candidates. G9 (worker-01) carries a `homelab.io/media=true` label so media apps select it via nodeSelector; it has no taint, so generic workloads use its spare capacity too. See `.claude/g6-migration.md` for the migration details.
+All 3 nodes are k3s server+worker (HA etcd control plane) and all 3 are normal scheduling candidates. G9 (worker-01) carries a `homelab.io/media=true` label so media apps select it via nodeSelector; it has no taint, so generic workloads use its spare capacity too. See [`docs/archive/g6-migration.md`](docs/archive/g6-migration.md) for the migration details.
 
 ---
 
@@ -79,7 +79,12 @@ system/         # low-level cluster infrastructure (cert-manager, coredns, envoy
 bootstrap/      # one-time helmfile bootstrap (Cilium, ArgoCD, root ApplicationSet)
 ansible/        # node provisioning (Ubuntu install, k3s setup) — see ansible/README.md
 config/         # sealed secrets that live outside app dirs (gitignored)
+docs/           # design notes and audits; docs/archive/ is shipped work kept for the "why"
 ```
+
+[`docs/archive/`](docs/archive/README.md) holds write-ups for work that's already done — the G6 HA
+migration, the 12TB drive's heat investigation, the 2026-07-28 DNS outage follow-ups. They explain
+why the cluster is shaped the way it is; the repo itself is the source of truth for current state.
 
 ArgoCD sync waves: `system` (wave 1) → `platform` (wave 2) → `apps` (wave 3). ArgoCD auto-syncs from `main` — merge to main = deploy.
 
