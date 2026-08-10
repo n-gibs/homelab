@@ -4,11 +4,11 @@ Provisions a 3-node k3s cluster on HP ProDesk Mini PCs using [k3s-ansible](https
 
 ## Nodes
 
-| Role | Host | IP |
+| Host | Role | IP |
 |------|------|----|
-| Control plane | worker-00 (G4) | 192.168.30.129 |
-| Worker 1 | worker-01 (G9) | 192.168.30.194 |
-| Worker 2 | worker-02 (G6) | 192.168.30.136 |
+| worker-00 (G4) | server + worker, `api_endpoint` | 192.168.30.129 |
+| worker-01 (G9) | server + worker, NFS server, media label | 192.168.30.194 |
+| worker-02 (G6) | server + worker | 192.168.30.136 |
 
 SSH user: `homelab`
 
@@ -77,6 +77,8 @@ just               # list all commands
 just deps          # install galaxy dependencies
 just ping          # test all nodes
 just provision     # full provisioning run
+just provision-common  # only the common role (base hardening), --tags common
+just provision-nfs     # only the NFS server/client roles, --tags nfs
 just dry-run       # check mode, no changes
 just lint          # run ansible-lint
 just vault-view    # inspect vault contents
@@ -107,7 +109,8 @@ ansible/
 
 ## k3s Configuration
 
-- CNI: Cilium (flannel disabled)
+- CNI: Cilium (flannel + k3s network policy disabled)
 - Ingress: Envoy Gateway (traefik + servicelb disabled)
+- metrics-server disabled in k3s; deployed from `system/metrics-server` instead
 - HA control plane: all 3 nodes are k3s server+worker, no taints at all; worker-01 carries a `homelab.io/media=true` label so media apps land on G9 via nodeSelector (see `.claude/g6-migration.md`)
-- k3s version: v1.36.2+k3s1 (Kubernetes v1.36.2)
+- k3s version: v1.36.3+k3s1 — set as `k3s_version` in `group_vars/k3s_cluster.yml`, bumped by Renovate

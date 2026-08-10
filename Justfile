@@ -6,12 +6,6 @@ playbook := "ansible/site.yml"
 default:
     @just --list
 
-# ── Autoinstall USB ──────────────────────────────────────────────────────────
-
-# Build autoinstall user-data from template + secrets
-build-usb:
-    bash autoinstall/build.sh
-
 # ── Ansible ──────────────────────────────────────────────────────────────────
 
 # Install Ansible Galaxy dependencies
@@ -616,4 +610,4 @@ sync-seedbox:
 
 # Show TODOs remaining
 todos:
-    @grep -rn "TODO" ansible/ autoinstall/ bootstrap/ platform/ apps/ system/
+    @grep -rn "TODO" ansible/ bootstrap/ platform/ apps/ system/
