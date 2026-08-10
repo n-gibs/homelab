@@ -112,5 +112,5 @@ ansible/
 - CNI: Cilium (flannel + k3s network policy disabled)
 - Ingress: Envoy Gateway (traefik + servicelb disabled)
 - metrics-server disabled in k3s; deployed from `system/metrics-server` instead
-- HA control plane: all 3 nodes are k3s server+worker, no taints at all; worker-01 carries a `homelab.io/media=true` label so media apps land on G9 via nodeSelector (see `.claude/g6-migration.md`)
+- HA control plane: all 3 nodes are k3s server+worker, no taints at all; worker-01 carries a `homelab.io/media=true` label so media apps land on G9 via nodeSelector (see `docs/archive/g6-migration.md`)
 - k3s version: v1.36.3+k3s1 — set as `k3s_version` in `group_vars/k3s_cluster.yml`, bumped by Renovate

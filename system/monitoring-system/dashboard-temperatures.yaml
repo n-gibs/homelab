@@ -123,7 +123,7 @@ data:
           "id": 3,
           "type": "timeseries",
           "title": "12TB USB drive vs its 65C ceiling",
-          "description": "TODO(NAS): delete this panel with the drive. Fed by smart-temp-textfile.timer, not hwmon — USB-attached disks get no hwmon entry. Investigated 2026-07-31: the heat is the fanless enclosure, not the workload (the drive is 0.02% busy) and not the node's CPU load. See .claude/hdd-running-hot.md.",
+          "description": "TODO(NAS): delete this panel with the drive. Fed by smart-temp-textfile.timer, not hwmon — USB-attached disks get no hwmon entry. Investigated 2026-07-31: the heat is the fanless enclosure, not the workload (the drive is 0.02% busy) and not the node's CPU load. See docs/archive/hdd-running-hot.md.",
           "gridPos": { "h": 8, "w": 12, "x": 12, "y": 9 },
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
           "fieldConfig": {

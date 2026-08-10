@@ -8,7 +8,7 @@
 
 **Tech Stack:** k3s v1.36.2, ArgoCD, Helm (OCI), CloudNativePG 1.30.0, PostgreSQL 18 + VectorChord, Valkey, Envoy Gateway (Gateway API), NFS, Ansible.
 
-**Spec:** `docs/superpowers/specs/2026-07-27-immich-deployment-design.md`
+**Spec:** `docs/archive/superpowers/specs/2026-07-27-immich-deployment-design.md`
 
 ## Global Constraints
 
@@ -941,10 +941,10 @@ Expected: all pods `Running`, both PVCs `Bound`, the cluster reporting 3 healthy
 
 - [ ] **Step 10: Record the verification outcome**
 
-Append a short "Deployed" note to the spec at `docs/superpowers/specs/2026-07-27-immich-deployment-design.md` capturing the deployment date, the large-upload result from Step 7, and any deviation from this plan. Commit it.
+Append a short "Deployed" note to the spec at `docs/archive/superpowers/specs/2026-07-27-immich-deployment-design.md` capturing the deployment date, the large-upload result from Step 7, and any deviation from this plan. Commit it.
 
 ```bash
-git add docs/superpowers/specs/2026-07-27-immich-deployment-design.md
+git add docs/archive/superpowers/specs/2026-07-27-immich-deployment-design.md
 git commit -m "docs: record Immich deployment outcome"
 ```
 

@@ -11,7 +11,7 @@
 All 3 nodes are k3s server+worker (HA etcd control plane) and all 3 are normal scheduling
 candidates. G9 (worker-01) carries a `homelab.io/media=true` label so media apps select it;
 it has no taint, so generic workloads use its spare capacity too. See
-`.claude/g6-migration.md` for the original migration plan.
+`docs/archive/g6-migration.md` for the original migration plan.
 
 ## Stack
 

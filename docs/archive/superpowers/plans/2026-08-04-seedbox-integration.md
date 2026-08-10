@@ -8,7 +8,7 @@
 
 **Tech Stack:** bjw-s `app-template` 5.0.1 (`type: cronjob`), `rclone/rclone` container, sealed-secrets, Justfile + `jq` + Radarr/Sonarr/Prowlarr REST APIs.
 
-**Design spec:** `docs/superpowers/specs/2026-08-04-seedbox-integration-design.md`
+**Design spec:** `docs/archive/superpowers/specs/2026-08-04-seedbox-integration-design.md`
 
 ## Global Constraints
 

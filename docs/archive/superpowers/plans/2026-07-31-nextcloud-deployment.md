@@ -8,7 +8,7 @@
 
 **Tech Stack:** k3s, ArgoCD, Helm, CloudNativePG, sealed-secrets, Envoy Gateway (Gateway API), kube-prometheus-stack, Ansible.
 
-**Spec:** `docs/superpowers/specs/2026-07-31-nextcloud-deployment-design.md`
+**Spec:** `docs/archive/superpowers/specs/2026-07-31-nextcloud-deployment-design.md`
 
 ## Global Constraints
 
@@ -451,7 +451,7 @@ chartName: nextcloud
 chartRepo: https://nextcloud.github.io/helm/
 # Nextcloud cannot skip major versions. Before merging a bump, check the chart's
 # appVersion delta — one Nextcloud major at a time, and take a database dump first
-# (see docs/superpowers/specs/2026-07-31-nextcloud-deployment-design.md).
+# (see docs/archive/superpowers/specs/2026-07-31-nextcloud-deployment-design.md).
 chartVersion: 9.2.5
 ```
 

@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-04
 **Status:** Approved, pending implementation plan
-**Supersedes:** `docs/superpowers/plans/2026-06-25-seedbox-integration.md` (Hetzner VPS, on stale branch `feat/seedbox-integration`)
+**Supersedes:** `docs/archive/superpowers/plans/2026-06-25-seedbox-integration.md` (Hetzner VPS, on stale branch `feat/seedbox-integration`)
 
 ## Goal
 
