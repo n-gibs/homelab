@@ -28,6 +28,16 @@ The sync path never leaves the cluster: the operator talks to
 Gateway, cert-manager, external-dns, or the internet. The web UI is exposed later via
 HTTPRoute and is cosmetic to secret delivery.
 
+## Sequencing against the Talos migration
+
+Infisical ships **before** Talos. The Talos migration is gated on the NAS, which is months
+out, so this lands with a long runway of normal operation ahead of it rather than being
+executed alongside a cluster rebuild.
+
+That runway is the mitigation for this design's riskiest path — restoring the database and
+supplying `ENCRYPTION_KEY` before anything else can boot. Rehearse it once, early
+(step 7), instead of attempting it for the first time mid-migration.
+
 ## Architecture
 
 ### Components
@@ -172,7 +182,9 @@ directory basename, and these resources must land in `infisical` alongside
 `infisical-secrets`. They will fail their first sync until the operator's CRDs exist;
 ArgoCD's retry resolves it.
 
-Each new directory also gets a `vpa.yaml` per repo convention.
+The Infisical and operator Deployments each get a `vpa.yaml` per repo convention. The CNPG
+`Cluster` does not — its pods are operator-managed, and a VPA `targetRef` pointing at a
+Deployment will not match them.
 
 ### Backup
 
@@ -225,6 +237,10 @@ restores them and ArgoCD re-applies.
 5. Shrink `registry.tsv` to the single `infisical-secrets` row and delete the superseded
    SealedSecret manifests.
 6. Add the backup CronJob and the operator reconcile-error alert.
+7. Rehearse recovery: restore a pg_dump into a scratch namespace against the age-encrypted
+   `ENCRYPTION_KEY` copy, and confirm secrets decrypt. This validates both the backup and
+   the key copies while there is no pressure to do so, and is the step that makes the Talos
+   rebuild routine rather than novel.
 
 ## Alternatives considered
 
@@ -268,4 +284,12 @@ nothing now and becomes a hand-patched pet outside GitOps.
 - That Renovate resolves the Cloudsmith Helm index — this is the first non-standard chart
   host in the repo, and `lscr.io` already required an auth workaround.
 - That the Bitnami `redis` subchart still pulls anonymously.
-- The ApplicationSet handover behaviour in step 1, before merging.
+- The ApplicationSet handover behaviour in step 1, before merging, with dumps of the
+  `nextcloud` and `immich` databases taken first. If the Application is cascade-deleted
+  rather than orphaned, this step destroys both clusters.
+- Whether ArgoCD honours the per-app `syncWave` at all. The generated Applications are
+  created directly by the ApplicationSet controller rather than as children of a parent
+  Application's sync, so wave ordering across them may be decorative and convergence may
+  actually come from `selfHeal` retries. The existing annotations
+  (`envoy-gateway: 1`, `cert-manager: 2`) establish the convention but do not prove the
+  behaviour. The design tolerates either outcome; only the speed of first boot changes.
