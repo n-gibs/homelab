@@ -101,11 +101,17 @@ They stay a SealedSecret — one row in `secrets/registry.tsv`.
 external system, which is exactly what the registry's `generate:` prefix is for. They are
 auto-generated once and cached in `secrets/.secrets.generated`.
 
-**`ENCRYPTION_KEY` must also be copied to an offline password manager.** Every secret in
-Infisical is encrypted with it. A database backup without it is unrecoverable ciphertext,
-and both the sealed manifest and `.secrets.generated` are unavailable after a cluster
-rebuild — the sealed-secrets keypair is regenerated, and `.secrets.generated` is gitignored.
-This is the single highest-consequence item in the design.
+**`ENCRYPTION_KEY` must also be copied out of the cluster.** Every secret in Infisical is
+encrypted with it. A database backup without it is unrecoverable ciphertext, and both the
+sealed manifest and `.secrets.generated` are unavailable after a cluster rebuild — the
+sealed-secrets keypair is regenerated, and `.secrets.generated` is gitignored. This is the
+single highest-consequence item in the design.
+
+Store it in Vaultwarden, **and** confirm at least one Bitwarden client (desktop or phone)
+has synced and holds an offline cache of that vault entry. Vaultwarden itself runs in this
+cluster, so it is unavailable in precisely the scenario where the key is needed; the synced
+client is what puts a copy outside the failure domain. Vaultwarden alone is not a backup of
+this key.
 
 ### Ingress
 
@@ -195,7 +201,8 @@ restores them and ArgoCD re-applies.
    be orphaned and re-adopted rather than cascade-deleted. **Confirm this before merging**,
    with a database backup taken first.
 2. Deploy Infisical + operator at wave 0. Create the project, environment, and machine
-   identity through the UI.
+   identity through the UI. Copy `ENCRYPTION_KEY` into Vaultwarden and verify a Bitwarden
+   client has synced it before proceeding — this gates everything after it.
 3. Pilot on `ntfy-webhook-url` (namespace `monitoring-system`): single key, non-critical,
    easy to verify. Confirm the Secret materializes and that changing the value in Infisical
    propagates.
