@@ -31,6 +31,15 @@ renovate:
           username: 'nikgibs',
           password: process.env.DOCKER_HUB_TOKEN,
         },
+        {
+          // lscr.io proxies ghcr.io, whose anonymous rate limit 429s the
+          // `tags/list?n=10000` lookups -- reported as "no-result" on whichever
+          // arrs lost the race. Reuses RENOVATE_TOKEN; ghcr.io takes a GitHub PAT.
+          hostType: 'docker',
+          matchHost: 'lscr.io',
+          username: 'n-gibs',
+          password: process.env.RENOVATE_TOKEN,
+        },
       ],
     };
 
