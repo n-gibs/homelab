@@ -9,7 +9,7 @@ Replace sealed-secrets as the source of truth for cluster secrets with a self-ho
 Infisical instance, so that:
 
 1. Plaintext secrets stop living on the laptop in `secrets/.secrets`.
-2. Secrets survive a cluster rebuild (Talos migration) without resealing 15 manifests
+2. Secrets survive a cluster rebuild (Talos migration) without resealing 20 manifests
    against a freshly generated keypair.
 3. There is a UI, an audit log, and somewhere to keep secrets that aren't Kubernetes
    secrets at all.
@@ -232,7 +232,7 @@ restores them and ArgoCD re-applies.
 3. Pilot on `ntfy-webhook-url` (namespace `monitoring-system`): single key, non-critical,
    easy to verify. Confirm the Secret materializes and that changing the value in Infisical
    propagates.
-4. Migrate the remaining ~14 registry rows, one namespace at a time, verifying each app
+4. Migrate the remaining 19 registry rows, one namespace at a time, verifying each app
    before moving on. Consolidate the arr API keys into `/shared`.
 5. Shrink `registry.tsv` to the single `infisical-secrets` row and delete the superseded
    SealedSecret manifests.
