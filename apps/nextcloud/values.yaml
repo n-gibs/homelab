@@ -16,7 +16,7 @@ nextcloud:
   # cannot write the data dir. Volume name is a chart literal, not release-templated.
   extraInitContainers:
     - name: fix-data-perms
-      image: busybox:1.37
+      image: busybox:1.38
       command: ["sh", "-c", "mkdir -p /nc/data && chown 33:33 /nc /nc/data"]
       volumeMounts:
         - name: nextcloud-data
