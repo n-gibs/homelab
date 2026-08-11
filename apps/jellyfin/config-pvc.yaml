@@ -1,0 +1,36 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jellyfin-config-local
+  namespace: jellyfin
+  # NO sync-wave annotation -- do not add one. local-path is WaitForFirstConsumer,
+  # so this stays Pending (= unhealthy to ArgoCD) until its consumer is scheduled.
+  # An earlier wave deadlocks the sync forever. Same reasoning as
+  # apps/sonarr/config-pvc.yaml.
+spec:
+  accessModes:
+    - ReadWriteOnce
+  # local-path, for the same reason as the arrs: /config/data/data/jellyfin.db is
+  # SQLite, and SQLite over NFS does not work. On 2026-08-10 evening, playback
+  # sessions produced "SQLite Error 5: 'database is locked'" on
+  # POST /Sessions/Playing/Progress, and every stalled request came back as
+  # "Unexpected end of request content" -- the client hanging up while the write
+  # waited on a lock it could not get over NFS.
+  #
+  # The "local-path does not survive node failure" objection is weak here:
+  # worker-01 is itself the NFS server, so the nfs class was never giving this
+  # volume a second node, only a second disk (the 10.9T USB spinner) on the same
+  # node. Durability comes instead from jellyfin-db-backup, which calls Jellyfin's
+  # own /Backup/Create and lands the archive on that USB disk.
+  #
+  # Recovery if worker-01's NVMe dies: delete this PVC, let it recreate empty, and
+  # start the pod with `--restore-archive /config/data/data/backups/<newest>.zip`
+  # (or Dashboard -> Backups -> Restore). Media library and metadata images are
+  # rebuilt by a library scan; only the database matters.
+  #
+  # 20Gi against a ~900M config is headroom for MediaCover/metadata growth --
+  # local-path cannot be expanded in place, so this is sized once.
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 20Gi
