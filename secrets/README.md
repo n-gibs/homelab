@@ -1,6 +1,15 @@
 # Secrets
 
-How secrets get from plaintext on your machine to sealed manifests in git.
+Infisical is now the source of truth for application secrets — see
+`system/infisical/README.md` for how it works and how to recover it. This
+registry is down to two rows: the bootstrap values Infisical itself can't hold,
+because they're needed to bring Infisical up in the first place. Adding a
+secret for a new app is no longer a registry row — it's an entry in the
+Infisical UI plus an `InfisicalStaticSecret` manifest (see the "Secrets"
+section of the root `CLAUDE.md`).
+
+How the two bootstrap secrets get from plaintext on your machine to sealed
+manifests in git.
 
 ## Pieces
 
@@ -36,6 +45,9 @@ Both call `secrets/seal.sh`, which reads `secrets/registry.tsv`, pulls the refer
 An `ENVVAR` in the registry can be prefixed `generate:` instead of requiring a value in `secrets/.secrets` — use this for arbitrary internal shared secrets (e.g. the arr stack's API keys), never for credentials that must match an external system. The first `just seal` invents the value and caches it in `secrets/.secrets.generated`; later runs reuse it instead of rotating it.
 
 ## Adding a new secret
+
+This only applies to the two bootstrap rows below — everything else is an
+Infisical entry, not a registry row.
 
 1. Add the plaintext value(s) to `secrets/.secrets` (or use `generate:VAR` in the row below if it's an arbitrary internal secret, not one from an external system).
 2. Add a row to `secrets/registry.tsv`:

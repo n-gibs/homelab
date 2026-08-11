@@ -201,9 +201,19 @@ Add Homepage dashboard annotations to the route for service discovery:
 
 ## Secrets
 
-Secrets are sealed with `kubeseal` using `pub-cert.pem` in repo root. Never commit plaintext secrets.
+Infisical is the source of truth for application secrets — see
+`system/infisical/README.md`. Never commit plaintext secrets.
 
-Sealing is table-driven — see `secrets/README.md`. To add a secret: add its plaintext value to `secrets/.secrets` (or mark it `generate:VAR` in the registry if it's an arbitrary internal value, not one from an external system), add a row to `secrets/registry.tsv`, then run `just seal <secret-name>`. No new Justfile recipe needed.
+To add a secret: add it in the Infisical UI at path `/<namespace>/<secret-name>`
+in project `homelab-ef-28`, environment `prod`, then commit an
+`infisical-secret.yaml` in the app directory (copy
+`system/monitoring-system/infisical-secret.yaml`). No `just seal` step, no
+registry row.
+
+`secrets/registry.tsv` still exists, sealed with `kubeseal` using
+`pub-cert.pem` in repo root, but only for two rows that can't come from
+Infisical itself — the bootstrap `ENCRYPTION_KEY` and the operator's machine
+identity. See `secrets/README.md`.
 
 ## Common Commands
 
