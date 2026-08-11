@@ -1,6 +1,6 @@
 # renovate: datasource=docker depName=ghcr.io/renovatebot/renovate
 image:
-  tag: 44.17.3
+  tag: 44.23.3
 
 cronjob:
   schedule: "0 3,15 * * *"
