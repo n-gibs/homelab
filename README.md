@@ -40,6 +40,15 @@ just bootstrap         # applies bootstrap/helmfile.yaml
 
 This installs, in order: Cilium (CNI), Gateway API CRDs, ArgoCD, and the root chart that generates ArgoCD `ApplicationSet`s for `system/`, `platform/`, and `apps/`. From there, ArgoCD auto-syncs everything else from `main`.
 
+**Bootstrap charts do not auto-apply.** Everything in `bootstrap/` is helmfile, not ArgoCD, so
+when Renovate bumps a version there and you merge it, the repo moves and the cluster does not —
+run the matching recipe (`just bootstrap-cilium`, `just bootstrap-argocd`, …) to converge. For a
+Cilium **minor** bump, follow [the upstream upgrade guide](https://docs.cilium.io/en/stable/operations/upgrade/):
+run the preflight check first to pre-pull the image (pass `k8sServiceHost`/`k8sServicePort`, since
+this cluster is kube-proxy-free), go to the latest patch of the current minor before jumping, and
+watch `CiliumAgentDuplicate` while the DaemonSet rolls — see the comment at the top of
+`bootstrap/values/cilium.yaml` for why that alert is the one to watch.
+
 See `just --list` for the full set of commands (sealing secrets, wiring up media apps, etc.).
 
 ### Post-Bootstrap: Wire Media Apps
