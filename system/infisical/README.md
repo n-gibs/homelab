@@ -91,12 +91,29 @@ client alone. If that ever feels too thin, a copy in iCloud Drive or on the NAS
 restores the third independent leg. The file lived in a temp directory until
 2026-08-11 and was one reboot from gone — hence naming its path here.
 
-Verify a copy against the live key by comparing hashes, never by printing
-either value:
+**A key copy that decrypts is not a key copy that is correct.** Check the value,
+not the round-trip. Comparing hashes does that without printing either secret:
 
 ```bash
-age -d ~/secrets/infisical-encryption-key.age | tr -d '\n' | shasum -a 256
+age -d ~/secrets/infisical-encryption-key.age | shasum -a 256
 kubectl -n infisical get secret infisical-secrets -o jsonpath='{.data.ENCRYPTION_KEY}' | base64 -d | shasum -a 256
+```
+
+The two must be identical. Worth re-running whenever the bootstrap secret is
+resealed, and against the Vaultwarden and Bitwarden copies too — the hash is the
+only cheap way to tell a good copy from a plausible one.
+
+This is not hypothetical. On 2026-08-11 the age file was found to decrypt cleanly
+to a value that matched **no** live secret — not `ENCRYPTION_KEY`, not
+`AUTH_SECRET`, not the machine identity — most likely a key superseded when the
+bootstrap secret was resealed. It had been signed off earlier on the strength of
+"the age file round-trips", which only ever proved the passphrase worked. Rebuilt
+from the live key and hash-verified the same day. Recreate a copy with:
+
+```bash
+kubectl -n infisical get secret infisical-secrets -o jsonpath='{.data.ENCRYPTION_KEY}' | base64 -d \
+  | age -p -a > ~/secrets/infisical-encryption-key.age
+chmod 600 ~/secrets/infisical-encryption-key.age
 ```
 
 ## Restore rehearsal
