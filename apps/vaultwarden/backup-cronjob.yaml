@@ -1,0 +1,141 @@
+# Vaultwarden has no scheduled backup of its own -- /admin has a one-click "Backup
+# Database" button and nothing that fires on a timer -- so this job is what makes the
+# local-path data volume acceptable. It writes to the NFS share, a different disk
+# from the NVMe that local-path uses.
+#
+# Not a `cp`: SQLite in WAL mode spreads committed state across db.sqlite3,
+# -wal and -shm, so copying a live database can produce a torn, unrestorable file.
+# This uses SQLite's online backup API via Python's stdlib sqlite3 module -- same
+# approach as apps/cleanuparr/backup-cronjob.yaml.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  # Name must keep the -db-backup suffix: BackupCronJobMissing in
+  # system/monitoring-system/prometheusrule-backups.yaml counts CronJobs matching
+  # ".+-db-backup" and alerts if one stops reporting.
+  name: vaultwarden-db-backup
+  namespace: vaultwarden
+spec:
+  schedule: "30 4 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            # Alloy derives the Loki `app` stream label from this; without it these
+            # pods fall back to the namespace and land in Vaultwarden's main stream.
+            app.kubernetes.io/name: vaultwarden-db-backup
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            # Vaultwarden runs as root and its /data files are root-owned, so this
+            # job matches it rather than fighting the permissions.
+            runAsUser: 0
+            runAsGroup: 0
+          containers:
+            - name: sqlite-backup
+              image: python:3.13-alpine
+              command:
+                - python
+                - -c
+                - |
+                  import os, shutil, sqlite3, sys, tarfile, time, glob
+
+                  DATA = "/data"
+                  DEST = "/backups"
+                  RETAIN_DAYS = 14
+                  staging = "/tmp/vaultwarden-backup"
+                  stamp = time.strftime("%Y%m%d-%H%M%S")
+
+                  # icon_cache is refetched from the web on demand and tmp is scratch;
+                  # everything else is either the vault or the keys that decrypt and
+                  # sign access to it. attachments/ and sends/ do not exist until a
+                  # user uploads something, hence copy-by-exclusion rather than a
+                  # list of names that would silently miss them later.
+                  shutil.rmtree(staging, ignore_errors=True)
+                  shutil.copytree(
+                      DATA,
+                      staging,
+                      ignore=shutil.ignore_patterns(
+                          "icon_cache", "tmp", "db.sqlite3*", ".migrated-from-nfs"
+                      ),
+                  )
+
+                  db = os.path.join(DATA, "db.sqlite3")
+                  if not os.path.exists(db):
+                      sys.exit("no db.sqlite3 in /data -- refusing to write a backup")
+                  # Read-only source: a backup job must never mutate what it is
+                  # backing up. mode=ro is what enforces that, not the mount, which
+                  # has to stay writable so SQLite can create a -shm file if none
+                  # exists (see the cleanuparr job for where that bit us).
+                  src = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+                  dst = sqlite3.connect(os.path.join(staging, "db.sqlite3"))
+                  with dst:
+                      src.backup(dst)
+                  dst.close()
+                  src.close()
+                  # A vault with no ciphers is a restore that loses everything, and
+                  # it looks identical to a healthy small backup. Count instead.
+                  check = sqlite3.connect(os.path.join(staging, "db.sqlite3"))
+                  users, ciphers = check.execute(
+                      "select (select count(*) from users), (select count(*) from ciphers)"
+                  ).fetchone()
+                  check.close()
+                  if not users:
+                      sys.exit("snapshot has 0 users -- refusing to write it")
+                  print(f"snapshot: {users} users, {ciphers} ciphers")
+
+                  os.makedirs(DEST, exist_ok=True)
+                  archive = os.path.join(DEST, f"vaultwarden-{stamp}.tar.gz")
+                  # Write under a temp name in DEST (same filesystem, so the rename
+                  # is atomic) and only rename onto the real name once the archive is
+                  # complete -- otherwise a pod killed mid-write leaves a truncated
+                  # file at exactly the name the restore path reaches for. The .tmp
+                  # suffix also keeps it out of the prune glob below.
+                  tmp_archive = archive + ".tmp"
+                  with tarfile.open(tmp_archive, "w:gz") as tar:
+                      tar.add(staging, arcname="data")
+                  os.rename(tmp_archive, archive)
+                  print(f"wrote {archive} ({os.path.getsize(archive)} bytes)")
+
+                  cutoff = time.time() - RETAIN_DAYS * 86400
+                  kept = 0
+                  for old in sorted(glob.glob(os.path.join(DEST, "vaultwarden-*.tar.gz"))):
+                      if os.path.getmtime(old) < cutoff:
+                          os.remove(old)
+                          print(f"pruned {os.path.basename(old)}")
+                      else:
+                          kept += 1
+                  print(f"retained: {kept} archives")
+              volumeMounts:
+                # Not readOnly: opening a WAL database -- even with mode=ro -- needs
+                # a -shm file, and SQLite must be able to create one when it is
+                # absent. mode=ro on the connection is what keeps this job from
+                # writing to the database itself.
+                - name: data
+                  mountPath: /data
+                - name: backups
+                  mountPath: /backups
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi
+          volumes:
+            # ReadWriteOnce is a per-NODE constraint, not per-pod, so this pod may
+            # mount the volume while Vaultwarden has it. The local-path PV carries
+            # node affinity, which forces the scheduler onto the same node -- so that
+            # is guaranteed rather than lucky.
+            - name: data
+              persistentVolumeClaim:
+                claimName: vaultwarden-data-local
+            - name: backups
+              nfs:
+                server: 192.168.30.194
+                path: /mnt/storage/backups/vaultwarden
