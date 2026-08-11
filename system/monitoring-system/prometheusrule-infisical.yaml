@@ -1,0 +1,56 @@
+---
+# Watches Infisical -> cluster secret delivery. The obvious signal — the operator's
+# reconcile-error counter / status conditions — doesn't work: it logs "Reconciliation
+# successful" and sets conditions True every cycle whether or not it actually wrote
+# anything, so a stuck sync is silent on that path. Instead this reads the
+# LastSuccessfulReconcileAt condition's message, a live RFC3339 timestamp rewritten on
+# every successful reconcile, turned into a gauge by kube-state-metrics'
+# CustomResourceState (system/monitoring-system/values.yaml).
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: infisical
+  namespace: monitoring-system
+  labels:
+    release: monitoring-system
+spec:
+  groups:
+    - name: infisical
+      rules:
+        # refreshInterval on the CRs is 60s, so 900s is 15 missed cycles. for: 15m adds
+        # another 15, so this needs ~30m of genuine staleness before firing — deliberately
+        # loose because propagation has been observed taking several minutes on its own,
+        # and a tighter bound flaps.
+        - alert: InfisicalSecretStale
+          expr: time() - kube_customresource_infisical_secret_last_sync_timestamp_seconds > 900
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.namespace }}/{{ $labels.name }} has not synced from Infisical in over 15m"
+            description: >-
+              The Kubernetes Secret this InfisicalStaticSecret manages is untouched and
+              workloads keep running on it, so nothing breaks immediately — what's broken
+              is that changes made in Infisical no longer reach the cluster. Check
+              `kubectl -n infisical-operator logs deploy/infisical-opera-controller-manager`
+              and `kubectl get infisicalstaticsecret -A -o wide`.
+
+        # InfisicalSecretStale reads a metric that stops existing if kube-state-metrics
+        # loses the CustomResourceState config, its RBAC is revoked, or every
+        # InfisicalStaticSecret is deleted — an absent series can't go stale, so the rule
+        # above would fall silent instead of firing. absent() over a hardcoded expected
+        # count so this doesn't need editing every time a secret is added. Critical: this
+        # is the rule that notices the monitoring itself stopped.
+        - alert: InfisicalSecretMetricsMissing
+          expr: absent(kube_customresource_infisical_secret_last_sync_timestamp_seconds)
+          for: 1h
+          labels:
+            severity: critical
+          annotations:
+            summary: No Infisical secret sync metrics are being reported
+            description: >-
+              kube_customresource_infisical_secret_last_sync_timestamp_seconds has had no
+              series for over an hour, so InfisicalSecretStale cannot fire. Likely causes:
+              kube-state-metrics lost its customResourceState config
+              (system/monitoring-system/values.yaml), its ClusterRole lost the
+              secrets.infisical.com RBAC grant, or every InfisicalStaticSecret was deleted.
