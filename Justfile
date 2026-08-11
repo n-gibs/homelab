@@ -114,7 +114,9 @@ register-repo:
 # ── Post-Bootstrap Secrets ───────────────────────────────────────────────────
 
 # Seal one secret by name from secrets/registry.tsv, or all of them if omitted:
-# just seal | just seal vaultwarden-admin-token  (run after bootstrap + kubeseal-fetch-cert)
+# just seal | just seal infisical-secrets  (run after bootstrap + kubeseal-fetch-cert)
+# Only the two Infisical bootstrap rows live here now; app secrets come from
+# Infisical instead — see system/infisical/README.md.
 seal name="":
     ./secrets/seal.sh {{name}}
 
@@ -145,8 +147,14 @@ seal-argocd-token:
 # Note: Bazarr → Sonarr/Radarr has no REST API; configure manually at bazarr.nik-homelab.dev → Settings
 wire-media:
     #!/usr/bin/env bash
-    source secrets/.secrets
-    source secrets/.secrets.generated
+    # API keys come from the live Secrets, which Infisical populates. Not from
+    # secrets/.secrets.generated: seal.sh no longer maintains these keys, and that
+    # file does not survive a rebuild — the exact situation this recipe runs in.
+    arr_key() { kubectl -n "$1" get secret arr-api-key -o jsonpath="{.data.$2__AUTH__APIKEY}" | base64 -d; }
+    SONARR_API_KEY=$(arr_key sonarr SONARR)
+    RADARR_API_KEY=$(arr_key radarr RADARR)
+    LIDARR_API_KEY=$(arr_key lidarr LIDARR)
+    PROWLARR_API_KEY=$(arr_key prowlarr PROWLARR)
     PF_PIDS=()
     cleanup() { for p in "${PF_PIDS[@]}"; do kill "$p" 2>/dev/null; done; }
     trap cleanup EXIT
@@ -231,8 +239,14 @@ wire-media:
 wire-seedbox:
     #!/usr/bin/env bash
     set -euo pipefail
+    # SEEDBOX_QBT_* stay in secrets/.secrets — they are seedbox web-UI credentials,
+    # not a Kubernetes Secret. The arr API keys come from the cluster (see wire-media).
     source secrets/.secrets
-    source secrets/.secrets.generated
+    arr_key() { kubectl -n "$1" get secret arr-api-key -o jsonpath="{.data.$2__AUTH__APIKEY}" | base64 -d; }
+    SONARR_API_KEY=$(arr_key sonarr SONARR)
+    RADARR_API_KEY=$(arr_key radarr RADARR)
+    LIDARR_API_KEY=$(arr_key lidarr LIDARR)
+    PROWLARR_API_KEY=$(arr_key prowlarr PROWLARR)
     PF_PIDS=()
     cleanup() { for p in "${PF_PIDS[@]}"; do kill "$p" 2>/dev/null; done; }
     trap cleanup EXIT
@@ -486,8 +500,7 @@ wire-seedbox:
 # Recommendations from https://wiki.servarr.com/lidarr/tips-and-tricks#custom-formats
 tune-lidarr-quality:
     #!/usr/bin/env bash
-    source secrets/.secrets
-    source secrets/.secrets.generated
+    LIDARR_API_KEY=$(kubectl -n lidarr get secret arr-api-key -o jsonpath='{.data.LIDARR__AUTH__APIKEY}' | base64 -d)
     PF_PIDS=()
     cleanup() { for p in "${PF_PIDS[@]}"; do kill "$p" 2>/dev/null; done; }
     trap cleanup EXIT
