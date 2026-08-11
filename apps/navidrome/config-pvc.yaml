@@ -1,0 +1,36 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: navidrome-config-local
+  namespace: navidrome
+  # NO sync-wave annotation -- do not add one. local-path is WaitForFirstConsumer,
+  # so this stays Pending (= unhealthy to ArgoCD) until its consumer is scheduled.
+  # An earlier wave deadlocks the sync forever. Same reasoning as
+  # apps/sonarr/config-pvc.yaml.
+spec:
+  accessModes:
+    - ReadWriteOnce
+  # local-path, because navidrome.db is SQLite and this volume was on nfs, in WAL
+  # mode (header bytes 18-19 = 2 2, with a live navidrome.db-shm beside it) -- which
+  # SQLite does not support on a network filesystem, since WAL coordinates readers
+  # and writers through an mmap'd -shm file NFS cannot provide reliably. Navidrome
+  # never logged "database is locked" the way Jellyfin and the arrs did, but its
+  # hourly scanner is the write burst that would find it.
+  #
+  # Durability comes from Navidrome's own scheduled backup (ND_BACKUP_* in
+  # values.yaml), which writes to /mnt/storage/backups/navidrome on worker-01's USB
+  # disk -- a different disk from the NVMe behind local-path. Its backups are
+  # SQLite VACUUM INTO snapshots, so they are consistent without stopping the app.
+  #
+  # Recovery if the NVMe dies: delete this PVC, let it recreate empty, then restore
+  # with `navidrome backup restore -b /backups/navidrome_backup_<stamp>.db` in the
+  # pod. Losing it entirely is survivable but not free -- play counts, ratings,
+  # playlists and users live only here; the music itself is on the NFS share.
+  #
+  # 10Gi against a ~49M volume is headroom for the artwork/transcode cache under
+  # /config/cache (39.7M today, and it grows with the library) -- local-path cannot
+  # be expanded in place, so this is sized once.
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 10Gi
