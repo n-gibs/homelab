@@ -62,7 +62,17 @@ persistence:
     existingClaim: cleanuparr-config-local
     globalMounts:
       - path: /config
+  # Blacklist Sync's "Blacklist Path" points here rather than at the upstream
+  # https://cleanuparr.pages.dev/static/blacklist -- that list blocks every audio
+  # and cover-art extension, which zeroed out all of Lidarr's downloads. See
+  # blacklist-configmap.yaml for the full rationale and the removed entries.
+  blacklist:
+    type: configMap
+    name: cleanuparr-blacklist
+    globalMounts:
+      - path: /blacklist
+        readOnly: true
 # No data volume on purpose. Orphan/no-hardlink cleanup is out of scope (it would
 # need /data mounted at qBittorrent's exact paths, and a mismatch deletes library
-# files), and Blacklist Sync reads its list from an HTTPS URL rather than a file.
-# The backup CronJob mounts NFS separately -- this pod never sees the media share.
+# files). The backup CronJob mounts NFS separately -- this pod never sees the
+# media share.
