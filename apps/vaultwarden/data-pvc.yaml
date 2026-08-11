@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vaultwarden-data-local
+  namespace: vaultwarden
+  # NO sync-wave annotation -- do not add one. local-path is WaitForFirstConsumer,
+  # so this stays Pending (= unhealthy to ArgoCD) until its consumer is scheduled.
+  # An earlier wave deadlocks the sync forever. Same reasoning as
+  # apps/sonarr/config-pvc.yaml.
+spec:
+  accessModes:
+    - ReadWriteOnce
+  # local-path, because /data/db.sqlite3 is SQLite and this volume was on nfs. It
+  # was also running in WAL mode on NFS (file header bytes 18-19 = 2 2, and a live
+  # db.sqlite3-shm sat next to it), which SQLite does not support on a network
+  # filesystem: WAL coordinates readers and writers through an mmap'd -shm file,
+  # and NFS cannot provide that shared memory reliably. Jellyfin and the four arrs
+  # hit the same misconfiguration as "database is locked" under load; Vaultwarden
+  # never did, being a single low-concurrency writer -- but the WAL had not
+  # checkpointed into db.sqlite3 since 2026-08-07 while growing to 1.3M, which is
+  # exactly the state that has nothing to recover from if the mmap misbehaves.
+  #
+  # Durability comes from vaultwarden-db-backup, which writes to /mnt/storage on
+  # worker-01's USB disk -- a different disk from the NVMe behind local-path.
+  #
+  # Recovery if worker-01's NVMe dies: delete this PVC, let it recreate empty,
+  # scale the Deployment to 0, and extract the newest archive from
+  # /mnt/storage/backups/vaultwarden over /data (the tar contains data/db.sqlite3,
+  # rsa_key.pem, config.json and attachments/sends if present). Restoring
+  # rsa_key.pem matters: without it every existing session token is invalid and
+  # all clients must log in again, though no vault data is lost.
+  #
+  # 5Gi against a 7.2M volume is headroom for attachments and icon_cache --
+  # local-path cannot be expanded in place, so this is sized once.
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi
