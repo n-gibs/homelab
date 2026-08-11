@@ -168,14 +168,16 @@ startupProbe:
   timeoutSeconds: 5
   failureThreshold: 60
 
-# Ratios kept tight — VPA preserves request:limit, so a wide ratio lets a lowered
-# request drag the limit down with it. See vpa.yaml.
+# No cpu limit. Keeping the ratio tight was the old workaround for VPA preserving
+# request:limit — but tight only slows the collapse: a 250m request became ~100m and
+# took the ceiling down to 400m with it, leaving PHP 21% throttled on page loads.
+# Removing the cpu limit removes the thing being divided. Memory limit stays, since
+# memory is not a burst-and-idle resource. See vpa.yaml.
 resources:
   requests:
     cpu: 250m
     memory: 768Mi
   limits:
-    cpu: "1"
     memory: 2Gi
 
 httpRoute:
