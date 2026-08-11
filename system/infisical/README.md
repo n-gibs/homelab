@@ -110,6 +110,7 @@ metadata:
   name: scratch-pg
   namespace: infisical-restore-test
 spec:
+  restartPolicy: Never
   containers:
     - name: postgres
       image: postgres:18-trixie
@@ -118,6 +119,9 @@ spec:
           value: scratch
         - name: PGDATA
           value: /pgdata/pg
+      resources:
+        requests: {cpu: 100m, memory: 256Mi}
+        limits: {cpu: "1", memory: 1Gi}
       volumeMounts:
         - name: pgdata
           mountPath: /pgdata
