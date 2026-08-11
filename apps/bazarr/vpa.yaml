@@ -14,16 +14,7 @@ spec:
     containerPolicies:
       - containerName: "*"
         minAllowed:
-          # 100m, not the usual 10m. Bazarr idles around 15m, so VPA recommended a
-          # 15m request -- and the LimitRange's 1:10 default ratio (50m request /
-          # 500m limit) is preserved when VPA rewrites the request, so the limit
-          # collapsed to 150m with it. That is a hard ceiling on a startup that is
-          # CPU-bound in Python imports: the pod sat throttled in 1144 of 1163 CFS
-          # periods and took ~2 minutes to start serving on 2026-08-11. A 100m floor
-          # buys a 1000m limit, so startup gets a full core while still reserving
-          # almost nothing. Raise the floor, not the values.yaml requests -- VPA
-          # would just lower those again.
-          cpu: 100m
+          cpu: 10m
           memory: 64Mi
         maxAllowed:
           cpu: 2
