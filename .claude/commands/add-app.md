@@ -191,15 +191,20 @@ spec:
           memory: 2Gi
 ```
 
-## Step 4 — Seal any secrets
+## Step 4 — Add any secrets to Infisical
 
-If the app needs secrets, add a row to `secrets/registry.tsv`:
+Secrets come from Infisical, not `secrets/registry.tsv` — that registry is down to the two
+bootstrap rows Infisical can't hold for itself, and adding an app is not a registry change.
 
-```
-<secret-name>    <appname>    <stack>/<appname>/<secret-name>.yaml    key=ENV_VAR
-```
+1. In the Infisical UI, create the secret at path `/<appname>/<secret-name>` in project
+   `homelab-ef-28`, environment `prod`. The path is namespace **and** secret name: two Secrets
+   in one namespace sharing a key name collide otherwise. Key names inside it match what the
+   app expects to consume.
+2. Commit `<stack>/<appname>/infisical-secret.yaml` — copy
+   `system/monitoring-system/infisical-secret.yaml` and change the path, name and namespace.
 
-Add the plaintext value to `secrets/.secrets` (and the var name to `secrets/.secrets.example`) — or use `key=generate:ENV_VAR` instead if it's an arbitrary internal value with no external source (e.g. an API key the app itself will consume). Then run `just seal <secret-name>`. See `secrets/README.md` for details.
+No `just seal`, no plaintext in `secrets/.secrets`, no `.secrets.example` entry. See
+`system/infisical/README.md`.
 
 ### Arr-stack apps: wire root folders / Prowlarr links
 
@@ -230,6 +235,5 @@ Watch sync: `kubectl get application -n argocd` or check ArgoCD UI at `argocd.ni
 - [ ] Storage class chosen per volume: `local-path` for SQLite config, `nfs` otherwise
 - [ ] `local-path` volume has a backup to `/data/backups/<app>/` — app's built-in backup if it has one, CronJob only if not
 - [ ] nodeSelector `homelab.io/media: "true"` if accessing `/data` on NFS (no toleration — worker-01 is untainted)
-- [ ] Secrets sealed and committed, var name added to `secrets/.secrets.example`
-- [ ] Row added to `secrets/registry.tsv` if secrets needed
+- [ ] Secrets created in Infisical at `/<appname>/<secret-name>` and an `infisical-secret.yaml` committed
 - [ ] If arr-stack app: added to `wire-media` recipe in `Justfile` (root folder and/or Prowlarr application link)

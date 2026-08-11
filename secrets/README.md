@@ -37,12 +37,14 @@ Fill in the values `secrets/registry.tsv` references (see below).
 
 ```bash
 just seal                          # reseal everything in the registry
-just seal vaultwarden-admin-token  # reseal just one
+just seal infisical-secrets        # reseal just one
 ```
 
 Both call `secrets/seal.sh`, which reads `secrets/registry.tsv`, pulls the referenced vars out of `secrets/.secrets` (or auto-generates them — see below), and writes the sealed manifest to the registry's `outfile` column. The script assumes it's run from the repo root (as `just` does) — don't run it directly from elsewhere.
 
-An `ENVVAR` in the registry can be prefixed `generate:` instead of requiring a value in `secrets/.secrets` — use this for arbitrary internal shared secrets (e.g. the arr stack's API keys), never for credentials that must match an external system. The first `just seal` invents the value and caches it in `secrets/.secrets.generated`; later runs reuse it instead of rotating it.
+An `ENVVAR` in the registry can be prefixed `generate:` instead of requiring a value in `secrets/.secrets` — use this for arbitrary internal shared secrets, never for credentials that must match an external system. The first `just seal` invents the value and caches it in `secrets/.secrets.generated`; later runs reuse it instead of rotating it. Its only remaining users are Infisical's `ENCRYPTION_KEY` and `AUTH_SECRET`.
+
+`secrets/.secrets.generated` still holds the arr stack's API keys from before the Infisical migration, but nothing reads them from there any more: the registry no longer lists them, so `seal.sh` doesn't maintain them, and the `wire-*` Justfile recipes read the live Secrets instead. That matters because this file is gitignored and won't exist after a rebuild, which is exactly when those recipes run.
 
 ## Adding a new secret
 

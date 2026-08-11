@@ -4,7 +4,12 @@ k3s homelab on HP ProDesk Mini PCs. Ansible provisioning, ArgoCD GitOps.
 
 ## Stack
 
-k3s + Cilium (VXLAN) + ArgoCD (GitOps) + Envoy Gateway + cert-manager + sealed-secrets + Tailscale (in-cluster subnet router for remote access to services — not used for node SSH)
+k3s + Cilium (VXLAN) + ArgoCD (GitOps) + Envoy Gateway + cert-manager + Infisical + Tailscale (in-cluster subnet router for remote access to services — not used for node SSH)
+
+Application secrets come from a self-hosted Infisical (`system/infisical`), synced into
+Kubernetes Secrets by its operator — see [`system/infisical/README.md`](system/infisical/README.md)
+for the recovery runbook. sealed-secrets is still installed but now covers only the two
+bootstrap values Infisical can't hold for itself.
 
 Observability is kube-prometheus-stack (`system/monitoring-system`) plus Loki + Alloy for logs. Dependency updates are a self-hosted Renovate CronJob (`platform/renovate`) that opens PRs against this repo.
 
@@ -78,7 +83,7 @@ system/         # low-level cluster infrastructure (cert-manager, coredns, envoy
                 #   external-dns, nfs-provisioner, vpa, monitoring-system, loki, alloy)
 bootstrap/      # one-time helmfile bootstrap (Cilium, ArgoCD, root ApplicationSet)
 ansible/        # node provisioning (Ubuntu install, k3s setup) — see ansible/README.md
-config/         # sealed secrets that live outside app dirs (gitignored)
+config/         # manifests rendered from templates by `just build-config` (gitignored)
 docs/           # design notes and audits; docs/archive/ is shipped work kept for the "why"
 ```
 
