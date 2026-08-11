@@ -1,5 +1,50 @@
 controllers:
   main:
+    # local-path is ReadWriteOnce and node-pinned, and two Navidromes must never open
+    # the same SQLite database: the old pod has to be gone before the new one starts.
+    strategy: Recreate
+    initContainers:
+      # ONE-TIME MIGRATION -- delete this initContainer (and the oldconfig mount in
+      # persistence) once the local-path volume is populated and Navidrome is
+      # verified. It is a no-op on every run after the first.
+      #
+      # Reads the retired nfs PVC through its directory on the share rather than by
+      # claim, because the chart no longer declares that PVC and ArgoCD prunes it;
+      # the PV's reclaim policy is Retain, so the files outlive the claim. Runs as an
+      # initContainer so the copy happens with Navidrome stopped -- ArgoCD's selfHeal
+      # undoes a manual scale-down, so that is not a safe way to quiesce.
+      migrate-config:
+        # renovate: datasource=docker depName=busybox
+        image:
+          repository: busybox
+          tag: 1.38.0
+        command:
+          - sh
+          - -c
+          - |
+            set -eu
+            # Own sentinel, written last, rather than any file the copy itself
+            # brings over: a crash mid-copy must look unmigrated so the retry
+            # recopies over the top instead of starting on half a database.
+            if [ -f /config/.migrated-from-nfs ]; then
+              echo "already migrated"
+              exit 0
+            fi
+            # Everything except the cache, which Navidrome refills from the music
+            # files. That includes navidrome.db-wal: the old pod is gone by the time
+            # this runs, and the WAL held 4M of commits not yet in navidrome.db, so
+            # copying the database alone would lose recent plays and scans.
+            cd /oldconfig
+            for d in *; do
+              case "$d" in cache) continue ;; esac
+              echo "copying $d"
+              cp -a "$d" /config/
+            done
+            chown -R 1000:1000 /config
+            touch /config/.migrated-from-nfs
+            echo "migrated $(du -sh /config | cut -f1)"
+        securityContext:
+          runAsUser: 0
     pod:
       nodeSelector:
         homelab.io/media: "true"
@@ -28,6 +73,14 @@ controllers:
           # tracks in one directory, but per-track musicbrainz_albumid can differ
           # when tracks come from different releases, splitting the album in two.
           ND_PID_ALBUM: folder
+          # Navidrome's own scheduled backup -- VACUUM INTO snapshots, consistent
+          # without stopping the app. This is what makes the local-path config
+          # volume acceptable, so it writes to the NFS share, not next to the
+          # database it protects. No CronJob: the app schedules this itself, which
+          # also means BackupCronJobMissing does not watch it (same as the arrs).
+          ND_BACKUP_PATH: /backups
+          ND_BACKUP_SCHEDULE: "0 5 * * *"
+          ND_BACKUP_COUNT: "14"
         resources:
           requests:
             cpu: 50m
@@ -53,12 +106,19 @@ route:
 
 persistence:
   config:
-    type: persistentVolumeClaim
-    storageClass: nfs
-    size: 1Gi
-    accessMode: ReadWriteMany
+    # local-path, not nfs -- navidrome.db is SQLite in WAL mode, which does not work
+    # over NFS. See config-pvc.yaml for the rationale and the restore path.
+    existingClaim: navidrome-config-local
     globalMounts:
       - path: /config
+  # ND_BACKUP_PATH points here. The /data mount below is readOnly, so the backup
+  # needs its own writable mount rather than a subdirectory of it.
+  backups:
+    type: nfs
+    server: 192.168.30.194
+    path: /mnt/storage/backups/navidrome
+    globalMounts:
+      - path: /backups
   data:
     type: nfs
     server: 192.168.30.194
@@ -66,3 +126,15 @@ persistence:
     globalMounts:
       - path: /data
         readOnly: true
+  # ONE-TIME MIGRATION -- remove together with the migrate-config initContainer.
+  # This is the retired nfs config PVC, addressed by its directory on the share
+  # (`kubectl get pv <vol> -o jsonpath='{.spec.nfs.path}'`) because the claim is gone.
+  oldconfig:
+    type: nfs
+    server: 192.168.30.194
+    path: /mnt/storage/navidrome/navidrome
+    advancedMounts:
+      main:
+        migrate-config:
+          - path: /oldconfig
+            readOnly: true
