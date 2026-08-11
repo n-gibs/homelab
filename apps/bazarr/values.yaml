@@ -3,48 +3,6 @@ controllers:
     # local-path is ReadWriteOnce and node-pinned, and two Bazarrs must never open the
     # same SQLite database: the old pod has to be gone before the new one starts.
     strategy: Recreate
-    initContainers:
-      # ONE-TIME MIGRATION -- delete this initContainer (and the oldconfig mount in
-      # persistence) once the local-path volume is populated and Bazarr is verified.
-      # It is a no-op on every run after the first.
-      #
-      # Reads the retired nfs PVC through its directory on the share rather than by
-      # claim, because the chart no longer declares that PVC and ArgoCD prunes it;
-      # the PV's reclaim policy is Retain, so the files outlive the claim. Runs as an
-      # initContainer so the copy happens with Bazarr stopped -- ArgoCD's selfHeal
-      # undoes a manual scale-down, so that is not a safe way to quiesce.
-      migrate-config:
-        # renovate: datasource=docker depName=busybox
-        image:
-          repository: busybox
-          tag: 1.38.0
-        command:
-          - sh
-          - -c
-          - |
-            set -eu
-            # Own sentinel, written last, rather than any file the copy itself
-            # brings over: a crash mid-copy must look unmigrated so the retry
-            # recopies over the top instead of starting on half a database.
-            if [ -f /config/.migrated-from-nfs ]; then
-              echo "already migrated"
-              exit 0
-            fi
-            # cache/log/restore are scratch; db, config and Bazarr's own backup
-            # directory come across. Includes bazarr.db-wal if it is still there
-            # after shutdown -- it held 4.2M of commits not yet in bazarr.db, so a
-            # database-only copy could lose recent subtitle history.
-            cd /oldconfig
-            for d in *; do
-              case "$d" in cache|log|restore) continue ;; esac
-              echo "copying $d"
-              cp -a "$d" /config/
-            done
-            chown -R 1000:1000 /config
-            touch /config/.migrated-from-nfs
-            echo "migrated $(du -sh /config | cut -f1)"
-        securityContext:
-          runAsUser: 0
     pod:
       nodeSelector:
         homelab.io/media: "true"
@@ -101,15 +59,3 @@ persistence:
     path: /mnt/storage
     globalMounts:
       - path: /data
-  # ONE-TIME MIGRATION -- remove together with the migrate-config initContainer.
-  # This is the retired nfs config PVC, addressed by its directory on the share
-  # (`kubectl get pv <vol> -o jsonpath='{.spec.nfs.path}'`) because the claim is gone.
-  oldconfig:
-    type: nfs
-    server: 192.168.30.194
-    path: /mnt/storage/bazarr/bazarr
-    advancedMounts:
-      main:
-        migrate-config:
-          - path: /oldconfig
-            readOnly: true
