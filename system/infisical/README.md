@@ -78,7 +78,10 @@ rest, so a restore without it yields rows nobody can read. It is 32 bytes, and
 there are three copies:
 
 - **Vaultwarden** — in-cluster, so unavailable during the outages you'd need it for.
-- **A synced Bitwarden client** — the copy that survives losing the Mac.
+- **A synced Bitwarden client** — the copy that survives losing the Mac. It holds
+  whatever it last pulled, so after changing the value in Vaultwarden, open the
+  client and let it sync — otherwise the one copy that outlives the Mac is the
+  stale one.
 - **`~/secrets/infisical-encryption-key.age`** on the admin Mac, passphrase-encrypted
   (scrypt). The `age` binary is a dependency of the recovery path.
 
