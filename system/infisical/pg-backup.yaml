@@ -1,0 +1,74 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: infisical-db-backup
+  namespace: infisical
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: nfs
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: infisical-db-backup
+  namespace: infisical
+spec:
+  schedule: "0 3 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            # Alloy derives the Loki `app` stream label from this; without it these pods
+            # fall back to the namespace and land in infisical's main log stream.
+            app.kubernetes.io/name: infisical-db-backup
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: pg-dump
+              image: ghcr.io/cloudnative-pg/postgresql:18-standard-trixie
+              env:
+                - name: PGHOST
+                  value: infisical-database-rw
+                - name: PGUSER
+                  valueFrom:
+                    secretKeyRef:
+                      name: infisical-database-app
+                      key: username
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: infisical-database-app
+                      key: password
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  set -euo pipefail
+                  out="/backup/infisical-$(date +%Y%m%d-%H%M%S).dump"
+                  pg_dump -d app -Fc -f "$out"
+                  echo "wrote $out ($(stat -c %s "$out") bytes)"
+                  find /backup -name 'infisical-*.dump' -mtime +14 -delete
+                  echo "retained: $(ls -1 /backup/infisical-*.dump | wc -l) dumps"
+              volumeMounts:
+                - name: backup
+                  mountPath: /backup
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi
+          volumes:
+            - name: backup
+              persistentVolumeClaim:
+                claimName: infisical-db-backup
