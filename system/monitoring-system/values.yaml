@@ -69,6 +69,40 @@ kube-state-metrics:
           sourceLabels: []
           targetLabel: cluster
           replacement: homelab
+  # KSM's default ClusterRole has no business with Infisical CRs; extend it rather
+  # than replace it so the chart's own rules (pods, nodes, etc.) stay intact.
+  rbac:
+    extraRules:
+      - apiGroups: ["secrets.infisical.com"]
+        resources: ["infisicalstaticsecrets"]
+        verbs: ["list", "watch"]
+      - apiGroups: ["apiextensions.k8s.io"]
+        resources: ["customresourcedefinitions"]
+        verbs: ["list", "watch"]
+  customResourceState:
+    enabled: true
+    config:
+      kind: CustomResourceStateMetrics
+      spec:
+        resources:
+          - groupVersionKind:
+              group: secrets.infisical.com
+              version: v1beta1
+              kind: InfisicalStaticSecret
+            labelsFromPath:
+              name: [metadata, name]
+              namespace: [metadata, namespace]
+            metrics:
+              - name: infisical_secret_last_sync_timestamp_seconds
+                help: Unix time of the operator's last successful reconcile of this secret
+                each:
+                  type: Gauge
+                  gauge:
+                    # Find-by-key path, not a type label filter: the CR carries four
+                    # conditions and only this one's message is a timestamp — the other
+                    # three are prose and would fail timestamp parsing.
+                    path: [status, conditions, "[type=secrets.infisical.com/LastSuccessfulReconcileAt]"]
+                    valueFrom: [message]
 
 prometheus-node-exporter:
   # Points the textfile collector at what smart-temp-textfile.timer writes (see
