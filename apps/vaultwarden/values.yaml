@@ -1,5 +1,45 @@
 controllers:
   main:
+    # local-path is ReadWriteOnce and node-pinned, and two Vaultwardens must never
+    # open the same SQLite database: the old pod has to be gone before the new one
+    # starts.
+    strategy: Recreate
+    initContainers:
+      # ONE-TIME MIGRATION -- delete this initContainer (and the olddata mount in
+      # persistence) once the local-path volume is populated and Vaultwarden is
+      # verified. It is a no-op on every run after the first.
+      #
+      # Reads the retired nfs PVC through its directory on the share rather than by
+      # claim, because pvc.yaml is gone and ArgoCD prunes the claim; the PV's reclaim
+      # policy is Retain, so the files outlive it. Runs as an initContainer so the
+      # copy happens with Vaultwarden stopped -- ArgoCD's selfHeal undoes a manual
+      # scale-down within a couple of minutes, so that is not a safe way to quiesce.
+      migrate-data:
+        # renovate: datasource=docker depName=busybox
+        image:
+          repository: busybox
+          tag: 1.38.0
+        command:
+          - sh
+          - -c
+          - |
+            set -eu
+            # Own sentinel, written last, rather than any file the copy itself
+            # brings over: a crash mid-copy must look unmigrated so the retry
+            # recopies over the top instead of starting on half a vault.
+            if [ -f /data/.migrated-from-nfs ]; then
+              echo "already migrated"
+              exit 0
+            fi
+            # Everything, including db.sqlite3-wal and -shm. The old pod is gone by
+            # the time this runs, so the three files are a consistent set -- and the
+            # WAL holds commits that never made it into db.sqlite3, so copying the
+            # database alone would silently roll the vault back to 2026-08-07.
+            cp -a /olddata/. /data/
+            touch /data/.migrated-from-nfs
+            echo "migrated $(du -sh /data | cut -f1)"
+        securityContext:
+          runAsUser: 0
     containers:
       app:
         # renovate: datasource=docker depName=vaultwarden/server
@@ -47,7 +87,20 @@ route:
 
 persistence:
   data:
-    type: persistentVolumeClaim
-    existingClaim: vaultwarden-nfs
+    # local-path, not nfs -- db.sqlite3 is SQLite in WAL mode, which does not work
+    # over NFS. See data-pvc.yaml for the rationale and the restore path.
+    existingClaim: vaultwarden-data-local
     globalMounts:
       - path: /data
+  # ONE-TIME MIGRATION -- remove together with the migrate-data initContainer.
+  # This is the retired nfs PVC, addressed by its directory on the share
+  # (`kubectl get pv <vol> -o jsonpath='{.spec.nfs.path}'`) because the claim is gone.
+  olddata:
+    type: nfs
+    server: 192.168.30.194
+    path: /mnt/storage/vaultwarden/vaultwarden-nfs
+    advancedMounts:
+      main:
+        migrate-data:
+          - path: /olddata
+            readOnly: true
