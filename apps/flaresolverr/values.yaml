@@ -14,7 +14,11 @@ controllers:
             cpu: 500m
             memory: 512Mi
           limits:
-            cpu: "2"
+            # No cpu limit: VPA preserves the request:limit ratio, so its lowered
+            # request divided this ceiling down to 400m and left the container 67%
+            # throttled -- and solving a Cloudflare challenge is exactly the
+            # burst-for-a-second workload a ceiling ruins. Same reasoning as the
+            # namespace LimitRange.
             memory: 1Gi
 
 service:
