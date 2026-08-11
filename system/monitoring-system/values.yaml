@@ -71,13 +71,13 @@ kube-state-metrics:
           replacement: homelab
   # KSM's default ClusterRole has no business with Infisical CRs; extend it rather
   # than replace it so the chart's own rules (pods, nodes, etc.) stay intact.
+  # No apiextensions.k8s.io/customresourcedefinitions rule here: the chart already
+  # grants that itself whenever customResourceState.enabled is true (verified in the
+  # rendered ClusterRole) — adding it again would just be redundant, not additive.
   rbac:
     extraRules:
       - apiGroups: ["secrets.infisical.com"]
         resources: ["infisicalstaticsecrets"]
-        verbs: ["list", "watch"]
-      - apiGroups: ["apiextensions.k8s.io"]
-        resources: ["customresourcedefinitions"]
         verbs: ["list", "watch"]
   customResourceState:
     enabled: true
