@@ -74,17 +74,28 @@ in `prometheusrule-infisical.yaml`.
 ### The ENCRYPTION_KEY
 
 The database dumps are worthless without it: it encrypts every secret value at
-rest, so a restore without it yields rows nobody can read. There are three
-copies — Vaultwarden, a synced Bitwarden client, and an age-encrypted off-site
-file (32 bytes; the `age` binary is a dependency of the recovery path).
+rest, so a restore without it yields rows nobody can read. It is 32 bytes, and
+there are three copies:
+
+- **Vaultwarden** — in-cluster, so unavailable during the outages you'd need it for.
+- **A synced Bitwarden client** — the copy that survives losing the Mac.
+- **`~/secrets/infisical-encryption-key.age`** on the admin Mac, passphrase-encrypted
+  (scrypt). The `age` binary is a dependency of the recovery path.
+
 `secrets/.secrets.generated` also holds a copy but **must not be relied on** —
 it's the copy that won't exist after a rebuild.
 
-Verify the off-site copy against the live key by comparing hashes, never by
-printing either value:
+Note what this set does and doesn't cover: the age file is machine-local, not
+off-site, so a rebuild that also loses this Mac falls back to the Bitwarden
+client alone. If that ever feels too thin, a copy in iCloud Drive or on the NAS
+restores the third independent leg. The file lived in a temp directory until
+2026-08-11 and was one reboot from gone — hence naming its path here.
+
+Verify a copy against the live key by comparing hashes, never by printing
+either value:
 
 ```bash
-age -d infisical-encryption-key.age | tr -d '\n' | shasum -a 256
+age -d ~/secrets/infisical-encryption-key.age | tr -d '\n' | shasum -a 256
 kubectl -n infisical get secret infisical-secrets -o jsonpath='{.data.ENCRYPTION_KEY}' | base64 -d | shasum -a 256
 ```
 
