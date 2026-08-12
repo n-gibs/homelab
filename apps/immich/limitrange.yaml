@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: immich
+  namespace: immich
+spec:
+  limits:
+    - type: Container
+      # defaultRequest only. The valkey subchart declares no resources at all, which made it
+      # BestEffort: invisible to the scheduler and first evicted under node pressure.
+      # No default memory limit — valkey has no maxmemory set, so a ceiling here would turn
+      # a cache filling up into an OOMKill.
+      defaultRequest:
+        cpu: 50m
+        memory: 128Mi
