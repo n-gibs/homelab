@@ -54,15 +54,20 @@ controllers:
         kubernetes.io/arch: amd64
 
 persistence:
+  # DirectoryOrCreate, not the upstream default: every node has a render node today, but
+  # a node that doesn't would fail the mount and CrashLoop the DaemonSet pod rather than
+  # just advertising zero GPUs.
   devfs:
     type: hostPath
     hostPath: /dev/dri
+    hostPathType: DirectoryOrCreate
     globalMounts:
       - path: /dev/dri
         readOnly: true
   sysfsdrm:
     type: hostPath
     hostPath: /sys/class/drm
+    hostPathType: DirectoryOrCreate
     globalMounts:
       - path: /sys/class/drm
         readOnly: true
