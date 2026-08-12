@@ -1,0 +1,83 @@
+# Advertises the Intel iGPU as gpu.intel.com/i915 so pods can be scheduled onto it.
+# A hostPath mount of /dev/dri is not enough on its own: the device node shows up in the
+# container but containerd's device cgroup denies open(), so ffmpeg gets EPERM even as
+# root. A device plugin is the only interface that adds the device to that allowlist.
+#
+# Upstream ships this as a plain DaemonSet (deployments/gpu_plugin/base); its Helm chart
+# is only a GpuDevicePlugin CR and needs the operator plus node-feature-discovery, which
+# is three components to light up one iGPU. app-template renders the same DaemonSet and
+# keeps the directory on the standard app.yaml/values.yaml pattern.
+controllers:
+  main:
+    type: daemonset
+    containers:
+      app:
+        # renovate: datasource=docker depName=intel/intel-gpu-plugin
+        image:
+          repository: intel/intel-gpu-plugin
+          tag: 0.36.0
+        args:
+          # All three nodes are Intel mini PCs with a render node, so the plugin runs
+          # everywhere and any node can host a transcoder -- not just worker-01.
+          #
+          # ponytail: 4 is a knob, not a measurement. The plugin hands out N claims per
+          # GPU with no isolation between them: the iGPU has no session limit, so this
+          # only decides how many pods may hold it at once, and oversubscribing shows up
+          # as slow transcodes rather than errors. Raise it if more consumers appear,
+          # lower it if concurrent transcodes start missing real-time.
+          - -shared-dev-num=4
+        env:
+          NODE_NAME:
+            valueFrom:
+              fieldRef:
+                fieldPath: spec.nodeName
+          HOST_IP:
+            valueFrom:
+              fieldRef:
+                fieldPath: status.hostIP
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+          seccompProfile:
+            type: RuntimeDefault
+        resources:
+          requests:
+            cpu: 40m
+            memory: 45Mi
+          limits:
+            cpu: 100m
+            memory: 90Mi
+    pod:
+      nodeSelector:
+        kubernetes.io/arch: amd64
+
+persistence:
+  devfs:
+    type: hostPath
+    hostPath: /dev/dri
+    globalMounts:
+      - path: /dev/dri
+        readOnly: true
+  sysfsdrm:
+    type: hostPath
+    hostPath: /sys/class/drm
+    globalMounts:
+      - path: /sys/class/drm
+        readOnly: true
+  kubeletsockets:
+    type: hostPath
+    hostPath: /var/lib/kubelet/device-plugins
+    globalMounts:
+      - path: /var/lib/kubelet/device-plugins
+  cdi:
+    type: hostPath
+    hostPath: /var/run/cdi
+    hostPathType: DirectoryOrCreate
+    globalMounts:
+      - path: /var/run/cdi
+
+service:
+  main:
+    enabled: false

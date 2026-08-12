@@ -28,6 +28,12 @@ controllers:
         resources:
           requests:
             cpu: "1"
+          limits:
+            # QuickSync. The plugin in system/intel-gpu-plugin advertises this and is
+            # what actually gets renderD128 past containerd's device cgroup -- a bare
+            # hostPath mount of /dev/dri makes the node visible but open() still EPERMs.
+            # No cpu limit here on purpose; see limitrange.yaml.
+            gpu.intel.com/i915: 1
           # No cpu limit on purpose -- see limitrange.yaml. VPA preserves the
           # request:limit ratio, so 250m:4 here became a 100m:1600m pod and throttled
           # transcodes at 1.6 cores.
@@ -80,14 +86,6 @@ persistence:
     path: /mnt/storage/backups/jellyfin
     globalMounts:
       - path: /config/data/data/backups
-  # Intel QuickSync (i5-12500T iGPU). hostPath rather than the Intel device plugin:
-  # one node, one consumer, and the plugin would be a whole system/ component to
-  # schedule a pod that is already pinned here by nodeSelector.
-  dri:
-    type: hostPath
-    hostPath: /dev/dri
-    globalMounts:
-      - path: /dev/dri
   data:
     type: nfs
     server: 192.168.30.194
