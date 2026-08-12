@@ -129,6 +129,34 @@ spec:
               reaches ~2.1e9. Investigate long-running transactions and stuck replication
               slots holding back the freeze horizon.
 
+        # CNPGReplicationDegraded compares a series against 2, so a cluster that emits no
+        # replication series at all is not "healthy" to it -- it is invisible. That is not
+        # hypothetical: nextcloud has been in exactly this state since at least
+        # 2026-08-03. Its cnpg_metrics_exporter role lost CONNECT on database `app`
+        # (SQLSTATE 42501), so every per-database collector query fails while
+        # cnpg_collector_up still reports 1 and the cluster still looks fine.
+        #
+        # `unless` gives the namespaces that have instances but no replication metrics.
+        # The fix is a grant, not a threshold change:
+        #   kubectl -n <ns> exec <cluster>-<primary> -c postgres -- \
+        #     psql -U postgres -c 'grant connect on database app to cnpg_metrics_exporter'
+        - alert: CNPGReplicationMetricsMissing
+          expr: >-
+            count by (namespace) (cnpg_collector_up)
+            unless count by (namespace) (cnpg_pg_replication_streaming_replicas)
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.namespace }} Postgres reports no replication metrics"
+            description: >-
+              Instances in this namespace are being scraped but emit no
+              cnpg_pg_replication_* series, so CNPGReplicationDegraded and
+              CNPGReplicationLagHigh cannot fire for this cluster -- it has no replication
+              alerting at all. Usually the cnpg_metrics_exporter role has lost CONNECT on
+              the application database; check
+              `kubectl -n {{ $labels.namespace }} logs <primary-pod> -c postgres | grep "Error collecting user query"`.
+
         # Every rule above reads a metric that stops existing if podmonitor-cnpg.yaml is
         # deleted, its selector stops matching, or the operator drops
         # cnpg-default-monitoring. An absent series cannot breach a threshold, so without
