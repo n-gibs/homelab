@@ -228,8 +228,12 @@ git checkout -b feat/vaultwarden-postgres-cutover
 # RWX and nfs are the point of the whole migration: they are what let the pod schedule on
 # any node instead of following a local-path PV's node affinity to worker-00.
 #
-# Recovery: the vaultwarden-db-backup CronJob tars this volume nightly to
-# /mnt/storage/backups/vaultwarden alongside the pg_dump. Restoring rsa_key.pem matters --
+# Recovery: the vaultwarden-db-backup CronJob tars this volume nightly, alongside the
+# pg_dump, into the backup PVC's own provisioned subdirectory --
+# 192.168.30.194:/mnt/storage/vaultwarden/vaultwarden-db-backup, NOT
+# /mnt/storage/backups/vaultwarden, which holds only the dead SQLite-era archives.
+# Mounting the wrong one mid-incident finds pre-migration tarballs and no pg_dump.
+# Restoring rsa_key.pem matters --
 # without it every existing session token is invalid and all clients must log in again,
 # though no vault data is lost.
 apiVersion: v1
@@ -963,11 +967,13 @@ kubectl -n vw-restore-test wait --for=condition=Ready cluster/vwrestore --timeou
 kubectl -n vw-restore-test delete pod vw-restore --ignore-not-found
 kubectl -n vw-restore-test run vw-restore -i --restart=Never \
   --image=ghcr.io/cloudnative-pg/postgresql:18-standard-trixie \
-  --overrides='{"spec":{"containers":[{"name":"vw-restore","image":"ghcr.io/cloudnative-pg/postgresql:18-standard-trixie","command":["/bin/bash","-c","set -euo pipefail; d=$(ls -1t /backup/vaultwarden-*.dump | head -1); echo restoring $d; pg_restore -d \"$PGURI\" --no-owner --role=app \"$d\"; echo restored"],"env":[{"name":"PGURI","valueFrom":{"secretKeyRef":{"name":"vwrestore-app","key":"uri"}}}],"volumeMounts":[{"name":"b","mountPath":"/backup"}]}],"restartPolicy":"Never","volumes":[{"name":"b","nfs":{"server":"192.168.30.194","path":"/mnt/storage/backups/vaultwarden"}}]}}'
+  --overrides='{"spec":{"containers":[{"name":"vw-restore","image":"ghcr.io/cloudnative-pg/postgresql:18-standard-trixie","command":["/bin/bash","-c","set -euo pipefail; d=$(ls -1t /backup/vaultwarden-*.dump | head -1); echo restoring $d; pg_restore -d \"$PGURI\" --no-owner --role=app \"$d\"; echo restored"],"env":[{"name":"PGURI","valueFrom":{"secretKeyRef":{"name":"vwrestore-app","key":"uri"}}}],"volumeMounts":[{"name":"b","mountPath":"/backup"}]}],"restartPolicy":"Never","volumes":[{"name":"b","nfs":{"server":"192.168.30.194","path":"/mnt/storage/vaultwarden/vaultwarden-db-backup"}}]}}'
 ```
 
-The backup PVC provisions its own subdirectory under the share; if the dump is not visible at that path, find it with
-`kubectl -n vaultwarden get pv | grep vaultwarden-db-backup` and use the reported subdirectory.
+That path is the backup PVC's own provisioned subdirectory, resolved on 2026-08-12 and
+confirmed by the drill. It is **not** `/mnt/storage/backups/vaultwarden`, which holds only
+the dead SQLite-era archives. If the subdirectory ever differs, re-resolve it with
+`kubectl -n vaultwarden get pv -o json | jq -r '.items[]|select(.spec.claimRef.name=="vaultwarden-db-backup").spec.nfs.path'`.
 
 - [ ] **Step 3: Verify the restored counts**
 
