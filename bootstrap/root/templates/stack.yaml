@@ -14,6 +14,13 @@ spec:
         revision: {{ $.Values.gitops.revision }}
         files:
           - path: "{{ $stack.name }}/*/app.yaml"
+        # The controller defaults this and writes it back, taking .spec.generators from
+        # helm. Declaring it keeps that write a no-op. Real template is below.
+        template:
+          metadata: {}
+          spec:
+            destination: {}
+            project: ""
   template:
     metadata:
       name: '{{`{{path.basename}}`}}'
