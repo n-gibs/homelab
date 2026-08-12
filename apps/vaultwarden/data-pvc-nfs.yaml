@@ -1,0 +1,26 @@
+# Replaces vaultwarden-data-local. /data is safe on nfs again because the only reason it
+# was ever on local-path -- db.sqlite3 in WAL mode, which SQLite does not support on a
+# network filesystem -- has moved into Postgres. What is left is read-once or write-once:
+# rsa_key.pem is generated at first boot and never rewritten, config.json is written by
+# the /admin panel, and attachments/ and sends/ are created and deleted but never edited
+# in place.
+#
+# RWX and nfs are the point of the whole migration: they are what let the pod schedule on
+# any node instead of following a local-path PV's node affinity to worker-00.
+#
+# Recovery: the vaultwarden-db-backup CronJob tars this volume nightly to
+# /mnt/storage/backups/vaultwarden alongside the pg_dump. Restoring rsa_key.pem matters --
+# without it every existing session token is invalid and all clients must log in again,
+# though no vault data is lost.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vaultwarden-data
+  namespace: vaultwarden
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: nfs
+  resources:
+    requests:
+      storage: 5Gi
