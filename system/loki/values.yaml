@@ -57,11 +57,11 @@ singleBinary:
     accessModes:
       - ReadWriteOnce
     size: 20Gi
+  # No cpu limit: VPA preserves the request:limit ratio, turning this 1 core into a 630m
+  # ceiling off its 63m target.
   resources:
     requests:
       cpu: 100m
-    limits:
-      cpu: "1"
 
 gateway:
   enabled: false
