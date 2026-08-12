@@ -1,0 +1,29 @@
+# Here for one label, intel.feature.node.kubernetes.io/gpu, which system/intel-gpu-plugin
+# selects on. Chart defaults set memory limits but no requests.
+# Sized against what comparable controllers here actually use (vpa-recommender 10m/54Mi,
+# cainjector 3m/64Mi). Master memory tracks node count, so 3 nodes stays small. No cpu
+# limits, per the reasoning in apps/*/limitrange.yaml.
+master:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+
+# DaemonSet: every request here lands on all three nodes.
+worker:
+  resources:
+    requests:
+      cpu: 5m
+      memory: 48Mi
+    limits:
+      memory: 192Mi
+
+gc:
+  resources:
+    requests:
+      cpu: 5m
+      memory: 32Mi
+    limits:
+      memory: 128Mi

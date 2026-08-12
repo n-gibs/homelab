@@ -1,0 +1,4 @@
+chartName: node-feature-discovery
+chartRepo: https://kubernetes-sigs.github.io/node-feature-discovery/charts
+chartVersion: 0.19.0
+syncWave: "1"
