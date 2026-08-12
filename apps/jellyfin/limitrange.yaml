@@ -7,7 +7,7 @@ spec:
   limits:
     - type: Container
       defaultRequest:
-        cpu: 50m
+        cpu: 1.5
         memory: 128Mi
       # no default cpu limit on purpose: VPA preserves the request:limit ratio, so a
       # shrinking request drags the limit down with it and throttles the container.
