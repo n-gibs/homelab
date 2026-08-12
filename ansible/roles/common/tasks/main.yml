@@ -123,6 +123,9 @@
       - lm-sensors
       - smartmontools
       - thermald
+      # intel_gpu_top: shows Video/VideoEnhance engine occupancy, the only way to tell a
+      # QSV transcode from a software one that merely opened the device.
+      - intel-gpu-tools
     state: present
   become: true
 
