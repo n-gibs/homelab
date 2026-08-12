@@ -23,3 +23,9 @@ patches:
       - op: add
         path: /spec/template/spec/containers/0/args/-
         value: -shared-dev-num=4
+      # worker-01 keeps a boot-time by-path symlink to a card0 that i915 replaced, and the
+      # plugin globs by-path entries by PCI address, so mounting them fails container
+      # creation. ffmpeg opens renderD128 directly.
+      - op: add
+        path: /spec/template/spec/containers/0/args/-
+        value: -bypath=none
