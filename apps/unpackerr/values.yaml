@@ -29,8 +29,9 @@ controllers:
           requests:
             cpu: 25m
             memory: 64Mi
+          # No cpu limit: VPA preserves the request:limit ratio, so a 15m target leaves a
+          # 300m ceiling. Memory limit stays — memory is not burst-and-idle.
           limits:
-            cpu: 500m
             memory: 256Mi
 
 persistence:

@@ -1,1 +1,12 @@
 fullnameOverride: sealed-secrets-controller
+
+# The chart's default resourcesPreset "nano" ships 100m/150m, a 1.5:1 ratio VPA divides
+# down to a 22m ceiling. resources wins over the preset, but set it to none anyway so a
+# chart bump can't reintroduce one.
+resourcesPreset: none
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    memory: 192Mi
