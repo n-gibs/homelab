@@ -11,6 +11,10 @@ controllers:
           operator: Equal
           value: "true"
           effect: PreferNoSchedule
+      securityContext:
+        # renderD128 on worker-01 is root:render, gid 991 (video/card1 is 44). The
+        # container drops to uid 1000, so it needs the group to open the device.
+        supplementalGroups: [991, 44]
     containers:
       app:
         # renovate: datasource=docker depName=lscr.io/linuxserver/jellyfin versioning=regex:^(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)ubu(?<build>\d+)-ls(?<revision>\d+)$
@@ -76,6 +80,14 @@ persistence:
     path: /mnt/storage/backups/jellyfin
     globalMounts:
       - path: /config/data/data/backups
+  # Intel QuickSync (i5-12500T iGPU). hostPath rather than the Intel device plugin:
+  # one node, one consumer, and the plugin would be a whole system/ component to
+  # schedule a pod that is already pinned here by nodeSelector.
+  dri:
+    type: hostPath
+    hostPath: /dev/dri
+    globalMounts:
+      - path: /dev/dri
   data:
     type: nfs
     server: 192.168.30.194
