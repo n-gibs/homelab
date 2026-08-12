@@ -15,13 +15,38 @@ Observability is kube-prometheus-stack (`system/monitoring-system`) plus Loki + 
 
 ## Nodes
 
-| Hostname | Hardware | Role | IP |
-|----------|----------|------|-----|
-| worker-00 | HP ProDesk Mini G4 | k3s server + worker (schedulable) | 192.168.30.129 |
-| worker-01 | HP ProDesk Mini G9 — i5 12th gen, 16GB RAM, 12TB USB | k3s server + worker, NFS server, media workloads (label, no taint) | 192.168.30.194 |
-| worker-02 | HP ProDesk Mini G6 | k3s server + worker (schedulable) | 192.168.30.136 |
+| Hostname | Hardware | CPU | RAM | Storage | Role | IP |
+|----------|----------|-----|-----|---------|------|-----|
+| worker-00 | HP ProDesk Mini G4 | i3-8100T (8th gen, 4C/4T) | 16GB | 128GB NVMe | k3s server + worker (schedulable) | 192.168.30.129 |
+| worker-01 | HP ProDesk Mini G9 | i5-12500T (12th gen, 6C/12T) | 24GB | 512GB NVMe + 12TB USB HDD | k3s server + worker, NFS server, media workloads (label, no taint) | 192.168.30.194 |
+| worker-02 | HP ProDesk Mini G6 | i5-10500T (10th gen, 6C/12T) | 16GB | 256GB NVMe | k3s server + worker (schedulable) | 192.168.30.136 |
+
+worker-01 is the largest node in the cluster on every axis, which is why media lands there and why
+it hosts the NFS export. worker-00 is the smallest — 4 cores, no hyperthreading — and is the first
+node to feel scheduling pressure.
 
 All 3 nodes are k3s server+worker (HA etcd control plane) and all 3 are normal scheduling candidates. G9 (worker-01) carries a `homelab.io/media=true` label so media apps select it via nodeSelector; it has no taint, so generic workloads use its spare capacity too. See [`docs/archive/g6-migration.md`](docs/archive/g6-migration.md) for the migration details.
+
+**Planned: move the 12TB drive to a dedicated NAS.** Today the 12TB USB disk hangs off worker-01,
+which makes that one node both the NFS server and the busiest workload host — a single point of
+failure for every `nfs` PVC. Moving it to a NAS separates storage from compute: the NFS server address stops being a node IP, worker-01
+becomes an ordinary (if large) media node, and `local-path` volumes get a genuinely independent
+second machine behind their backups rather than a second disk on the same box. Nothing in this repo
+assumes the move yet — `192.168.30.194` is still hardcoded as the NFS server in media app values
+and in `system/nfs-provisioner/`, so that's the surface to change when it happens.
+
+Scheduling changes with it. Today 14 apps carry a hard `nodeSelector` on `homelab.io/media=true`,
+which pins them to worker-01 whether or not they need it. Once storage is off the node, only
+**Jellyfin** should still favour worker-01 — the i5-12500T is much the strongest transcoder in the
+cluster — and it should be a *preference* (`preferredDuringSchedulingIgnoredDuringExecution` node
+affinity), not a hard pin, so it can still start if that node is down. Everything else drops the
+selector and schedules freely.
+
+Two things to know before doing that. Most of those apps keep a `local-path` config PVC, which pins
+the pod to whichever node the volume was provisioned on regardless of the selector — removing the
+`nodeSelector` will not actually free them, so treat the two as separate moves. And Jellyfin has no
+`/dev/dri` passthrough configured today, so "strongest transcoder" currently means CPU only; wiring
+up QuickSync would make the worker-01 preference matter far more than it does now.
 
 ---
 
@@ -53,17 +78,18 @@ See `just --list` for the full set of commands (sealing secrets, wiring up media
 
 ### Post-Bootstrap: Wire Media Apps
 
-Once `apps/` (wave 3) has synced and Sonarr, Radarr, and Prowlarr show healthy in ArgoCD, run:
+Once `apps/` (wave 3) has synced and Sonarr, Radarr, Lidarr, and Prowlarr show healthy in ArgoCD, run:
 
 ```bash
 just wire-media
 ```
 
-This sets Sonarr/Radarr root folders and wires Prowlarr → Sonarr/Radarr as linked applications, via each app's REST API. It's a **one-time step** — the config it writes lives in each app's NFS-backed PVC and persists across redeploys and node moves — not a recurring operational task. Safe to re-run any time; it checks before it writes.
+This sets Sonarr/Radarr/Lidarr root folders and wires Prowlarr → Sonarr/Radarr/Lidarr as linked applications, via each app's REST API. It's a **one-time step**, not a recurring operational task — but the config it writes lives in each arr's `local-path` config PVC, so it does **not** survive losing the node that volume is on; re-run it after a restore. Safe to re-run any time; it checks before it writes.
 
-Two remaining steps stay fully manual (`just wire-media` prints these as a reminder when it finishes):
-- **Jellyfin**: add TV (`/data/media/tv`) and Movies (`/data/media/movies`) libraries via `jellyfin.nik-homelab.dev` → Dashboard → Libraries.
+Three remaining steps stay manual (`just wire-media` prints these as a reminder when it finishes):
+- **Jellyfin**: add TV (`/data/media/tv`), Movies (`/data/media/movies`), and Music (`/data/media/music`) libraries via `jellyfin.nik-homelab.dev` → Dashboard → Libraries.
 - **Bazarr**: point it at Sonarr (`sonarr.sonarr.svc.cluster.local:8989`) and Radarr (`radarr.radarr.svc.cluster.local:7878`) via `bazarr.nik-homelab.dev` → Settings — Bazarr has no REST API for this, so it can't be scripted.
+- **Lidarr**: `just tune-lidarr-quality` applies the FLAC quality thresholds and custom formats.
 
 ### Post-Bootstrap: Wire the Seedbox
 
@@ -89,11 +115,13 @@ Ubuntu Server 26.04 LTS — installed manually from USB.
 apps/           # user-facing applications (arr stack, jellyfin, immich, nextcloud, vaultwarden, etc.)
 platform/       # cluster platform services (sealed-secrets, tailscale, cloudnative-pg, renovate)
 system/         # low-level cluster infrastructure (cert-manager, coredns, envoy-gateway,
-                #   external-dns, nfs-provisioner, vpa, monitoring-system, loki, alloy)
+                #   external-dns, infisical, infisical-operator, kube-system, metrics-server,
+                #   nfs-provisioner, vpa, monitoring-system, loki, alloy)
 bootstrap/      # one-time helmfile bootstrap (Cilium, ArgoCD, root ApplicationSet)
 ansible/        # node provisioning (Ubuntu install, k3s setup) — see ansible/README.md
 config/         # manifests rendered from templates by `just build-config` (gitignored)
-docs/           # design notes and audits; docs/archive/ is shipped work kept for the "why"
+secrets/        # registry.tsv for the two `just seal` rows; values are gitignored
+docs/           # docs/audits/ current investigations, docs/archive/ shipped work kept for the "why"
 ```
 
 [`docs/archive/`](docs/archive/README.md) holds write-ups for work that's already done — the G6 HA
@@ -101,5 +129,10 @@ migration, the 12TB drive's heat investigation, the 2026-07-28 DNS outage follow
 why the cluster is shaped the way it is; the repo itself is the source of truth for current state.
 
 ArgoCD sync waves: `system` (wave 1) → `platform` (wave 2) → `apps` (wave 3). ArgoCD auto-syncs from `main` — merge to main = deploy.
+
+The one exception is `system/coredns/`, which has no `app.yaml` on purpose so the stack
+ApplicationSets skip it — its objects must land in `kube-system`, so a standalone Application in
+`bootstrap/root/` deploys it instead. Adding an `app.yaml` there would create a second, competing
+Application; see [`CLAUDE.md`](CLAUDE.md) for the detail.
 
 See [`CLAUDE.md`](CLAUDE.md) for full conventions (adding an app, storage, secrets, networking).

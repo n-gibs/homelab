@@ -2,11 +2,14 @@
 
 ## Hardware
 
-| Node | Hardware | Role |
-|------|----------|------|
-| worker-00 | HP ProDesk Mini G4 | k3s server + worker (schedulable) |
-| worker-01 | HP ProDesk Mini G9 — i5 12th gen, 16GB RAM, 12TB USB | k3s server + worker, NFS server, media workloads (`homelab.io/media=true` label, no taint) |
-| worker-02 | HP ProDesk Mini G6 | k3s server + worker (schedulable) |
+| Node | Hardware | CPU | RAM | Storage | Role |
+|------|----------|-----|-----|---------|------|
+| worker-00 | HP ProDesk Mini G4 | i3-8100T (8th gen, 4C/4T) | 16GB | 128GB NVMe | k3s server + worker (schedulable) |
+| worker-01 | HP ProDesk Mini G9 | i5-12500T (12th gen, 6C/12T) | 24GB | 512GB NVMe + 12TB USB HDD | k3s server + worker, NFS server, media workloads (`homelab.io/media=true` label, no taint) |
+| worker-02 | HP ProDesk Mini G6 | i5-10500T (10th gen, 6C/12T) | 16GB | 256GB NVMe | k3s server + worker (schedulable) |
+
+worker-01 is the largest node on every axis; worker-00 is the smallest (4 cores, no HT) and hits
+scheduling pressure first.
 
 All 3 nodes are k3s server+worker (HA etcd control plane) and all 3 are normal scheduling
 candidates. G9 (worker-01) carries a `homelab.io/media=true` label so media apps select it;

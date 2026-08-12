@@ -4,11 +4,11 @@ k3s_cluster:
     server:
       hosts:
         worker-00:
-          ansible_host: 192.168.30.129
+          ansible_host: 192.168.30.129  # G4: i3-8100T, 16GB, 128GB NVMe — server + worker
         worker-02:
-          ansible_host: 192.168.30.136  # G6: server + worker, no control-plane taint
+          ansible_host: 192.168.30.136  # G6: i5-10500T, 16GB, 256GB NVMe — server + worker, no control-plane taint
         worker-01:
-          ansible_host: 192.168.30.194  # G9: i5 12th gen, 16GB RAM, 12TB USB drive — server + worker, PreferNoSchedule media taint
+          ansible_host: 192.168.30.194  # G9: i5-12500T, 24GB, 512GB NVMe + 12TB USB — server + worker, homelab.io/media label, no taint
 
   vars:
     ansible_user: homelab
