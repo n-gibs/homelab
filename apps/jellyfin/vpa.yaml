@@ -14,7 +14,10 @@ spec:
     containerPolicies:
       - containerName: "*"
         minAllowed:
-          cpu: 100m
+          # 1 core, not the 100m template default: jellyfin idles between streams, so
+          # VPA's recommendation sat on the floor and the scheduler reserved 100m for a
+          # workload that needs several cores the moment someone presses play.
+          cpu: "1"
           memory: 256Mi
         maxAllowed:
           cpu: 8
