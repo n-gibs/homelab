@@ -47,6 +47,8 @@ resources:
   requests:
     cpu: 200m
     memory: 512Mi
+  # CronJob, so no VPA rewrites this — 1 core was the literal ceiling and the last two
+  # runs throttled 72% and 64% (2026-08-12).
   limits:
-    cpu: 1
+    cpu: 2
     memory: 2Gi
