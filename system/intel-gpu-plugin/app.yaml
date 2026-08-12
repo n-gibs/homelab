@@ -1,0 +1,4 @@
+chartName: app-template
+chartRepo: https://bjw-s-labs.github.io/helm-charts
+chartVersion: 5.0.1
+syncWave: "1"
