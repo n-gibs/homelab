@@ -1,7 +1,8 @@
 # Vaultwarden: SQLite → CloudNativePG Postgres
 
 **Date:** 2026-08-11
-**Status:** approved, not executed
+**Status:** executed 2026-08-12. Tasks 1-9 complete; Task 10 (retiring
+`vaultwarden-data-local`) is deliberately deferred to on or after 2026-08-26.
 
 ## Goal
 
@@ -226,7 +227,7 @@ still supplies `ADMIN_TOKEN` only.
 | `backup-cronjob.yaml` | **deleted** — replaced by `pg-backup.yaml` |
 | `data-pvc.yaml` | **unchanged**, and deliberately kept — `local-path` is `reclaimPolicy: Delete`, so pruning it destroys the rollback. Deleted in branch 4, 14 days later |
 | `data-pvc-nfs.yaml` | **new** — `vaultwarden-data`, `nfs` RWX 5Gi, the claim that removes the node pin |
-| `values.yaml` | `DATABASE_URL` from the CNPG secret; `/data` → new `nfs` PVC; one-time seed initContainer |
+| `values.yaml` | `DATABASE_URL` from the CNPG secret; `/data` → new `nfs` PVC. No seed initContainer — the seed lives in the uncommitted migration Job, per Execution sequence below |
 | `app.yaml` | unchanged |
 | `limitrange.yaml` | unchanged — CNPG pods set explicit resources, so the defaults do not apply to them |
 | `vpa.yaml` | unchanged — targets the Deployment; the CNPG cluster gets no VPA, matching nextcloud and immich |
@@ -334,14 +335,32 @@ counts and a `prelogin` `200`. Tear the namespace down.
 This is the same harness used to smoke-test pgloader on 2026-08-11, so it is known to work
 and costs one session step. Record the result here when it runs.
 
+**Ran 2026-08-12, passed.** Source: `vaultwarden-20260812-033521.dump` (454663 bytes), the
+first archive produced by the new CronJob. Restored into a throwaway 1-instance CNPG cluster
+in namespace `vw-restore-test`; `pg_restore` exited 0 with no output at all, not even
+ownership notices. Restored counts `users=2 ciphers=806 devices=7 archives=28`, and
+`vaultwarden/server:1.37.1` booted against it and answered `prelogin` with the real
+`kdfIterations: 600000`. Namespace torn down.
+
+The counts are 806 and 7 rather than the 805 and 6 baselined above because the dump was
+taken after the cutover write test: a canary item was created and soft-deleted (Vaultwarden
+trashes rather than deletes, so the row remains), and the phone client registered. The vault
+holds 800 live ciphers plus 6 in trash.
+
+**The dump is not in `/mnt/storage/backups/vaultwarden`.** That directory holds the
+SQLite-era `.tar.gz` archives. The `vaultwarden-db-backup` PVC provisions its own
+subdirectory and the dumps land in `/mnt/storage/vaultwarden/vaultwarden-db-backup`. A
+restore that mounts the old path finds only pre-migration tarballs.
+
 ## Open risks
 
 - **pgloader is unsupported by upstream.** The wiki says so plainly. Mitigated by having
   actually run it against this exact database and image, and by a rollback that does not
   depend on it.
 - **`dimitri/pgloader:latest` is an unpinned, infrequently-released image.** Acceptable for
-  a one-shot job that is run once under observation and never committed. Record the digest
-  used in the plan.
+  a one-shot job that is run once under observation and never committed. The digest that
+  actually ran the 2026-08-12 migration, for a reproducible retry:
+  `docker.io/dimitri/pgloader@sha256:756758ca8269404bdca9384c2fb04bcc7de744a713d26885ba8b556e4005eab4`
 - **Three more Postgres pods on a cluster that hit CPU throttling earlier today.** Memory
   requests are at 29/42/49% per node and this adds ~768Mi of requests, so there is room —
   but the LimitRange work from 2026-08-11 is recent and worth a second look at pod resources
