@@ -1,15 +1,10 @@
 ---
-# Scrapes every CloudNativePG instance in the cluster. Nothing did before this: the
-# operator ships cnpg-default-monitoring and each instance pod already exposes :9187, but
-# with no PodMonitor anywhere those metrics were never collected, so a degraded cluster, a
-# lost replica or replication lag was invisible on four Postgres clusters -- immich,
-# nextcloud, infisical and vaultwarden, the last of which is the password manager.
+# Scrapes every CloudNativePG instance. `any: true` plus the podRole selector covers every
+# current and future cluster with no further edits.
 #
-# One object rather than one per namespace: `any: true` plus the cnpg.io/podRole selector
-# picks up every current and future CNPG cluster with no further edits. A PodMonitor, not a
-# ServiceMonitor, because the -rw/-ro Services route only to the current primary or the
-# replicas -- scraping through them would silently miss instances and relabel every sample
-# onto whichever pod happened to answer.
+# A PodMonitor, not a ServiceMonitor: the -rw/-ro Services route only to the primary or the
+# replicas, so scraping through them would miss instances and relabel samples onto
+# whichever pod answered.
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:
@@ -23,9 +18,7 @@ spec:
   selector:
     matchLabels:
       cnpg.io/podRole: instance
-  # Carries the cluster name onto every sample as `cnpg_io_cluster`, so an alert can name
-  # the cluster instead of inferring it from the namespace. Only cnpg_collector_up has a
-  # `cluster` label of its own; the rest have none.
+  # Only cnpg_collector_up carries a cluster label of its own; these put it on every sample.
   podTargetLabels:
     - cnpg.io/cluster
     - cnpg.io/instanceRole
