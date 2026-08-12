@@ -1,11 +1,9 @@
 controllers:
   main:
-    # Held at zero for the SQLite -> Postgres migration. Task 8 of
-    # docs/superpowers/plans/2026-08-11-vaultwarden-postgres.md sets this back to 1.
-    # Shutdown lives in git rather than in a kubectl scale because ArgoCD runs selfHeal
-    # and would restart the pod mid-import, on top of a half-loaded database with
-    # pgloader still recreating its foreign keys.
-    replicas: 0
+    # Single writer against rsa_key.pem and icon_cache/. Not strictly required now that
+    # the database is Postgres and /data is RWX, but zero-downtime restarts are not a
+    # goal and one pod is one less thing to reason about.
+    replicas: 1
     # Not required any more now that the database is Postgres and /data is RWX, but a
     # single writer against rsa_key.pem and icon_cache/ is one less thing to reason
     # about, and zero-downtime restarts are not a goal here.
