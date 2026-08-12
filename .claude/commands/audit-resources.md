@@ -52,6 +52,21 @@ an unbounded heap taking down a node. Do not recommend dropping memory limits by
 the pod can move is wrong for those. Check the PVC's StorageClass before suggesting a pod
 be rescheduled.
 
+**9. Acting on a recommendation costs a restart.** VPA `updateMode: Recreate` evicts the pod
+to resize it, and most apps here are `replicas: 1` with `strategy: Recreate`. For a SQLite
+app or a password manager that is a real interruption, not a free tuning knob. Say so when
+recommending a change to `minAllowed`/`maxAllowed`.
+
+**10. QoS class decides who dies first under node pressure.** BestEffort is evicted before
+Burstable, and Guaranteed needs request == limit on both resources. A workload you are
+"fixing" by removing its CPU limit moves from Guaranteed to Burstable. Report
+`status.qosClass` where it matters.
+
+**11. initContainers count differently.** Scheduling uses the max of any single
+initContainer against the sum of the regular containers, so an oversized init request
+reserves capacity for the pod's whole life. Multi-container pods (gluetun + qbittorrent)
+need per-container attribution, not a pod total.
+
 ## Gathering data
 
 Cluster facts you will need: kube-prometheus-stack, Prometheus at
@@ -78,12 +93,16 @@ Useful queries:
 max_over_time(sum by (namespace) (rate(container_cpu_usage_seconds_total{container!=""}[5m]))[24h:5m])
 sum by (namespace) (kube_pod_container_resource_requests{resource="cpu"})
 
-# Peak memory vs limit — the OOM risk, and the over-provisioning signal
-max_over_time(sum by (namespace) (container_memory_working_set_bytes{container!=""})[24h:5m])
+# Peak memory vs limit. Use 1m resolution, not 5m -- see "Sampling understates peaks".
+max_over_time(sum by (namespace) (container_memory_working_set_bytes{container!=""})[24h:1m])
 sum by (namespace) (kube_pod_container_resource_limits{resource="memory"})
 
-# Recent OOMKills
-sum by (namespace, pod) (increase(kube_pod_container_status_terminated_reason{reason="OOMKilled"}[7d]))
+# OOMKills. container_oom_events_total is a real counter; do NOT use increase() on
+# kube_pod_container_status_terminated_reason -- it is a gauge and Prometheus will warn.
+# Both of these vanish when the pod is deleted, so check them BEFORE cleaning up failed
+# pods, and cross-check with `kubectl get pods -A | grep OOMKilled`.
+sum by (namespace, pod) (increase(container_oom_events_total[7d])) > 0
+kube_pod_container_status_last_terminated_reason{reason="OOMKilled"} > 0
 
 # Containers with no CPU request at all. Expect this to be empty: most namespaces have a
 # LimitRange with defaultRequest, so a request is injected even when the spec omits one.
@@ -101,6 +120,43 @@ Also collect, per namespace: the VPA object's `minAllowed`/`maxAllowed` and curr
 `status.recommendation`, the LimitRange, the container spec in `values.yaml`, and the live
 pod resources.
 
+A recommendation sitting exactly on a bound is the signal to look for — on `minAllowed` it
+means VPA wanted less and the floor is doing the sizing; on `maxAllowed` it means VPA wanted
+more and is being capped. Five workloads were on their CPU floor when this was written:
+
+```bash
+kubectl get vpa -A -o json | python3 -c "
+import json,sys
+for v in json.load(sys.stdin)['items']:
+    p=(v.get('spec',{}).get('resourcePolicy',{}).get('containerPolicies') or [{}])[0]
+    mn,mx=p.get('minAllowed',{}),p.get('maxAllowed',{})
+    for r in ((v.get('status',{}).get('recommendation') or {}).get('containerRecommendations') or []):
+        t=r.get('target',{}); flags=[]
+        for res in ('cpu','memory'):
+            if mn.get(res) and str(t.get(res))==str(mn[res]): flags.append(res+'-at-MIN')
+            if mx.get(res) and str(t.get(res))==str(mx[res]): flags.append(res+'-at-MAX')
+        if flags: print(v['metadata']['namespace'], r.get('containerName'), t, flags)
+"
+```
+
+## Sampling understates peaks
+
+Do not lower a limit on the strength of a sampled peak. `container_memory_working_set_bytes`
+is scraped periodically, so a short burst falls between samples. Measured on
+`rclone-seedbox`, whose pods run about ten seconds every ten minutes:
+
+| method | reported peak |
+|---|---|
+| `max_over_time(...[24h:5m])` | 31 MiB |
+| `max_over_time(...[24h:1m])` | 239 MiB |
+| ground truth (it OOMKilled at a 512Mi limit) | ≥ 512 MiB |
+
+The 5m query was off by 16x and pointed the wrong way — it would have justified *cutting*
+the limit on a container that was dying of OOM. Use 1m resolution, treat any sampled peak as
+a floor rather than a maximum, and corroborate with OOM evidence before recommending a
+reduction. Short-lived CronJob pods are the worst case; long-running services are sampled
+well.
+
 ## Tooling notes
 
 - **No `sleep`, ever** — not in poll loops. It is a no-op here and the loop spins hot enough
@@ -113,6 +169,10 @@ pod resources.
   attach. Harmless; read the actual output.
 
 ## What to report
+
+Write the report to `docs/audits/<YYYY-MM-DD>-resource-audit.md` and commit it on a `docs/`
+branch, so the next audit can diff against it. Include the date each measurement was taken —
+a peak is only meaningful against a window.
 
 A table of findings ordered by severity, each naming:
 
