@@ -23,17 +23,10 @@ controllers:
           TZ: America/Los_Angeles
         resources:
           requests:
-            # Transcoding is bursty: idle for hours, then several cores for the length of
-            # a stream. VPA sizes on typical usage, so it recommended the 100m floor and
-            # the scheduler reserved nothing for the bursts.
             cpu: "1"
-          # No cpu limit, deliberately -- see limitrange.yaml for the mechanism. VPA
-          # preserves the request:limit ratio, so the 250m:4 written here became a
-          # 100m:1600m pod once VPA applied its floor, and 1.6 cores is a hard ceiling on
-          # a transcode that wants more. Measured 2026-08-12: 44% of CFS periods
-          # throttled over 24h with usage pinned at exactly 1.6. Memory is left to the
-          # LimitRange default, which is a real limit on purpose -- memory is not a
-          # burst-and-idle resource.
+          # No cpu limit on purpose -- see limitrange.yaml. VPA preserves the
+          # request:limit ratio, so 250m:4 here became a 100m:1600m pod and throttled
+          # transcodes at 1.6 cores.
 
 service:
   main:
