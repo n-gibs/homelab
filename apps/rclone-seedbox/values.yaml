@@ -68,10 +68,27 @@ controllers:
         resources:
           requests:
             cpu: 50m
-            memory: 128Mi
+            memory: 256Mi
           limits:
             cpu: 1
-            memory: 512Mi
+            # 1Gi, not 512Mi: three consecutive runs were OOMKilled on 2026-08-12 part way
+            # through a 3.08 GiB transfer (it reached ~1 GiB and died, three pod retries
+            # each). rclone holds --buffer-size per transfer on top of the SFTP backend's
+            # per-file concurrency, so peak memory tracks file size and --transfers rather
+            # than staying flat.
+            #
+            # There is no VPA and no LimitRange in this namespace, so this number is what
+            # actually applies. If it OOMs again, the knob to reach for is --transfers=2
+            # (halving concurrent buffers) before raising this further -- the job is on a
+            # 10-minute schedule and has no deadline to beat.
+            #
+            # Failed Jobs are what make this expensive: failedJobsHistoryLimit is 3, so
+            # three failures fill the history and kube_job_failed stays 1 forever. The
+            # KubeJobFailed and CronJobJobFailed warnings never resolve on their own, and
+            # they cascade into WarningAlertFiringTooLong plus an Alertmanager batch large
+            # enough that ntfy rejects it. Clear them with
+            # `kubectl -n rclone-seedbox delete job <name>` after diagnosing.
+            memory: 1Gi
 
 persistence:
   data:
