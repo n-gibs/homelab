@@ -1,17 +1,10 @@
 ---
-# Alerts on the four CloudNativePG clusters (immich, infisical, nextcloud, vaultwarden).
-# All four are 3-instance, and all four take their node-failure durability from streaming
-# replication rather than from the volume -- their PVCs are local-path, which pins each
-# instance to one node and cannot survive that node dying. So a silently-lost replica is
-# not a cosmetic degradation: it is the durability guarantee quietly going away while
-# everything still looks healthy from the application side.
+# Alerts on the four CloudNativePG clusters. Their PVCs are local-path, so node-failure
+# durability comes from streaming replication rather than the volume -- a cluster that
+# drops to one replica still serves normally while having no surviving copy of the data.
 #
-# Requires podmonitor-cnpg.yaml. Without a scrape target every expression here is empty
-# and nothing fires -- which is what CNPGMetricsMissing exists to catch.
-#
-# Aggregations are `by (namespace)` because this repo runs exactly one CNPG cluster per
-# namespace. If that ever stops being true, switch them to `by (cnpg_io_cluster)`, which
-# podmonitor-cnpg.yaml already attaches to every sample.
+# Requires podmonitor-cnpg.yaml. Aggregations are `by (namespace)` because this repo runs
+# one cluster per namespace; switch to `by (cnpg_io_cluster)` if that changes.
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
@@ -23,14 +16,9 @@ spec:
   groups:
     - name: cnpg
       rules:
-        # The primary reports how many replicas are actually streaming from it; a healthy
-        # 3-instance cluster reports 2. Taking the max across the namespace picks the
-        # primary without needing to know which pod it is -- replicas report 0 -- and it
-        # also covers the primary itself vanishing, since the max then collapses to the
-        # replicas' 0 and this fires rather than falling silent.
-        #
-        # This is the rule that matters most. A cluster can serve reads and writes
-        # perfectly well on one instance while having no surviving copy of the data.
+        # Only the primary reports this (replicas report 0), so max picks it without
+        # knowing which pod it is -- and if the primary itself vanishes the max collapses
+        # to 0 and this still fires rather than going quiet.
         - alert: CNPGReplicationDegraded
           expr: max by (namespace) (cnpg_pg_replication_streaming_replicas) < 2
           for: 10m
@@ -39,19 +27,15 @@ spec:
           annotations:
             summary: "{{ $labels.namespace }} Postgres has fewer than 2 streaming replicas"
             description: >-
-              The primary reports {{ $value }} streaming replicas instead of 2. Until this
-              recovers the cluster's data exists on fewer nodes than intended, and because
-              CNPG volumes are local-path, losing the wrong node now loses the database.
-              Check `kubectl -n {{ $labels.namespace }} get cluster` and
-              `kubectl -n {{ $labels.namespace }} get pods -l cnpg.io/podRole=instance -o wide`.
+              The primary reports {{ $value }} streaming replicas instead of 2. The data
+              now exists on fewer nodes than intended, and CNPG volumes are local-path so
+              losing the wrong node loses the database. Check
+              `kubectl -n {{ $labels.namespace }} get cluster`.
 
-        # A pod that is gone stops producing series entirely, so this counts what is left
-        # rather than looking for something broken. All four clusters are spec.instances 3.
-        #
-        # Deliberate gap: if every instance of one cluster disappears at once, that
-        # namespace has no series left and this cannot fire for it. The chart's default
-        # KubePodNotReady covers the pod-level symptom, and CNPGMetricsMissing covers total
-        # loss across all four.
+        # A missing pod stops producing series, so count what is left. All four clusters
+        # are 3 instances. If every instance of one cluster goes at once that namespace
+        # has no series and this cannot fire -- KubePodNotReady and CNPGMetricsMissing
+        # cover that.
         - alert: CNPGInstancesMissing
           expr: count by (namespace) (cnpg_collector_up) < 3
           for: 15m
@@ -60,15 +44,9 @@ spec:
           annotations:
             summary: "{{ $labels.namespace }} Postgres is reporting only {{ $value }} of 3 instances"
             description: >-
-              An instance has stopped being scraped for 15m -- pod gone, evicted, or unable
-              to start. Check `kubectl -n {{ $labels.namespace }} get cluster` for the
-              operator's own view and `kubectl -n {{ $labels.namespace }} describe pod`
-              on the missing instance. On local-path volumes an instance cannot move to
-              another node, so a node problem holds it down until the node returns.
+              An instance has not been scraped for 15m. On local-path volumes it cannot
+              move to another node, so a node problem holds it down until the node returns.
 
-        # Replicas report their lag; the primary reports 0, so take the max. 300s is loose
-        # on purpose -- these are small, low-write databases where any real lag means
-        # something is wrong rather than merely busy.
         - alert: CNPGReplicationLagHigh
           expr: max by (namespace) (cnpg_pg_replication_lag) > 300
           for: 10m
@@ -77,29 +55,23 @@ spec:
           annotations:
             summary: "{{ $labels.namespace }} Postgres replication is {{ $value }}s behind"
             description: >-
-              A replica has been more than 5 minutes behind the primary for 10m. It is
-              still streaming, so this is not yet CNPGReplicationDegraded, but a failover
-              right now would lose whatever has not been replayed. Check WAL volume and
-              node pressure on the lagging instance.
+              A replica is over 5 minutes behind. Still streaming, so not yet
+              CNPGReplicationDegraded, but a failover now would lose the unreplayed tail.
 
-        # The exporter runs inside the instance pod and talks to its own Postgres over the
-        # local socket. up==0 here means the pod is alive but its database is not
-        # answering, which the pod's readiness alone does not tell you.
+        # The exporter runs inside the pod and talks to its own Postgres, so this catches
+        # a pod that is alive while its database is not answering.
         - alert: CNPGCollectorDown
           expr: cnpg_collector_up == 0
           for: 15m
           labels:
             severity: warning
           annotations:
-            summary: "{{ $labels.cluster }} instance {{ $labels.pod }} is not answering its own metrics collector"
+            summary: "{{ $labels.cluster }} instance {{ $labels.pod }} is not answering its metrics collector"
             description: >-
-              The pod is running but its Postgres has not responded to the local collector
-              for 15m, so every other expression in this file is blind to that instance.
-              Check `kubectl -n {{ $labels.namespace }} logs {{ $labels.pod }} -c postgres`.
+              Every other expression here is blind to this instance. Check
+              `kubectl -n {{ $labels.namespace }} logs {{ $labels.pod }} -c postgres`.
 
-        # CNPG sets this when it wants a switchover it will not perform unattended -- most
-        # often a primary that must move for a node drain or an operator upgrade. It waits
-        # indefinitely, so without an alert it waits forever.
+        # CNPG waits indefinitely for this, so without an alert it waits forever.
         - alert: CNPGManualSwitchoverRequired
           expr: cnpg_collector_manual_switchover_required > 0
           for: 5m
@@ -108,14 +80,11 @@ spec:
           annotations:
             summary: "{{ $labels.namespace }} Postgres is waiting for a manual switchover"
             description: >-
-              CloudNativePG needs a switchover performed by hand and will not do it itself.
-              It will wait indefinitely. See
-              `kubectl -n {{ $labels.namespace }} describe cluster` for what it is blocked on.
+              CloudNativePG needs a switchover performed by hand. See
+              `kubectl -n {{ $labels.namespace }} describe cluster`.
 
-        # Postgres force-shuts down near 2^31 to avoid transaction ID wraparound corruption.
-        # 1.5e9 leaves a wide margin -- these databases sit around 1e2, so this only fires
-        # if autovacuum has genuinely stopped working, and it fires long before anything
-        # is at risk.
+        # Postgres force-stops writes near 2^31. These databases sit around 1e2, so this
+        # only fires if autovacuum has genuinely stopped freezing.
         - alert: CNPGTransactionIDWraparoundRisk
           expr: max by (namespace, datname) (cnpg_pg_database_xid_age) > 1.5e9
           for: 1h
@@ -124,22 +93,14 @@ spec:
           annotations:
             summary: "{{ $labels.namespace }} database {{ $labels.datname }} transaction ID age is {{ $value }}"
             description: >-
-              Transaction ID age is climbing toward the wraparound limit, which means
-              autovacuum is not freezing rows. Postgres refuses writes entirely if this
-              reaches ~2.1e9. Investigate long-running transactions and stuck replication
-              slots holding back the freeze horizon.
+              Autovacuum is not freezing rows. Investigate long-running transactions and
+              stuck replication slots holding back the freeze horizon.
 
-        # CNPGReplicationDegraded compares a series against 2, so a cluster that emits no
-        # replication series at all is not "healthy" to it -- it is invisible. That is not
-        # hypothetical: nextcloud has been in exactly this state since at least
-        # 2026-08-03. Its cnpg_metrics_exporter role lost CONNECT on database `app`
-        # (SQLSTATE 42501), so every per-database collector query fails while
-        # cnpg_collector_up still reports 1 and the cluster still looks fine.
-        #
-        # `unless` gives the namespaces that have instances but no replication metrics.
-        # The fix is a grant, not a threshold change:
-        #   kubectl -n <ns> exec <cluster>-<primary> -c postgres -- \
-        #     psql -U postgres -c 'grant connect on database app to cnpg_metrics_exporter'
+        # A cluster emitting no replication series is invisible to a threshold comparison,
+        # not healthy. nextcloud sat that way for over a week: its cnpg_metrics_exporter
+        # lost CONNECT on the app database, so every per-database query failed while
+        # cnpg_collector_up still read 1. `unless`, not a comparison, for that reason.
+        # Fix is a grant -- see platform/cloudnative-pg/README.md.
         - alert: CNPGReplicationMetricsMissing
           expr: >-
             count by (namespace) (cnpg_collector_up)
@@ -150,19 +111,13 @@ spec:
           annotations:
             summary: "{{ $labels.namespace }} Postgres reports no replication metrics"
             description: >-
-              Instances in this namespace are being scraped but emit no
-              cnpg_pg_replication_* series, so CNPGReplicationDegraded and
-              CNPGReplicationLagHigh cannot fire for this cluster -- it has no replication
-              alerting at all. Usually the cnpg_metrics_exporter role has lost CONNECT on
-              the application database; check
-              `kubectl -n {{ $labels.namespace }} logs <primary-pod> -c postgres | grep "Error collecting user query"`.
+              Instances are scraped but emit no cnpg_pg_replication_* series, so
+              CNPGReplicationDegraded and CNPGReplicationLagHigh cannot fire for this
+              cluster. Usually the exporter has lost CONNECT on the application database.
 
-        # Every rule above reads a metric that stops existing if podmonitor-cnpg.yaml is
-        # deleted, its selector stops matching, or the operator drops
-        # cnpg-default-monitoring. An absent series cannot breach a threshold, so without
-        # this the whole file would go quiet exactly when it stopped working. This is the
-        # rule that notices the monitoring itself died -- the same pattern as
-        # InfisicalSecretMetricsMissing.
+        # Every rule above reads a metric that stops existing if the PodMonitor breaks, and
+        # an absent series cannot breach a threshold -- so this file would go silent
+        # exactly when it stopped working.
         - alert: CNPGMetricsMissing
           expr: absent(cnpg_collector_up)
           for: 1h
@@ -172,7 +127,5 @@ spec:
             summary: No CloudNativePG metrics are being reported
             description: >-
               cnpg_collector_up has had no series for an hour, so every CNPG alert is
-              silent across all four Postgres clusters including the vault. Likely causes:
-              system/monitoring-system/podmonitor-cnpg.yaml was removed or its
-              cnpg.io/podRole selector no longer matches, Prometheus lost its PodMonitor
-              discovery, or the operator's cnpg-default-monitoring ConfigMap is gone.
+              silent across all four clusters. Check podmonitor-cnpg.yaml, Prometheus
+              PodMonitor discovery, and the operator's cnpg-default-monitoring ConfigMap.
