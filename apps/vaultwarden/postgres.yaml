@@ -1,0 +1,45 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: vaultwarden-database
+  namespace: vaultwarden
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  instances: 3
+  imageName: ghcr.io/cloudnative-pg/postgresql:18-standard-trixie
+
+  storage:
+    # local-path per the CNPG exception in CLAUDE.md: streaming replication across the
+    # three instances, not the volume, is what survives a node failure, and NFS is not a
+    # supported CNPG configuration. local-path cannot be expanded in place, so 5Gi is
+    # sized once -- against a 1.2M database whose attachments live on the /data volume
+    # rather than in Postgres, that is already enormous headroom.
+    size: 5Gi
+    storageClass: local-path
+
+  # Free: local-path already pins each instance to its node permanently.
+  affinity:
+    podAntiAffinityType: required
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      # No cpu limit on purpose -- see apps/vaultwarden/limitrange.yaml for the
+      # VPA ratio-preservation throttling this avoids.
+      memory: 1Gi
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: vaultwarden-database
+  namespace: vaultwarden
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  name: app
+  owner: app
+  cluster:
+    name: vaultwarden-database
