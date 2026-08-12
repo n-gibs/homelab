@@ -105,6 +105,11 @@ kube-state-metrics:
                     valueFrom: [message]
 
 prometheus-node-exporter:
+  # The chart ships resources: {}, which left all three pods BestEffort.
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
   # Points the textfile collector at what smart-temp-textfile.timer writes (see
   # ansible/roles/common). No new volume: the chart already bind-mounts / at /host/root.
   #
