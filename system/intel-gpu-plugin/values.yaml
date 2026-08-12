@@ -3,10 +3,15 @@
 # container but containerd's device cgroup denies open(), so ffmpeg gets EPERM even as
 # root. A device plugin is the only interface that adds the device to that allowlist.
 #
-# Upstream ships this as a plain DaemonSet (deployments/gpu_plugin/base); its Helm chart
-# is only a GpuDevicePlugin CR and needs the operator plus node-feature-discovery, which
-# is three components to light up one iGPU. app-template renders the same DaemonSet and
-# keeps the directory on the standard app.yaml/values.yaml pattern.
+# Transcribed from deployments/gpu_plugin/base/intel-gpu-plugin.yaml at v0.36.0. The
+# alternative is the Intel operator, which owns the DaemonSet for you but pulls in NFD
+# and cert-manager plus CRDs and a webhook -- four components and a CRD migration path
+# to manage one 45Mi DaemonSet and set one flag.
+#
+# The cost of transcribing is drift: Renovate bumps the image below, but it cannot know
+# upstream added a mount or a flag. On a minor/major bump, diff that file against this
+# one. Symptom of getting it wrong is loud -- the resource stops being advertised and
+# GPU pods go Pending, not a silent software-transcode fallback.
 controllers:
   main:
     type: daemonset
