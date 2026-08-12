@@ -8,8 +8,12 @@
 # RWX and nfs are the point of the whole migration: they are what let the pod schedule on
 # any node instead of following a local-path PV's node affinity to worker-00.
 #
-# Recovery: the vaultwarden-db-backup CronJob tars this volume nightly to
-# /mnt/storage/backups/vaultwarden alongside the pg_dump. Restoring rsa_key.pem matters --
+# Recovery: the vaultwarden-db-backup CronJob tars this volume nightly, alongside the
+# pg_dump, into the backup PVC's own provisioned subdirectory --
+# 192.168.30.194:/mnt/storage/vaultwarden/vaultwarden-db-backup, NOT
+# /mnt/storage/backups/vaultwarden, which holds only the dead SQLite-era archives.
+# Mounting the wrong one mid-incident finds pre-migration tarballs and no pg_dump.
+# Restoring rsa_key.pem matters --
 # without it every existing session token is invalid and all clients must log in again,
 # though no vault data is lost.
 apiVersion: v1
