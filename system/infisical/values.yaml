@@ -1,12 +1,13 @@
 infisical:
   replicaCount: 2
   kubeSecretRef: infisical-secrets
+  # No cpu limit: VPA preserves the request:limit ratio, so its 93m target turned this
+  # 1 core into a 930m ceiling and throttled 18.7% of CFS periods (2026-08-12).
   resources:
     requests:
       cpu: 100m
       memory: 256Mi
     limits:
-      cpu: "1"
       memory: 1Gi
 
 # useExistingPostgresSecret belongs here, not under infisical: — misplaced, Helm

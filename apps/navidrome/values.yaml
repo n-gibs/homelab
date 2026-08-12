@@ -39,11 +39,11 @@ controllers:
           ND_BACKUP_PATH: /backups
           ND_BACKUP_SCHEDULE: "0 5 * * *"
           ND_BACKUP_COUNT: "14"
+        # No cpu limit: VPA preserves the request:limit ratio, so its 15m target left a
+        # 300m ceiling that throttled 13% of periods during a library scan (2026-08-12).
         resources:
           requests:
             cpu: 50m
-          limits:
-            cpu: "1"
 
 service:
   main:

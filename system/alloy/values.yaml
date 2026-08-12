@@ -3,11 +3,11 @@ controller:
   replicas: 1
 
 alloy:
+  # No cpu limit: VPA preserves the request:limit ratio, so its 23m target turned this
+  # 1 core into a 230m ceiling that alloy ran flat against (2026-08-12).
   resources:
     requests:
       cpu: 100m
-    limits:
-      cpu: "1"
   configMap:
     content: |-
       discovery.kubernetes "pods" {
