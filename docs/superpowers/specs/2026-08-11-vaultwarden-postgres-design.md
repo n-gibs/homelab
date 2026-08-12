@@ -54,9 +54,15 @@ These are the numbers the post-migration verification compares against.
 
 `apps/nextcloud/`, `apps/immich/` and `system/infisical/` each run a 3-instance CNPG cluster
 on `local-path` with a `pg_dump` CronJob writing to the NFS share. This follows that
-pattern rather than inventing one. The jellyfin and bazarr migrations earlier today
-established the one-time-migration initContainer with a sentinel file written last, and
-that pattern is reused here for seeding the new volume.
+pattern rather than inventing one.
+
+The jellyfin and bazarr migrations earlier today seeded the new volume from a one-time
+initContainer on the Deployment, guarded by a sentinel written last. That is *not* reused
+here. Those migrations only had to copy files; this one also has to run a schema bootstrap
+and an import between two stopped states, so the whole sequence moves into a single
+uncommitted Job with three ordered containers. The upside is that no scaffolding enters git
+and there is no cleanup commit — the downside is that the Job is applied by hand, so it is
+written out in full in the plan.
 
 ## Architecture
 
@@ -67,7 +73,7 @@ vaultwarden Deployment (replicas 1, strategy Recreate, no nodeSelector, no node 
                        rsa_key.pem · config.json · attachments/ · sends/ · icon_cache/ · tmp/
 ```
 
-`data-pvc.yaml` and the `vaultwarden-data-local` PVC are deleted.
+The `vaultwarden-data-local` PVC is retired (and deleted 14 days later — see Rollback).
 
 ### Where durability comes from
 
@@ -139,8 +145,9 @@ Rejected alternatives:
 
 ### 2. What is left on disk: `/data` returns to `nfs`
 
-New PVC `vaultwarden-data`, `storageClass: nfs`, `ReadWriteMany`, 5Gi. This is the decision
-that removes the node pin. `local-path` is rejected here — keeping it would leave the pod
+New PVC `vaultwarden-data`, `storageClass: nfs`, `ReadWriteMany`, 5Gi, declared in its own
+`data-pvc-nfs.yaml` and consumed with `existingClaim`. This is the decision that removes the
+node pin. `local-path` is rejected here — keeping it would leave the pod
 pinned and make the whole migration pointless.
 
 `icon_cache/` and `tmp/` ride along on the same volume rather than earning their own
@@ -217,7 +224,8 @@ still supplies `ADMIN_TOKEN` only.
 | `postgres.yaml` | **new** — CNPG `Cluster` (3 instances, 5Gi local-path, `podAntiAffinityType: required`, sync-wave `-1`) and `Database` |
 | `pg-backup.yaml` | **new** — `nfs` RWX PVC + `pg_dump` CronJob named `vaultwarden-db-backup` |
 | `backup-cronjob.yaml` | **deleted** — replaced by `pg-backup.yaml` |
-| `data-pvc.yaml` | **deleted** — the node pin |
+| `data-pvc.yaml` | **unchanged**, and deliberately kept — `local-path` is `reclaimPolicy: Delete`, so pruning it destroys the rollback. Deleted in branch 4, 14 days later |
+| `data-pvc-nfs.yaml` | **new** — `vaultwarden-data`, `nfs` RWX 5Gi, the claim that removes the node pin |
 | `values.yaml` | `DATABASE_URL` from the CNPG secret; `/data` → new `nfs` PVC; one-time seed initContainer |
 | `app.yaml` | unchanged |
 | `limitrange.yaml` | unchanged — CNPG pods set explicit resources, so the defaults do not apply to them |
@@ -233,36 +241,45 @@ rollback free.
 so nothing can break. Merge, then confirm `kubectl -n vaultwarden get cluster` shows 3/3 and
 `Cluster in healthy state` before going further.
 
-**Branch 2 — `feat/vaultwarden-postgres-cutover`.** All remaining file changes.
+**Branch 2 — `feat/vaultwarden-postgres-cutover`.** All remaining file changes, committed with
+`replicas: 0`.
 
-Shutdown is expressed in git as `replicas: 0`, **not** with `kubectl scale`. The
-`vaultwarden` Application runs `automated: {prune: true, selfHeal: true}`, so a manual scale
-is reverted within a reconcile window — which during step 5 would start Vaultwarden against
-a half-imported database with pgloader still writing to it. Committing the shutdown makes
-self-heal enforce it instead of undoing it, at the cost of one extra commit.
+Shutdown is expressed in git, **not** with `kubectl scale`. The `vaultwarden` Application
+runs `automated: {prune: true, selfHeal: true}`, so a manual scale is reverted within a
+reconcile window — which during the import would start Vaultwarden against a half-loaded
+database while pgloader is still dropping and recreating its foreign keys. The bazarr
+migration commit (`8c55de4`) already records this: *"ArgoCD's selfHeal undoes a manual
+scale-down, so that is not a safe way to quiesce."*
 
 1. `kubectl -n vaultwarden create job vw-precutover --from=cronjob/vaultwarden-db-backup`.
    Confirm it logs the expected `2 users, 805 ciphers`. This archive is both the pgloader
-   source and the rollback artifact.
-2. Merge branch 2 with `replicas: 0`. ArgoCD stops Vaultwarden, creates `vaultwarden-data`
-   on `nfs`, and replaces the CronJob.
-3. Set `replicas: 1` and merge. The seed initContainer extracts the archive over `/data`,
-   skipping `db.sqlite3*`, `icon_cache`, `tmp` and `.migrated-from-nfs`, and writes its
-   sentinel last. `rsa_key.pem` is therefore in place **before** Vaultwarden first boots, so
-   it never generates a replacement. Diesel then builds the schema. Verify
-   `select count(*) from __diesel_schema_migrations` is 46 and `select count(*) from ciphers`
-   is 0.
-4. Set `replicas: 0` and merge again.
-5. Run the pgloader Job (manifest in the plan; not committed, since a Job in git re-runs on
-   every ArgoCD sync). Confirm `0 errors` and `858` rows.
-6. Set `replicas: 1` and merge. Verify.
+   source and the rollback artifact. It must run **before** branch 2 merges, because that
+   merge replaces the CronJob that produces it.
+2. Merge branch 2. ArgoCD stops Vaultwarden, creates the empty `vaultwarden-data` NFS claim,
+   and swaps the CronJob.
+3. Apply the migration Job by hand — not committed, since a Job in git is applied by ArgoCD
+   on merge and leaves scaffolding to clean up afterwards. It runs three containers in
+   order against the stopped app:
+   - **seed** extracts the archive over `/data` (skipping `db.sqlite3*`, `icon_cache`, `tmp`,
+     `.migrated-from-nfs`) so `rsa_key.pem` is present before Vaultwarden ever boots, and
+     stages the database with `pragma journal_mode=delete`.
+   - **schema** runs `/vaultwarden` until `GET /alive` answers, so diesel builds the schema,
+     then stops it.
+   - **pgloader** imports the rows.
+4. Merge branch 3 (`replicas: 1`). Vaultwarden comes up on a fully populated database.
 
-Four merges to move one integer is more ceremony than it looks, but each one is a
-single-line diff and the alternative is suspending automated sync on the password manager
-and remembering to put it back.
+**Branch 3 — `feat/vaultwarden-postgres-start`.** A one-line `replicas: 0` → `1`.
 
-**Branch 3 — `chore/vaultwarden-drop-migration-scaffolding`.** Remove the seed initContainer
-once verification passes, matching the bazarr and jellyfin cleanup commits.
+Two merges, and no window in which an empty vault is served to a syncing client — which is
+why the schema is built by the migration Job rather than by letting the Deployment boot
+against an empty database first.
+
+There is no cleanup branch. Because the seed runs inside the uncommitted Job rather than as
+a Deployment initContainer, no migration scaffolding ever enters git, so there is nothing to
+remove afterwards.
+
+**Branch 4 — `chore/vaultwarden-drop-sqlite-volume`, at least 14 days later.** Delete
+`data-pvc.yaml`. See Rollback for why this cannot be folded into branch 2.
 
 ## Verification
 
@@ -293,9 +310,16 @@ Valid at every point until the old PVC is deleted: revert the branch. ArgoCD res
 `existingClaim: vaultwarden-data-local` and Vaultwarden comes back on a SQLite database that
 is bit-identical to now, because nothing in this sequence writes to it.
 
+**`data-pvc.yaml` therefore stays in git through the whole migration, untouched.** The
+`local-path` StorageClass has `reclaimPolicy: Delete` — unlike `nfs`, which is `Retain` —
+so the moment that manifest leaves git, ArgoCD's `prune: true` deletes the PVC and the
+provisioner deletes the data behind it. Removing the file and keeping the volume are not
+compatible. The new NFS claim is added as a **separate** `data-pvc-nfs.yaml` rather than by
+rewriting `data-pvc.yaml`, purely so the old declaration survives.
+
 `vaultwarden-data-local` is kept for **14 days** after cutover, and
-`/mnt/storage/backups/vaultwarden/` is not pruned by hand. Deleting the PVC is a separate,
-later commit.
+`/mnt/storage/backups/vaultwarden/` is not pruned by hand. Deleting the PVC is branch 4, a
+separate and deliberate commit.
 
 ## Restore drill
 
