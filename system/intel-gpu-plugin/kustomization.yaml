@@ -1,0 +1,37 @@
+# Upstream's "Install with NFD" method, referenced directly at a release tag rather than
+# transcribed into a chart's values: the DaemonSet spec, its security context and the
+# NodeFeatureRules stay Intel's to maintain. Renovate's kustomize manager tracks both the
+# `?ref=` below and the image override.
+#
+# The other supported method is the operator, which we skipped: it needs a CR in the same
+# namespace as the operator itself (the controller stamps an ownerRef on a DaemonSet it
+# creates in its *own* namespace, so a CR living elsewhere would leave the DaemonSet with
+# a cross-namespace owner and garbage collection would delete it). That doesn't fit one
+# chart per directory, so it would mean hand-writing the CR anyway -- plus ten CRDs and an
+# admission webhook to set one flag.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  # The DaemonSet, plus the nodeSelector that keeps it on NFD-labelled GPU nodes.
+  - https://github.com/intel/intel-device-plugins-for-kubernetes/deployments/gpu_plugin/overlays/nfd_labeled_nodes?ref=v0.36.0
+  # The NodeFeatureRules that produce that label. Cluster-scoped, so the namespace this
+  # Application targets doesn't matter to them.
+  - https://github.com/intel/intel-device-plugins-for-kubernetes/deployments/nfd/overlays/node-feature-rules?ref=v0.36.0
+
+images:
+  - name: intel/intel-gpu-plugin
+    newTag: "0.36.0"
+
+patches:
+  # ponytail: 4 is a knob, not a measurement. The plugin defaults to 1, meaning a single
+  # pod holds the iGPU; the hardware has no concurrent-session limit, so this only caps
+  # how many pods may claim it, and oversubscribing shows up as slow transcodes rather
+  # than errors. Raise it when more consumers appear.
+  - target:
+      kind: DaemonSet
+      name: intel-gpu-plugin
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/args/-
+        value: -shared-dev-num=4

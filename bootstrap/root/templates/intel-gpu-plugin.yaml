@@ -1,0 +1,34 @@
+---
+# The Intel GPU plugin gets its own Application rather than riding the `system`
+# ApplicationSet for the same reason as coredns-ha: the generator in stack.yaml requires
+# app.yaml with chartName/chartRepo/chartVersion, and this is kustomize -- it references
+# upstream's release-tagged deployment manifests instead of a chart. Everything else
+# matches the ApplicationSet: same repo/revision, automated sync with prune + selfHeal,
+# server-side apply.
+#
+# Sync wave 2, after node-feature-discovery in wave 1: the plugin's DaemonSet selects a
+# label NFD has to produce first. Out of order it lands with nothing to schedule on, which
+# selfHeal fixes on the next pass -- the wave just avoids the detour.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: intel-gpu-plugin
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  destination:
+    name: in-cluster
+    namespace: intel-gpu-plugin
+  project: default
+  source:
+    repoURL: {{ .Values.gitops.repo }}
+    targetRevision: {{ .Values.gitops.revision }}
+    path: system/intel-gpu-plugin
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

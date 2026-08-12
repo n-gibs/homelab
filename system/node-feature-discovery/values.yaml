@@ -1,0 +1,29 @@
+# Labels nodes by detected hardware. Here it exists for exactly one label,
+# intel.feature.node.kubernetes.io/gpu, which system/intel-gpu-plugin selects on -- that is
+# the prerequisite for upstream's "Install with NFD" method.
+#
+# Chart defaults carry memory limits but no requests, and a requestless container is
+# invisible to the scheduler, so requests are set here for all three components.
+master:
+  resources:
+    requests:
+      cpu: 20m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+
+worker:
+  resources:
+    requests:
+      cpu: 20m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+
+gc:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
