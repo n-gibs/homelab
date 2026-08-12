@@ -12,8 +12,7 @@ controllers:
           value: "true"
           effect: PreferNoSchedule
       securityContext:
-        # renderD128 on worker-01 is root:render, gid 991 (video/card1 is 44). The
-        # container drops to uid 1000, so it needs the group to open the device.
+        # render (991) and video (44) own the DRI devices; the container runs as uid 1000.
         supplementalGroups: [991, 44]
     containers:
       app:
@@ -28,6 +27,10 @@ controllers:
         resources:
           requests:
             cpu: "1"
+          limits:
+            # QuickSync, advertised by system/intel-gpu-plugin. Requesting the resource is
+            # what gets renderD128 past containerd's device cgroup; mounting it does not.
+            gpu.intel.com/i915: 1
           # No cpu limit on purpose -- see limitrange.yaml. VPA preserves the
           # request:limit ratio, so 250m:4 here became a 100m:1600m pod and throttled
           # transcodes at 1.6 cores.
@@ -80,14 +83,6 @@ persistence:
     path: /mnt/storage/backups/jellyfin
     globalMounts:
       - path: /config/data/data/backups
-  # Intel QuickSync (i5-12500T iGPU). hostPath rather than the Intel device plugin:
-  # one node, one consumer, and the plugin would be a whole system/ component to
-  # schedule a pod that is already pinned here by nodeSelector.
-  dri:
-    type: hostPath
-    hostPath: /dev/dri
-    globalMounts:
-      - path: /dev/dri
   data:
     type: nfs
     server: 192.168.30.194

@@ -1,0 +1,29 @@
+---
+# Own Application rather than the `system` ApplicationSet, same exception as coredns-ha:
+# the generator builds a Helm source from app.yaml, and this is kustomize.
+#
+# Wave 2, after node-feature-discovery: the DaemonSet selects a label NFD has to produce
+# first, and the NodeFeatureRules need its CRD.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: intel-gpu-plugin
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  destination:
+    name: in-cluster
+    namespace: intel-gpu-plugin
+  project: default
+  source:
+    repoURL: {{ .Values.gitops.repo }}
+    targetRevision: {{ .Values.gitops.revision }}
+    path: system/intel-gpu-plugin
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

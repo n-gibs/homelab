@@ -1,0 +1,25 @@
+# Upstream's "Install with NFD" method, referenced at a release tag so the DaemonSet and
+# the rules stay Intel's to maintain. Renovate tracks the ref and the image override.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  # DaemonSet, plus the nodeSelector keeping it on NFD-labelled GPU nodes.
+  - https://github.com/intel/intel-device-plugins-for-kubernetes/deployments/gpu_plugin/overlays/nfd_labeled_nodes?ref=v0.36.0
+  # NodeFeatureRules producing that label.
+  - https://github.com/intel/intel-device-plugins-for-kubernetes/deployments/nfd/overlays/node-feature-rules?ref=v0.36.0
+
+images:
+  - name: intel/intel-gpu-plugin
+    newTag: "0.36.0"
+
+patches:
+  # ponytail: 4 is a guess, not a measurement. The default of 1 lets a single pod hold the
+  # iGPU; the hardware has no session limit, so oversubscribing costs speed, not errors.
+  - target:
+      kind: DaemonSet
+      name: intel-gpu-plugin
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/args/-
+        value: -shared-dev-num=4
