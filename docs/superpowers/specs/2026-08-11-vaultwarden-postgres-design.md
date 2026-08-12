@@ -173,6 +173,13 @@ Two deliberate departures from the nextcloud/immich template:
   live only on NFS. One CronJob covering both halves keeps the name, the alert count, and
   the restore story in one place.
 
+  This tar runs against a live `/data` with Vaultwarden serving, which is safe **only**
+  because every file under it is write-once: `rsa_key.pem` is generated at first boot and
+  never rewritten, and attachments and sends are created and deleted but not edited in
+  place. There is no torn-read risk of the kind that forced the SQLite job to use the online
+  backup API. Do not copy this pattern to an app whose files are mutated in place without
+  re-checking that.
+
 Schedule stays `30 4 * * *`. It does not collide with immich (03:30) or nextcloud (03:45).
 
 **Transient to handle at cutover:** deleting the old CronJob and creating the new one makes
@@ -226,23 +233,33 @@ rollback free.
 so nothing can break. Merge, then confirm `kubectl -n vaultwarden get cluster` shows 3/3 and
 `Cluster in healthy state` before going further.
 
-**Branch 2 — `feat/vaultwarden-postgres-cutover`.** All remaining file changes. Around the
-merge:
+**Branch 2 — `feat/vaultwarden-postgres-cutover`.** All remaining file changes.
 
-1. Scale the Deployment to 0.
-2. `kubectl -n vaultwarden create job vw-precutover --from=cronjob/vaultwarden-db-backup`.
+Shutdown is expressed in git as `replicas: 0`, **not** with `kubectl scale`. The
+`vaultwarden` Application runs `automated: {prune: true, selfHeal: true}`, so a manual scale
+is reverted within a reconcile window — which during step 5 would start Vaultwarden against
+a half-imported database with pgloader still writing to it. Committing the shutdown makes
+self-heal enforce it instead of undoing it, at the cost of one extra commit.
+
+1. `kubectl -n vaultwarden create job vw-precutover --from=cronjob/vaultwarden-db-backup`.
    Confirm it logs the expected `2 users, 805 ciphers`. This archive is both the pgloader
    source and the rollback artifact.
-3. Merge. ArgoCD creates `vaultwarden-data` on `nfs`; the seed initContainer extracts the
-   archive over `/data`, skipping `db.sqlite3*`, `icon_cache`, `tmp` and
-   `.migrated-from-nfs`, and writes its sentinel last. `rsa_key.pem` is therefore in place
-   **before** Vaultwarden first boots, so it never generates a replacement.
-4. Let the pod start. Diesel builds the schema. Verify:
+2. Merge branch 2 with `replicas: 0`. ArgoCD stops Vaultwarden, creates `vaultwarden-data`
+   on `nfs`, and replaces the CronJob.
+3. Set `replicas: 1` and merge. The seed initContainer extracts the archive over `/data`,
+   skipping `db.sqlite3*`, `icon_cache`, `tmp` and `.migrated-from-nfs`, and writes its
+   sentinel last. `rsa_key.pem` is therefore in place **before** Vaultwarden first boots, so
+   it never generates a replacement. Diesel then builds the schema. Verify
    `select count(*) from __diesel_schema_migrations` is 46 and `select count(*) from ciphers`
-   is 0. Scale to 0.
+   is 0.
+4. Set `replicas: 0` and merge again.
 5. Run the pgloader Job (manifest in the plan; not committed, since a Job in git re-runs on
    every ArgoCD sync). Confirm `0 errors` and `858` rows.
-6. Scale to 1. Verify.
+6. Set `replicas: 1` and merge. Verify.
+
+Four merges to move one integer is more ceremony than it looks, but each one is a
+single-line diff and the alternative is suspending automated sync on the password manager
+and remembering to put it back.
 
 **Branch 3 — `chore/vaultwarden-drop-migration-scaffolding`.** Remove the seed initContainer
 once verification passes, matching the bazarr and jellyfin cleanup commits.
@@ -256,14 +273,19 @@ Not merged until all of these pass:
    cannot pass silently.
 2. **The app reads the data.** `POST /identity/accounts/prelogin` for a known user returns
    `200` with the real KDF parameters, not a default.
-3. **A real client login and full sync**, on desktop and on phone. Sessions should survive
+3. **The app writes.** The 2026-08-11 smoke test only exercised reads, so this is unproven
+   until it runs: create an item in the web vault, delete the pod, confirm the item is still
+   there, then delete it. Vaultwarden's primary keys are UUIDs rather than sequences — which
+   is why pgloader's `reset sequences` reported 0 — so an insert collision is unlikely, but
+   unlikely is not verified.
+4. **A real client login and full sync**, on desktop and on phone. Sessions should survive
    without re-login, which is the observable proof `rsa_key.pem` came across intact.
-4. **No `db.sqlite3` on the new volume**, and the pod has no `nodeSelector` and no node
+5. **No `db.sqlite3` on the new volume**, and the pod has no `nodeSelector` and no node
    affinity — the goal, stated as a check.
-5. **Reschedule test.** Delete the pod and confirm it comes back Ready, then cordon its
+6. **Reschedule test.** Delete the pod and confirm it comes back Ready, then cordon its
    node and delete it again and confirm it starts on a different node. This is the only
    check that actually demonstrates the pin is gone.
-6. **The new backup CronJob has succeeded once**, so `BackupCronJobMissing` sees 6.
+7. **The new backup CronJob has succeeded once**, so `BackupCronJobMissing` sees 6.
 
 ## Rollback
 
