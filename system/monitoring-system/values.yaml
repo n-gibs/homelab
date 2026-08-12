@@ -240,5 +240,22 @@ alertmanager:
         webhook_configs:
           - url_file: /etc/alertmanager/secrets/ntfy-webhook-url/url
             send_resolved: true
+            # Cap the payload. ntfy renders the webhook JSON through a message template and
+            # rejects the result over its 4096-byte limit with
+            # `40041: message or title is too large after replacing template` -- a 400,
+            # which Alertmanager treats as unrecoverable and does not retry.
+            #
+            # This is the dangerous shape: delivery fails precisely during a storm, when
+            # the batch is biggest and the notification matters most. Measured 2026-08-12:
+            # six never-resolving rclone-seedbox job alerts grew one namespace group to 32
+            # alerts and every notification 400'd for ~5 hours, taking the whole ntfy path
+            # down while the alerting stack itself looked healthy.
+            #
+            # Truncating beats losing the message: Alertmanager sends the first N and sets
+            # `truncatedAlerts` to the number dropped, so the receiver still knows the true
+            # size. 5 is deliberately conservative because the rendered size depends on the
+            # ntfy-side template, which is not visible from this repo -- if a 400 ever
+            # recurs, lower it rather than raising it.
+            max_alerts: 5
     templates:
       - '/etc/alertmanager/config/*.tmpl'
