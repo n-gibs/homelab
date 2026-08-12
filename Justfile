@@ -67,8 +67,9 @@ bootstrap-argocd:
     just register-repo
 
 # Bootstrap only root chart (ApplicationSets)
+# --force-conflicts: git owns .spec of these objects, so helm reasserting it is correct.
 bootstrap-root:
-    helmfile apply -f bootstrap/helmfile.yaml -l name=root
+    helmfile apply -f bootstrap/helmfile.yaml -l name=root --sync-args="--force-conflicts"
 
 # Diff bootstrap changes without applying
 bootstrap-diff:
