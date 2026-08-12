@@ -77,7 +77,7 @@ spec:
                   users="$(psql -d app -Atc 'select count(*) from users')"
                   ciphers="$(psql -d app -Atc 'select count(*) from ciphers')"
                   echo "snapshot: ${users} users, ${ciphers} ciphers"
-                  if [ "$users" -eq 0 ]; then
+                  if [ -z "$users" ] || [ "$users" -eq 0 ]; then
                     echo "0 users -- refusing to write a backup" >&2
                     exit 1
                   fi
