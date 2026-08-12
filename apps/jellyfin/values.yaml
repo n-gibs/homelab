@@ -12,8 +12,7 @@ controllers:
           value: "true"
           effect: PreferNoSchedule
       securityContext:
-        # renderD128 on worker-01 is root:render, gid 991 (video/card1 is 44). The
-        # container drops to uid 1000, so it needs the group to open the device.
+        # render (991) and video (44) own the DRI devices; the container runs as uid 1000.
         supplementalGroups: [991, 44]
     containers:
       app:
@@ -29,10 +28,8 @@ controllers:
           requests:
             cpu: "1"
           limits:
-            # QuickSync. The plugin in system/intel-gpu-plugin advertises this and is
-            # what actually gets renderD128 past containerd's device cgroup -- a bare
-            # hostPath mount of /dev/dri makes the node visible but open() still EPERMs.
-            # No cpu limit here on purpose; see limitrange.yaml.
+            # QuickSync, advertised by system/intel-gpu-plugin. Requesting the resource is
+            # what gets renderD128 past containerd's device cgroup; mounting it does not.
             gpu.intel.com/i915: 1
           # No cpu limit on purpose -- see limitrange.yaml. VPA preserves the
           # request:limit ratio, so 250m:4 here became a 100m:1600m pod and throttled
