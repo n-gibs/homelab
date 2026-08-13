@@ -1335,12 +1335,22 @@ kubectl -n lh-bench logs fio-localpath  | grep -E "write:|fsync/fdatasync|99.00t
 
 Fill this in — the next person deciding this deserves the data, not the conclusion:
 
-```
-| Class      | write IOPS | fdatasync p99 |
-|------------|-----------:|--------------:|
-| local-path |            |               |
-| longhorn   |            |               |
-```
+Measured 2026-08-13 on worker-01, 4k random writes, `--fdatasync=1`, 60s, single job:
+
+| Class      | write IOPS | fdatasync avg | fdatasync p99 |
+|------------|-----------:|--------------:|--------------:|
+| local-path |       2294 |       0.43 ms |       0.73 ms |
+| longhorn   |        530 |       1.86 ms |       2.93 ms |
+
+Longhorn is ~4.3× slower on IOPS and ~4.0× on fdatasync p99 — well inside the "roughly an order of
+magnitude" bar. 2.93 ms p99 is about 340 SQLite commits/second worst case, orders above what these
+apps generate.
+
+**A note on running this: use `nodeSelector`, not `nodeName`.** The step below originally pinned
+both pods with `nodeName`, which bypasses the scheduler — so the `local-path` PVC, being
+`WaitForFirstConsumer`, never receives its `selected-node` annotation and sits Pending forever while
+the pod hangs in ContainerCreating. The Longhorn PVC binds `Immediate` and is unaffected, so the
+failure is asymmetric and looks like a Longhorn-unrelated hang.
 
 - [ ] **Step 4: Watch Lidarr through a full cycle**
 
@@ -1360,6 +1370,22 @@ kubectl delete ns lh-bench
 ```
 
 - [ ] **Step 6: Decide, and record the decision**
+
+**DECIDED 2026-08-13: GO.** All three criteria met with margin:
+
+| Criterion | Bar | Measured |
+|---|---|---|
+| fdatasync p99 | within ~an order of magnitude | **4.0×** (2.93 ms vs 0.73 ms) |
+| lock errors | zero | **0**, across 792 `RefreshAlbumService` album updates plus a full RSS sync |
+| queue stall | none | `/ping` 200 in 2.7 ms; refresh advanced steadily, never plateaued |
+
+Writes were confirmed to actually reach the volume rather than sit in page cache: `lidarr.db` mtime
+advanced during the refresh and the volume's `actualSize` grew to 526 MB. Both volumes stayed
+`robustness=healthy` under sustained write load.
+
+Benign artifact of the migration window, noted so it is not mistaken for a fault: Lidarr logs
+`rss sync didn't cover the period between <scale-down> and <scale-up>` for each indexer. That is the
+app noticing its own downtime, and it self-corrects on the next sync.
 
 **Go** — zero lock errors, no queue stall, fdatasync p99 within roughly an order of magnitude of
 `local-path`. Proceed to Phase 5.
