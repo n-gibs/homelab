@@ -35,3 +35,37 @@ spec:
   resources:
     requests:
       storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sonarr-config
+  namespace: sonarr
+  # No sync-wave annotation. The longhorn class binds Immediate rather than
+  # WaitForFirstConsumer, so unlike the local-path PVC above this does not sit Pending
+  # waiting for a consumer -- but a PVC still has no reason to own a wave.
+spec:
+  accessModes:
+    - ReadWriteOnce
+  # longhorn, not local-path: /config is SQLite, and SQLite needs a real block device
+  # with a real filesystem -- which Longhorn provides and NFS does not. Two replicas,
+  # one of them local to whichever node the pod runs on (best-effort locality), so
+  # losing a node degrades this volume instead of taking it offline.
+  #
+  # Durability still does not come from the volume. Sonarr's own System -> Backup
+  # writing to /data/backups/sonarr/scheduled/ is the application-consistent copy --
+  # it knows how to quiesce its own database, so no CronJob is needed here. Sonarr
+  # is the busiest writer of the eight migrated volumes and the app whose 996
+  # "database is locked" errors on NFS produced the repo's SQLite-storage rule in
+  # the first place, so it is the last, not the first, to move here.
+  #
+  # Recovery if a node dies: nothing to do, the replica rebuilds. If the volume is
+  # faulted, restore the newest zip from /data/backups/sonarr/scheduled/ via
+  # System -> Backup -> Restore.
+  #
+  # 2Gi against 107M today is headroom, and longhorn expands in place, so this isn't
+  # sized once like the local-path PVC above.
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 2Gi
