@@ -34,3 +34,34 @@ spec:
   resources:
     requests:
       storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: radarr-config
+  namespace: radarr
+  # No sync-wave annotation. The longhorn class binds Immediate rather than
+  # WaitForFirstConsumer, so unlike the local-path PVC above this does not sit Pending
+  # waiting for a consumer -- but a PVC still has no reason to own a wave.
+spec:
+  accessModes:
+    - ReadWriteOnce
+  # longhorn, not local-path: /config is SQLite, and SQLite needs a real block device
+  # with a real filesystem -- which Longhorn provides and NFS does not. Two replicas,
+  # one of them local to whichever node the pod runs on (best-effort locality), so
+  # losing a node degrades this volume instead of taking it offline.
+  #
+  # Durability still does not come from the volume. Radarr's own System -> Backup
+  # writing to /data/backups/radarr/scheduled/ is the application-consistent copy --
+  # it knows how to quiesce its own database, so no CronJob is needed here.
+  #
+  # Recovery if a node dies: nothing to do, the replica rebuilds. If the volume is
+  # faulted, restore the newest zip from /data/backups/radarr/scheduled/ via
+  # System -> Backup -> Restore.
+  #
+  # 2Gi against 112M today is headroom, and longhorn expands in place, so this isn't
+  # sized once like the local-path PVC above.
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 2Gi
