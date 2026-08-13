@@ -1,9 +1,5 @@
 controllers:
   main:
-    # Temporary: scaled to zero for the Longhorn config migration (Merge A). Restored to
-    # unset once the config PVC swap (Merge B) lands. See
-    # docs/superpowers/plans/2026-08-13-longhorn-deployment.md.
-    replicas: 0
     # local-path is ReadWriteOnce and node-pinned, and two Navidromes must never open
     # the same SQLite database: the old pod has to be gone before the new one starts.
     strategy: Recreate
@@ -71,9 +67,9 @@ route:
 
 persistence:
   config:
-    # local-path, not nfs -- navidrome.db is SQLite in WAL mode, which does not work
-    # over NFS. See config-pvc.yaml for the rationale and the restore path.
-    existingClaim: navidrome-config-local
+    # longhorn, not local-path -- navidrome.db is SQLite in WAL mode, which needs a
+    # real block device. See config-pvc.yaml for the rationale and the restore path.
+    existingClaim: navidrome-config
     globalMounts:
       - path: /config
   # ND_BACKUP_PATH points here. The /data mount below is readOnly, so the backup
