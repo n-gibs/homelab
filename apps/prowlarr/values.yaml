@@ -1,9 +1,5 @@
 controllers:
   main:
-    # Temporary: scaled to zero for the Longhorn config migration (Merge A). Restored to
-    # unset once the config PVC swap (Merge B) lands. See
-    # docs/superpowers/plans/2026-08-13-longhorn-deployment.md.
-    replicas: 0
     pod:
       nodeSelector:
         homelab.io/media: "true"
@@ -74,11 +70,11 @@ route:
 
 persistence:
   config:
-    # local-path, not nfs -- SQLite over NFS deadlocks. See config-pvc.yaml for
-    # the rationale, the durability trade, and the restore-from-backup recovery
+    # longhorn, not local-path -- SQLite needs a real block device. See config-pvc.yaml
+    # for the rationale, the durability trade, and the restore-from-backup recovery
     # path. Defined as its own manifest rather than inline so the comment lives
     # with the volume; the chart just consumes it.
-    existingClaim: prowlarr-config-local
+    existingClaim: prowlarr-config
     globalMounts:
       - path: /config
   # Backups only. Prowlarr is not a media app and has no business seeing the
