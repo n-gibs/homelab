@@ -1,3 +1,8 @@
+# Temporary: scaled to zero for the Longhorn html-pvc migration (Merge A). Restored to
+# unset once the PVC swap (Merge B) lands. See
+# docs/superpowers/plans/2026-08-13-longhorn-deployment.md.
+replicaCount: 0
+
 nextcloud:
   host: nextcloud.nik-homelab.dev          # also templates NEXTCLOUD_TRUSTED_DOMAINS
   # Top-level, not the default /var/www/html/data — that would nest the NFS data
