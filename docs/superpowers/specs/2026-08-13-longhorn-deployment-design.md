@@ -168,10 +168,40 @@ routing: the hostnames are reachable from the LAN and over the Tailscale subnet 
 internet. So the exposure being managed is LAN-level, not internet-level.
 
 Longhorn's dashboard still ships with no authentication and can delete volumes, making it the only
-app here with no login. **HTTPRoute plus an Envoy Gateway `SecurityPolicy` with basicAuth**,
-credentials from Infisical at `/longhorn-system/longhorn-ui-auth`. Envoy Gateway's basicAuth wants
-an htpasswd-format secret; the exact key layout is confirmed against the v1.8 API at implementation
-time rather than guessed.
+app here with no login. **HTTPRoute plus an Envoy Gateway `SecurityPolicy` with basicAuth.**
+
+Verified against the v1.8 docs (which pin v1.8.3, the version installed here):
+
+```yaml
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: longhorn-ui-auth
+  namespace: longhorn-system      # must match the targetRef's namespace
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: longhorn-ui
+  basicAuth:
+    users:
+      name: longhorn-ui-auth      # Opaque Secret, key must be exactly `.htpasswd`
+```
+
+Two traps, both silent:
+
+- **Only the SHA hash algorithm is supported.** `htpasswd -cbs` — modern `htpasswd` defaults to
+  bcrypt, so the obvious command produces a file Envoy rejects. v1.7 added validation for malformed
+  `{SHA}` entries, so a bad file fails the policy rather than failing open, but it fails.
+- **The Secret key must be literally `.htpasswd`,** and Infisical secret names cannot start with a
+  dot. The installed `InfisicalStaticSecret` CRD has `spec.targets[].template` with
+  `engineVersion: v1` and a `data` map, which is exactly the escape hatch: store the file under a
+  normal Infisical key and template it into `.htpasswd`. Nothing in this repo uses `template` yet, so
+  the syntax gets confirmed on first use. If it does not work, the fallback is a `secrets/registry.tsv`
+  row — legitimate here, since "Infisical cannot express this key" is precisely what that exception
+  is for.
+
+One `SecurityPolicy` per targetRef, so this cannot be shared with another route later.
 
 The route carries the standard Homepage annotations, group `Infrastructure`. `longhornUI.replicas:
 1` — no HA for a dashboard.
@@ -328,8 +358,9 @@ deliberate window, never as a side effect of debugging something else.
 These are asserted in this document but not confirmed. The first two change the design if wrong; the
 rest are check-at-implementation, and each one gets an explicit step in the plan.
 
-1. **Envoy Gateway v1.8 `SecurityPolicy` basicAuth** exists and what secret format it takes. If it
-   does not, the UI decision changes shape — fallback is a Tailscale-only Service, then port-forward.
+1. ~~**Envoy Gateway v1.8 `SecurityPolicy` basicAuth**~~ — **verified 2026-08-13**, see UI above. The
+   two live unknowns it leaves are the `InfisicalStaticSecret` `template` syntax (first use in this
+   repo) and remembering `-s` on `htpasswd`.
 2. **Longhorn 1.11.3 values key names**, particularly `guaranteedInstanceManagerCpu` casing (docs
    show `Cpu`; the setting is `guaranteed-instance-manager-cpu`). **A wrong key is silently ignored**,
    so verification is reading the rendered `Setting` CR for the value 5 — not a `helm template` that
