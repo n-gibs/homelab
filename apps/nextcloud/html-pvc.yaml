@@ -20,3 +20,37 @@ spec:
   resources:
     requests:
       storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nextcloud-html-longhorn
+  namespace: nextcloud
+  # No sync-wave annotation. The longhorn class binds Immediate rather than
+  # WaitForFirstConsumer, so unlike the local-path PVC above this does not sit
+  # Pending waiting for a consumer — but a PVC still has no reason to own a wave.
+spec:
+  accessModes:
+    - ReadWriteOnce
+  # longhorn, not local-path: this is still the PHP app tree — ~28k small files,
+  # reconstructible from the container image, so its loss costs a rebuild rather
+  # than data. It was on local-path because the alternative was the sync-exported
+  # USB spinning disk the nfs class uses, not because the tree needed real block
+  # storage the way the arrs' SQLite configs do. Longhorn gives it that plus two
+  # replicas, one of them local to whichever node the pod runs on (best-effort
+  # locality), so losing a node degrades this volume instead of taking it offline.
+  # nextcloud-cron also mounts this claim; both need updating together.
+  #
+  # Nextcloud's own upgrades rewrite this tree, so headroom matters more than for
+  # a config volume: 885M against 3Gi today, and longhorn expands in place if that
+  # gets tight, unlike the local-path PVC above.
+  #
+  # Recovery if a node dies: nothing to do, the replica rebuilds. If the volume is
+  # faulted, delete and recreate — the tree rebuilds from the image the same way
+  # it did on local-path. Database and data directory are untouched either way.
+  # Named nextcloud-html-longhorn rather than reusing nextcloud-html, which is
+  # still bound to the PVC above.
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 3Gi
