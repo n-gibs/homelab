@@ -186,6 +186,19 @@ One `RecurringJob` in the `default` group: **daily backup at 04:30, `retain: 7`.
 the 03:30/03:45 database dumps and the apps' own backups, so each Longhorn backup captures fresh
 archives. No separate snapshot job — a backup takes a snapshot on its way.
 
+This reverses the Aug-10 plan's decision to leave Longhorn backups out of scope, so its argument
+gets answered rather than ignored. That argument was: "a second backup system that produces volume
+snapshots the app cannot restore from is not an improvement." It holds for the arrs, which back
+themselves up in a format their own restore flow accepts. It does not hold for **Navidrome and
+`nextcloud-html`, which have no app-level backup at all** — for those two this is the only backup
+that exists. And post-NAS it becomes the only off-host copy of any of it.
+
+Snapshots get no separate schedule. A backup takes a snapshot on its way, and Longhorn snapshots
+live on the volume's own replicas — a snapshot-only schedule would be the one form of protection a
+node failure takes with it. Longhorn's filesystem-freeze-during-snapshot setting narrows the
+consistency gap (filesystem-consistent rather than crash-consistent) but does not close it, which
+is the next paragraph's point.
+
 **The per-app backups stay.** Longhorn's backups are volume-level and crash-consistent; the arrs'
 System → Backup understands how to quiesce its own database and produces an archive its own restore
 flow accepts. `apps/cleanuparr/backup-cronjob.yaml` still has to exist afterwards for the same
@@ -194,6 +207,40 @@ duplication is free.
 
 Stated plainly: pre-NAS the backup target is the USB disk on worker-01, the same host as most
 replicas. It is a second disk, not a second host. The NAS is what makes this a real backup.
+
+## Migration procedure
+
+**Two-stage pilot.** The evaluation's smallest-first ordering and the Aug-10 plan's
+representative-first ordering are both right about different things, so both happen:
+
+1. **Cleanuparr is the mechanical rehearsal** — 1.5 MB of unconfigured settings on worker-00, the
+   least costly thing in the cluster to get wrong. It proves the procedure: PVC rename, copy Job,
+   `existingClaim` swap, and Longhorn's volume-ownership behaviour against the `fsGroup` that
+   `apps/cleanuparr/values.yaml` sets because `local-path` creates the volume root-owned.
+2. **Lidarr is the measurement pilot and carries the go/no-go gate.** Cleanuparr cannot measure the
+   fsync tax — near-zero write traffic, and it runs on worker-00 rather than worker-01 where the
+   other seven live. Migrating three volumes before learning whether the tax is acceptable would
+   mean three rollbacks if it isn't.
+
+Then the rest, one per merge so a problem is attributable, ending with Sonarr — the busiest writer
+and the one with the 996-lock-error history. If the benchmark missed a latency problem, Sonarr finds
+it.
+
+**Mechanism: a copy Job, with a fresh app-level backup taken first purely as the rollback.** One
+uniform procedure for all eight, which matters because Navidrome, Cleanuparr and `nextcloud-html`
+have no restore flow to use — the alternative means maintaining two procedures. Per app: take the
+backup, scale to zero in git, run a Job mounting both PVCs that copies `/config`, swap
+`existingClaim`, scale back up.
+
+Two constraints on that Job. It mounts an RWO `local-path` PVC whose PV has node affinity, so it
+must be **pinned to that node** — worker-01 for seven, worker-00 for Cleanuparr. And the app must be
+at zero replicas before it runs; copying a live SQLite database is how you get a corrupt one.
+
+**The old `local-path` PVCs stay in git for two weeks**, matching the `apps/vaultwarden/data-pvc.yaml`
+precedent rather than the Aug-10 plan's 24 hours. They have to stay in git regardless — `prune: true`
+would otherwise delete them the moment the manifest disappears. The `Retain` policy means even then
+the PV survives as `Released`, so rollback is two-layer, but only the in-git PVC makes it a revert
+rather than a manual reclaim.
 
 ## Monitoring
 
@@ -260,6 +307,46 @@ numbers go into the Talos audit, and the migration stops with all eight volumes 
 costs a documented ~30-minute manual recovery on an event that has not yet happened. Longhorn stays
 installed or is removed; either is fine.
 
+## The other open question: Cilium and iSCSI-to-localhost
+
+Longhorn's v1 engine attaches volumes over iSCSI to localhost, and `bootstrap/values/cilium.yaml`
+runs `kubeProxyReplacement: true` with `socketLB.hostNamespaceOnly: false`. The Aug-10 plan found no
+documented incompatibility and could not confirm compatibility either. That is still where it
+stands.
+
+Prove it with a throwaway 1Gi PVC and a pod that writes and reads a file — attach, write, read,
+detach, delete — **before any real data exists.** It is the cheapest test in the plan and the second
+most valuable after the fsync benchmark.
+
+If attach hangs, `socketLB.hostNamespaceOnly: true` is the thing to try, but rolling the Cilium
+agent DaemonSet is how two agents end up writing the BPF LB maps at once (see the comment at the top
+of `bootstrap/values/cilium.yaml`, and `node_cilium_dangling_bpf_backends`). That happens in a
+deliberate window, never as a side effect of debugging something else.
+
+## Verify before writing manifests
+
+These are asserted in this document but not confirmed. The first two change the design if wrong; the
+rest are check-at-implementation, and each one gets an explicit step in the plan.
+
+1. **Envoy Gateway v1.8 `SecurityPolicy` basicAuth** exists and what secret format it takes. If it
+   does not, the UI decision changes shape — fallback is a Tailscale-only Service, then port-forward.
+2. **Longhorn 1.11.3 values key names**, particularly `guaranteedInstanceManagerCpu` casing (docs
+   show `Cpu`; the setting is `guaranteed-instance-manager-cpu`). **A wrong key is silently ignored**,
+   so verification is reading the rendered `Setting` CR for the value 5 — not a `helm template` that
+   merely doesn't error. Same class: `persistence.defaultClassReplicaCount` and
+   `defaultSettings.defaultReplicaCount` are both real and mean different things; both get set.
+3. **Whether the instance-manager pod is created on a node with no attached volume.** The engine
+   process certainly runs where a volume attaches; eager per-node creation is what is unconfirmed.
+   Does not change the 5% recommendation either way.
+4. **`metrics.serviceMonitor` support** in the chart, versus a hand-written manifest.
+5. **Metric names** for the three alerts, read off `/metrics`.
+6. **Lidarr's real usage.** The evaluation says 35 MB, the Aug-10 plan says ~240 MB — likely
+   MediaCover. Neither threatens a 2Gi claim, but one of the two is wrong and this document
+   propagated the smaller figure.
+7. **`deletingConfirmationFlag` defaults to `false`** — the safety net the ArgoCD section relies on.
+8. **`csi.kubeletRootDir`** actual value on these nodes.
+9. **The filesystem-freeze-for-snapshot setting's** key name in 1.11.3, if it is used at all.
+
 ## Risks accepted
 
 1. **A new failure domain under eight apps.** These volumes gain a dependency on the Longhorn
@@ -276,11 +363,15 @@ installed or is removed; either is fine.
 
 ## Documentation to amend at the end
 
-- **`CLAUDE.md`** Storage section. Case (1), SQLite databases, becomes `longhorn` with the measured
-  rationale. Cases (2) CNPG and (3) reconstructible volumes stay `local-path` and gain an explicit
-  note on *why they were not migrated*, so it is not relitigated. Note that (3)'s example,
-  `nextcloud-html`, moves — the case needs a new example or a rewrite.
-- **`docs/longhorn-evaluation.md`** — the Sizing section and the Talos replica-count warning, both
-  superseded by right-sizing and three storage nodes.
+- **`CLAUDE.md`** Storage section — a **rewrite, not an amendment.** Case (1), SQLite databases,
+  becomes `longhorn`. Case (3), reconstructible volumes, has exactly one example — `nextcloud-html` —
+  and it moves, leaving the case with nothing in it. What remains is "CNPG clusters stay
+  `local-path`, everything else `longhorn`," which is a different rule with a different shape. Budget
+  for that rather than expecting a three-line edit. The `local-path` recovery paths written into each
+  `config-pvc.yaml` also stop being true.
+- **`docs/longhorn-evaluation.md`** — four places, all currently wrong in-repo: the Sizing section
+  (lines 51-72) and the Talos replica-count warning (133-140), both superseded by right-sizing and
+  three storage nodes; risk #2's claim that excluding worker-00 reduces per-node overhead; and step
+  2's "needs a VPA". These are amended in the same branch as the plan, not deferred.
 - **`docs/talos-migration-audit.md`** §3 — replace the `local-path`-on-Talos recommendation, and
   fold the `iscsi-tools` extension note into §5.
