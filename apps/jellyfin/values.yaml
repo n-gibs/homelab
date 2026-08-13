@@ -27,10 +27,14 @@ controllers:
         resources:
           requests:
             cpu: "1"
+            memory: 768Mi
           limits:
             # QuickSync, advertised by system/intel-gpu-plugin. Requesting the resource is
             # what gets renderD128 past containerd's device cgroup; mounting it does not.
             gpu.intel.com/i915: 1
+            # Spelled out because limitrange.yaml defaults an unset memory limit to 512Mi,
+            # which is below the request above -- the pod would fail admission outright.
+            memory: 1536Mi
           # No cpu limit on purpose -- see limitrange.yaml. VPA preserves the
           # request:limit ratio, so 250m:4 here became a 100m:1600m pod and throttled
           # transcodes at 1.6 cores.
