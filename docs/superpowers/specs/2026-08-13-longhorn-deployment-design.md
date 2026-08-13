@@ -388,6 +388,14 @@ runs `kubeProxyReplacement: true` with `socketLB.hostNamespaceOnly: false`. The 
 documented incompatibility and could not confirm compatibility either. That is still where it
 stands.
 
+**Resolved 2026-08-13: compatible. No Cilium change was needed or made.** A throwaway 1Gi PVC
+attached on worker-02, wrote and read back, detached cleanly, then reattached on worker-00 with the
+data intact and appendable — so this also demonstrated the cross-node mobility the migration exists
+to buy. `best-effort` behaved as designed: the replica set followed the attachment, placing a local
+replica on the attaching node and dropping the remote one, converging back to exactly
+`numberOfReplicas: 2`. The transient third Replica CR observed mid-migration is locality doing its
+job, not #13152 — worth knowing, since #13152 looks similar in a `get replicas` count.
+
 Prove it with a throwaway 1Gi PVC and a pod that writes and reads a file — attach, write, read,
 detach, delete — **before any real data exists.** It is the cheapest test in the plan and the second
 most valuable after the fsync benchmark.
@@ -405,21 +413,29 @@ rest are check-at-implementation, and each one gets an explicit step in the plan
 1. ~~**Envoy Gateway v1.8 `SecurityPolicy` basicAuth**~~ — **verified 2026-08-13**, see UI above. The
    two live unknowns it leaves are the `InfisicalStaticSecret` `template` syntax (first use in this
    repo) and remembering `-s` on `htpasswd`.
-2. **Longhorn 1.11.3 values key names**, particularly `guaranteedInstanceManagerCpu` casing (docs
-   show `Cpu`; the setting is `guaranteed-instance-manager-cpu`). **A wrong key is silently ignored**,
-   so verification is reading the rendered `Setting` CR for the value 5 — not a `helm template` that
-   merely doesn't error. Same class: `persistence.defaultClassReplicaCount` and
-   `defaultSettings.defaultReplicaCount` are both real and mean different things; both get set.
-3. **Whether the instance-manager pod is created on a node with no attached volume.** The engine
-   process certainly runs where a volume attaches; eager per-node creation is what is unconfirmed.
-   Does not change the 5% recommendation either way.
+2. ~~**Longhorn 1.11.3 values key names**~~ — **resolved 2026-08-13, and this document was wrong on
+   three counts.** The key is `guaranteedInstanceManagerCPU` (capital CPU), *and* it takes
+   data-engine-keyed JSON rather than an integer: `'{"v1":"5","v2":"5"}'`, matching the documented
+   default `{"v1":"12","v2":"12"}`. Two further silent no-ops were found the same way: `backupTarget`
+   lives under a top-level `defaultBackupStore`, not under `defaultSettings`; and
+   `persistence.defaultDataLocality` is a *separate* key from `defaultSettings.defaultDataLocality`
+   — the former stamps the StorageClass's own parameters and defaults to `disabled`, so omitting it
+   ships a class with locality off. `persistence.defaultClassReplicaCount` and
+   `defaultSettings.defaultReplicaCount` are both real, as stated, and both are set.
+3. ~~**Whether the instance-manager pod is created on a node with no attached volume**~~ —
+   **resolved 2026-08-13: yes, eagerly, on all three nodes with zero volumes in existence.** This
+   confirms the Node configuration section's argument: excluding worker-00 as a storage node would
+   never have avoided the CPU reservation. The 5% setting is what avoids it, and it is observable —
+   the pods request 200m on worker-00 and 600m on the 12-core nodes.
 4. **`metrics.serviceMonitor` support** in the chart, versus a hand-written manifest.
 5. **Metric names** for the three alerts, read off `/metrics`.
 6. **Lidarr's real usage.** The evaluation says 35 MB, the Aug-10 plan says ~240 MB — likely
    MediaCover. Neither threatens a 2Gi claim, but one of the two is wrong and this document
    propagated the smaller figure.
-7. **`deletingConfirmationFlag` defaults to `false`** — the safety net the ArgoCD section relies on.
-8. **`csi.kubeletRootDir`** actual value on these nodes.
+7. ~~**`deletingConfirmationFlag` defaults to `false`**~~ — confirmed 2026-08-13, in both the chart
+   values and the live Setting CR.
+8. ~~**`csi.kubeletRootDir`**~~ — confirmed 2026-08-13: `/var/lib/kubelet` is correct for k3s here,
+   and the CSI plugin came up on it.
 9. **The filesystem-freeze-for-snapshot setting's** key name in 1.11.3, if it is used at all.
 
 ## Risks accepted
