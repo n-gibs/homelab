@@ -33,3 +33,34 @@ spec:
   resources:
     requests:
       storage: 5Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bazarr-config
+  namespace: bazarr
+  # No sync-wave annotation. The longhorn class binds Immediate rather than
+  # WaitForFirstConsumer, so unlike the local-path PVC above this does not sit Pending
+  # waiting for a consumer -- but a PVC still has no reason to own a wave.
+spec:
+  accessModes:
+    - ReadWriteOnce
+  # longhorn, not local-path: /config holds bazarr.db in WAL mode, which needs a real
+  # block device with a real filesystem -- which Longhorn provides and NFS does not.
+  # Two replicas, one of them local to whichever node the pod runs on (best-effort
+  # locality), so losing a node degrades this volume instead of taking it offline.
+  #
+  # Durability still does not come from the volume. Bazarr's own scheduled backup
+  # (Settings -> Scheduler) writing to /data/backups/bazarr daily at 03:00 is the
+  # application-consistent copy -- no CronJob needed here.
+  #
+  # Recovery if a node dies: nothing to do, the replica rebuilds. If the volume is
+  # faulted, restore the newest zip from /data/backups/bazarr/ via
+  # System -> Backups -> Restore.
+  #
+  # 2Gi against 7.3M today is generous headroom, and longhorn expands in place, so
+  # this isn't sized once like the local-path PVC above.
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 2Gi
