@@ -117,20 +117,31 @@ than debugging attach failures afterwards.
    crash-consistent, not application-consistent. The arrs' System → Backup understands how to
    quiesce their own databases; Longhorn does not. Keep both.
 
-## Interaction with the NAS
+## Interaction with the NAS and Talos
 
-Independent projects, but they touch at one point: Longhorn's backup target wants to be NFS or
-S3, which is what the NAS provides. Deploying Longhorn first means pointing the backup target at
-the current `/mnt/storage` and repointing it after the NAS lands — one setting.
+**Decided order: Longhorn → NAS → Talos.**
 
-Doing the NAS first is marginally cleaner (the backup target is correct from day one), but the
-NAS does nothing to relieve the `local-path` pinning, so there is no dependency in either
-direction. Order them by whichever hardware arrives first.
+Longhorn and the NAS have no hard dependency in either direction. The one touch point is the
+backup target, which wants NFS or S3: going Longhorn-first means pointing it at the current
+`/mnt/storage` and repointing it after the NAS lands. One setting, no drama.
 
-Note also that after the NAS migration, unpinning finally *matters*: today worker-01 is the NFS
-server, so losing it takes down the media stack regardless of where the pods could reschedule.
-Once storage is off-host, a mobile arr can actually survive worker-01 dying. **Longhorn's value
-is substantially higher after the NAS than before it.**
+Worth knowing rather than acting on: unpinning does not pay off until the NAS exists. Today
+worker-01 *is* the NFS server, so losing it takes down the media stack regardless of where the
+pods could reschedule. A mobile arr only survives worker-01 dying once storage is off-host. So
+Longhorn-first front-loads the work and collects the benefit at step two.
+
+**Talos last has a real consequence for replica count.** Longhorn on Talos needs the
+`iscsi-tools` system extension and a machine-config mount for `/var/lib/longhorn`, so the node
+prerequisites get redone rather than carried over. More importantly, with `replicaCount: 2` and
+worker-00 excluded, there are only two storage nodes — rebuilding either one as Talos drops a
+replica and leaves every volume single-replica with nowhere to rebuild until that node returns.
+Before starting the Talos migration, either temporarily admit worker-00 as a third storage node
+(sizing permitting, which after Cleanuparr and with real usage in the tens of MB it likely does)
+or accept and time-box a single-replica window per node. Do not discover this mid-rebuild.
+
+The Talos audit's own hard blocker — worker-01 running `nfs-kernel-server`, which Talos cannot do
+as a host service — is removed by the NAS at step two. That is what makes this order coherent:
+each step unblocks the next. See `docs/talos-migration-audit.md`.
 
 ## Do nothing
 
@@ -143,23 +154,30 @@ Put plainly: Longhorn converts a ~30-minute manual recovery that happens approxi
 an automatic one, at the cost of a permanent new layer under seven apps. That is a real trade,
 not an obvious win.
 
-## Recommendation
+## Plan
 
-Deploy it, but **after** the NAS and **after** the Cleanuparr Postgres migration, and only if you
-want the automatic-recovery property enough to own a storage layer.
+Longhorn goes first, ahead of the NAS. Steps:
 
-Sequence, if you go ahead:
+1. **Cleanuparr → Postgres** (`docs/superpowers/plans/2026-08-13-cleanuparr-postgres.md`).
+   Independent of Longhorn, but it removes one volume from the list and rehearses the
+   scale-down / copy-Job / `existingClaim`-swap pattern that every Longhorn migration reuses. Do
+   it first because it is the cheapest place to get that pattern wrong.
+2. **Enable `iscsid` via Ansible** on all three nodes. Already-installed package, service is
+   `disabled`/`inactive`. Longhorn cannot attach volumes without it.
+3. **Install Longhorn 1.11.3**, `replicaCount: 2`, worker-00 excluded as a storage node, backup
+   target at the current `/mnt/storage`. Verify `csi.kubeletRootDir` against the k3s doc before
+   the first install. UI needs an HTTPRoute and a VPA per repo convention.
+4. **Migrate volumes one at a time, smallest first** — Bazarr (1.9 MB) before Lidarr (35 MB) —
+   app scaled to zero in git, copy Job, `existingClaim` swap. Keep each old `local-path` PVC in
+   git for two weeks as the rollback, exactly as `apps/vaultwarden/data-pvc.yaml` is being held.
+   Keep the app-level backups running throughout; Longhorn's are crash-consistent, not
+   application-consistent.
+5. **Leave Jellyfin last, or never.** Its pin is wanted — 12th-gen QuickSync lives on worker-01,
+   and its config PV is what actually enforces that.
+6. **NAS**, then repoint the Longhorn backup target at it.
+7. **Talos** — re-read the replica-count warning above before touching the first node.
 
-1. Cleanuparr → Postgres (already planned; removes one volume from the list and rehearses the
-   scale-down/copy/swap pattern every Longhorn migration will reuse).
-2. NAS (makes unpinning worth something, and gives Longhorn a proper backup target).
-3. Longhorn 1.11.3, `replicaCount: 2`, worker-00 excluded as a storage node, `iscsid` enabled via
-   Ansible first. Backup target at the NAS.
-4. Migrate volumes one at a time, smallest first — Bazarr (1.9 MB) before Lidarr (35 MB) — with
-   the app scaled to zero in git, a copy Job, and an `existingClaim` swap. Keep each old
-   `local-path` PVC in git for two weeks as the rollback, exactly as `apps/vaultwarden/data-pvc.yaml`
-   is being held.
-5. Leave Jellyfin last, or never. Its pin is wanted.
-
-If you would rather not own it: do Cleanuparr, do the NAS, leave the rest pinned, and revisit
-when a node actually fails.
+Reality check to keep in view while doing this: the thing being bought is converting a
+~30-minute documented manual recovery, on an event that has not yet happened, into an automatic
+one. That is a legitimate thing to want. It is not an emergency, so if step 4 starts fighting
+back on a particular app, leaving that one pinned is a perfectly good outcome.
