@@ -24,8 +24,14 @@ pilot app. Its fsync benchmark gate survives, in Phase 4.
 
 ## Global Constraints
 
-- Chart `longhorn` `1.11.3` from `https://charts.longhorn.io`. **Not 1.12.0** — upstream marks
-  1.11.3 as the only current *stable* release.
+- Chart `longhorn` `1.11.3` from `https://charts.longhorn.io`. **Not 1.12.0** — 1.11.3 shipped a
+  month *after* 1.12.0 and carries #13413 "PVC resize fails after `iscsid` restart" plus #13411/#13383
+  volume-expansion fixes, which 1.12.0 predates. Task 1 enables `iscsid`, and in-place expansion is
+  what makes right-sizing safe, so both matter here. Full comparison in the spec.
+- **Known gap in 1.11.3: #13152** — `dataLocality=best-effort` with insufficient local storage leaks
+  Replica CRs on every recurring-job firing. Fixed in 1.12.0, and this cluster runs exactly that
+  combination. Task 5 Step 6 and Task 16 Step 2 count Replica CRs for this reason. Revisit 1.12.x
+  once 1.12.1 is GA (rc4 as of 11 Aug 2026) — it is the first release with both fix sets.
 - **Directory must be `system/longhorn-system/`.** `bootstrap/root/templates/stack.yaml` hardcodes
   `destination.namespace: {{path.basename}}`, and Longhorn hardcodes `longhorn-system` in its own
   components. Wrong directory name installs a half-broken Longhorn.
@@ -349,9 +355,15 @@ kubectl get ns longhorn-system       # NotFound
 ```yaml
 chartName: longhorn
 chartRepo: https://charts.longhorn.io
-# 1.11.3, not 1.12.0: upstream marks 1.11.3 as the only current *stable* release. Longhorn
-# upgrades are an ordered procedure with per-release notes, which is why renovate.json gives
-# this chart dependencyDashboardApproval instead of letting a PR open on its own.
+# 1.11.3, not 1.12.0. 1.11.3 shipped a month *after* 1.12.0 and fixes "PVC resize fails after
+# iscsid restart" (#13413) plus two volume-expansion bugs that 1.12.0 predates -- both of which
+# this cluster depends on, since roles/common now restarts iscsid and every claim here is
+# deliberately under-sized on the assumption expansion works.
+#
+# The trade: 1.12.0 fixes #13152, a Replica CR leak on best-effort locality plus recurring
+# jobs, which is exactly this configuration. 1.12.1 is the first release with both; it was at
+# rc4 on 2026-08-11. Revisit then -- as a deliberate upgrade, which is what
+# dependencyDashboardApproval in renovate.json exists to force.
 chartVersion: 1.11.3
 syncWave: "1"
 ```
@@ -787,7 +799,23 @@ kubectl -n longhorn-system get backups.longhorn.io
 ssh worker-01 'ls -R /mnt/storage/longhorn-backups | head -30'
 ```
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Record the Replica CR count — the #13152 watch**
+
+1.11.3 does not have 1.12.0's fix for `dataLocality: best-effort` leaking N Replica CRs per
+recurring-job firing when a node has insufficient local storage. This cluster runs exactly that
+combination, and worker-00 is the plausible insufficient-storage node. The leak is invisible until
+`kubectl get replicas.longhorn.io` is absurd, so establish the baseline now:
+
+```bash
+kubectl -n longhorn-system get replicas.longhorn.io --no-headers | wc -l
+kubectl -n longhorn-system get volumes.longhorn.io --no-headers | wc -l
+```
+
+Expected: replicas ≈ 2 × volumes. Write both numbers into this step. Re-run it after the first two
+or three nightly firings — a count that climbs with no new volumes is the leak, and the fix is to
+upgrade to 1.12.1 rather than to abandon `best-effort` (which is the fsync-tax mitigation).
+
+- [ ] **Step 7: Commit**
 
 ```bash
 git add system/longhorn-system/recurringjob.yaml
@@ -1627,6 +1655,15 @@ kubectl -n longhorn-system get backups.longhorn.io
 
 All eight `healthy`. Each must have at least one backup in the backupstore — for Navidrome and
 `nextcloud-html` that backup *is* the durability story once the old PVC goes.
+
+Also re-check the #13152 Replica CR count against Task 5 Step 6's baseline, now that eight volumes
+have been firing recurring jobs for weeks:
+
+```bash
+kubectl -n longhorn-system get replicas.longhorn.io --no-headers | wc -l   # expect ~16
+```
+
+Materially above 2 × volumes means the leak is real on 1.11.3 and 1.12.1 is due.
 
 - [ ] **Step 3: Remove the old PVC blocks from git, one commit per app**
 
