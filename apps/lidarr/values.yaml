@@ -24,8 +24,11 @@ controllers:
         resources:
           requests:
             cpu: 100m
-          # no cpu limit: VPA preserves the request:limit ratio, so a shrinking
-          # request drags the limit down with it and throttles the container.
+            memory: 384Mi
+          limits:
+            # Memory only. No cpu limit: VPA preserves the request:limit ratio, so a
+            # shrinking request drags the limit down with it and throttles the container.
+            memory: 768Mi
 
 service:
   main:
