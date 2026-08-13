@@ -129,6 +129,31 @@
     state: present
   become: true
 
+# Longhorn's v1 data engine attaches every volume over iSCSI to localhost, so iscsid is a
+# hard runtime dependency -- open-iscsi above ships the daemon disabled. A missing iscsid
+# surfaces as a volume stuck in Attaching, which reads like a Longhorn bug.
+# Talos equivalent: the iscsi-tools and util-linux-tools system extensions. See
+# docs/talos-migration-audit.md before deleting this role.
+- name: Load iscsi_tcp on boot
+  ansible.builtin.copy:
+    content: "iscsi_tcp\n"
+    dest: /etc/modules-load.d/iscsi_tcp.conf
+    mode: "0644"
+  become: true
+
+- name: Load iscsi_tcp now
+  community.general.modprobe:
+    name: iscsi_tcp
+    state: present
+  become: true
+
+- name: Enable and start iscsid
+  ansible.builtin.systemd_service:
+    name: iscsid
+    enabled: true
+    state: started
+  become: true
+
 # chrony is the only time source on these nodes — no systemd-timesyncd. It ships
 # without Restart=, so a stray SIGTERM (once collateral from a `kill` sweep) leaves
 # it dead silently and the clock drifts unmonitored. Same for thermald and fail2ban,
