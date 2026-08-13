@@ -36,10 +36,11 @@ controllers:
             cpu: 200m
             memory: 2Gi
           limits:
-            cpu: "2"
             # Spelled out because limitrange.yaml defaults an unset memory limit to 512Mi,
             # which is below the request above -- the pod would fail admission outright.
             memory: 4Gi
+          # No cpu limit: VPA preserves the request:limit ratio, so the 200m:2 declared
+          # here became a 50m:500m pod -- a quarter of the intended ceiling.
       gluetun:
         # Deliberately unpinned, unlike every other image here. gluetun's
         # `latest` is a rolling build off master; its newest release tag is
