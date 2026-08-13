@@ -1,0 +1,62 @@
+# k3s does not use the CSI default kubelet root, and a wrong value fails the plugin
+# install quietly rather than loudly.
+csi:
+  kubeletRootDir: /var/lib/kubelet
+  # Chart defaults are 3 replicas each -- 12 sidecar pods for 8 tiny volumes on a 3-node
+  # cluster, the same requestless-density pattern the plan's global constraints exist to
+  # prevent. No resources knob exists for these, so replica count is the only lever.
+  attacherReplicaCount: 2
+  provisionerReplicaCount: 2
+  resizerReplicaCount: 2
+  snapshotterReplicaCount: 2
+
+defaultSettings:
+  defaultDataPath: /var/lib/longhorn
+  defaultReplicaCount: 2
+  # Keeps a replica on the pod's own node when possible, so reads stay local and only the
+  # second replica crosses the wire. This is the mitigation for the SQLite fsync tax that
+  # Task 9 measures -- do not remove it.
+  defaultDataLocality: best-effort
+  # 12% of allocatable CPU is the default, charged on every node where a volume attaches,
+  # not only where replicas live. On worker-00 (4C/4T, no HT) that is ~480m of reserved
+  # request on the node that already loses to density. Data-engine-keyed JSON is the only
+  # format this setting accepts.
+  guaranteedInstanceManagerCPU: '{"v1":"5","v2":"5"}'
+  # ArgoCD runs prune: true. This flag is what stops deleting this directory from taking
+  # the volumes with it. Set it true only for a deliberate teardown.
+  deletingConfirmationFlag: false
+  upgradeChecker: false
+
+# The chart's own values comment says to disable this under GitOps -- ArgoCD, not the
+# pre-upgrade job, owns the upgrade sequencing here.
+preUpgradeChecker:
+  jobEnabled: false
+
+# backupTarget lives here, not under defaultSettings -- that key doesn't exist in the chart
+# and silently drops the value. Pre-NAS this is the USB disk on worker-01, a second disk,
+# not a second host. No credential secret: it's an unauthenticated NFS export. Repointing
+# at the NAS later is this one line.
+defaultBackupStore:
+  backupTarget: nfs://192.168.30.194:/mnt/storage/longhorn-backups
+
+persistence:
+  # Never the cluster default. local-path stays default and nfs stays in use; a silent
+  # default change would re-point every PVC that omits storageClassName -- including the
+  # CNPG clusters, which must not land here.
+  defaultClass: false
+  defaultClassReplicaCount: 2
+  defaultFsType: ext4
+  reclaimPolicy: Retain
+  # Global default above only sets defaultSettings; the StorageClass stamps its own
+  # locality into its parameters from this separate key. Both are required.
+  defaultDataLocality: best-effort
+
+longhornUI:
+  replicas: 1
+
+# Requestless containers are invisible to the scheduler and count as free capacity, which
+# is how worker-00 accumulated seventeen of them. Same note as system/nfs-provisioner.
+# longhornManager is the only component this chart exposes a resources knob for.
+longhornManager:
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }

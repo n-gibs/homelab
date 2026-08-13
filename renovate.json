@@ -24,6 +24,14 @@
       "matchFileNames": ["apps/nextcloud/app.yaml"],
       "groupName": "nextcloud",
       "automerge": false
+    },
+    {
+      "description": "Longhorn upgrades are an ordered procedure with version-specific notes per release, not a chart to bump on sight. dependencyDashboardApproval means no PR opens until it is ticked.",
+      "matchManagers": ["custom.regex"],
+      "matchFileNames": ["system/longhorn-system/app.yaml"],
+      "groupName": "longhorn",
+      "automerge": false,
+      "dependencyDashboardApproval": true
     }
   ],
   "customManagers": [
