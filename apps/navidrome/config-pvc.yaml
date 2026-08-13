@@ -34,3 +34,38 @@ spec:
   resources:
     requests:
       storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: navidrome-config
+  namespace: navidrome
+  # No sync-wave annotation. The longhorn class binds Immediate rather than
+  # WaitForFirstConsumer, so unlike the local-path PVC above this does not sit Pending
+  # waiting for a consumer -- but a PVC still has no reason to own a wave.
+spec:
+  accessModes:
+    - ReadWriteOnce
+  # longhorn, not local-path: navidrome.db is SQLite in WAL mode, which needs a real
+  # block device with a real filesystem -- which Longhorn provides and NFS does not.
+  # Two replicas, one of them local to whichever node the pod runs on (best-effort
+  # locality), so losing a node degrades this volume instead of taking it offline.
+  #
+  # Durability comes from Navidrome's own scheduled backup (ND_BACKUP_* in
+  # values.yaml): a daily VACUUM INTO snapshot at 05:00, retaining 14, written to
+  # /mnt/storage/backups/navidrome on NFS -- off this volume entirely, so it
+  # survives the volume outright rather than depending on Longhorn's own backup
+  # schedule. What it protects is play counts, ratings and playlists in
+  # navidrome.db -- none of which are reconstructible from the music files on the
+  # NFS share.
+  #
+  # Recovery if a node dies: nothing to do, the replica rebuilds. If the volume is
+  # faulted, copy the newest navidrome_backup_<stamp>.db from that NFS directory
+  # back in as navidrome.db.
+  #
+  # 2Gi against 64.5M today, and longhorn expands in place, so this isn't sized once
+  # like the local-path PVC above.
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 2Gi

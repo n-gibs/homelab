@@ -1,5 +1,9 @@
 controllers:
   main:
+    # Temporary: scaled to zero for the Longhorn config migration (Merge A). Restored to
+    # unset once the config PVC swap (Merge B) lands. See
+    # docs/superpowers/plans/2026-08-13-longhorn-deployment.md.
+    replicas: 0
     # local-path is ReadWriteOnce and node-pinned, and two Navidromes must never open
     # the same SQLite database: the old pod has to be gone before the new one starts.
     strategy: Recreate
