@@ -1,9 +1,5 @@
 controllers:
   main:
-    # Temporary: scaled to zero for the Longhorn config migration (Merge A). Restored to
-    # unset once the config PVC swap (Merge B) lands. See
-    # docs/superpowers/plans/2026-08-13-longhorn-deployment.md.
-    replicas: 0
     # local-path is ReadWriteOnce and node-pinned, and two Bazarrs must never open the
     # same SQLite database: the old pod has to be gone before the new one starts.
     strategy: Recreate
@@ -60,9 +56,9 @@ route:
 
 persistence:
   config:
-    # local-path, not nfs -- bazarr.db is SQLite in WAL mode, which does not work
-    # over NFS. See config-pvc.yaml for the rationale and the restore path.
-    existingClaim: bazarr-config-local
+    # longhorn, not local-path -- bazarr.db is SQLite in WAL mode, which needs a real
+    # block device. See config-pvc.yaml for the rationale and the restore path.
+    existingClaim: bazarr-config
     globalMounts:
       - path: /config
   data:
