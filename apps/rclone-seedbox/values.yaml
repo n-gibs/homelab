@@ -35,8 +35,18 @@ controllers:
           - rclone
         args:
           - copy
-          - seedbox:/home/seedit4me/torrents/qbittorrent/media
+          - seedbox:/home/seedit4me/torrents/qbittorrent
           - /data/downloads/seedbox
+          # One category per arr, because an arr claims every torrent in its client's
+          # category — all three sharing `media` meant Lidarr's queue filled with
+          # Sonarr's TV grabs, stuck at importBlocked forever. Copying the parent means
+          # naming what to take: `temp` is qBittorrent's in-progress scratch dir and
+          # `ratio` is manual seeding, neither of which any arr imports. With any
+          # --include present rclone excludes everything else, so this list is the
+          # whole contract.
+          - --include=/music/**
+          - --include=/tv/**
+          - --include=/movies/**
           # ProFTPD's shell-less SFTP forces disable_hashcheck, so rclone falls back to
           # comparing size + modtime — and the destination ends up stamped with the copy
           # time rather than the source mtime, so nothing ever matches and every run
