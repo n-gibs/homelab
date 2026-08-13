@@ -44,6 +44,23 @@
   become: true
   notify: Re-export NFS shares
 
+# Longhorn's backup target gets its own export, scoped to just this directory (not the
+# whole share) and all_squash'd to nobody:nogroup on both lines. Both LAN clients (worker-00,
+# worker-02) and pod-CIDR clients (worker-01, reaching its own node's IP unmasqueraded by
+# Cilium) must squash identically, or the same backupstore ends up with files owned root on
+# some nodes and nobody on others, breaking retention deletes across nodes.
+- name: Configure NFS export for Longhorn backups
+  ansible.builtin.blockinfile:
+    path: /etc/exports
+    marker: "# {mark} ANSIBLE MANAGED BLOCK - longhorn-backups export"
+    create: true
+    mode: "0644"
+    block: |
+      {{ nfs_export_path }}/{{ nfs_backup_subdir }} {{ nfs_allowed_clients }}(rw,sync,no_subtree_check,all_squash,anonuid=65534,anongid=65534)
+      {{ nfs_export_path }}/{{ nfs_backup_subdir }} {{ nfs_pod_cidr }}(rw,sync,no_subtree_check,all_squash,anonuid=65534,anongid=65534)
+  become: true
+  notify: Re-export NFS shares
+
 - name: Enable and start NFS server
   ansible.builtin.service:
     name: nfs-kernel-server
@@ -57,6 +74,19 @@
     port: "2049"
     proto: "{{ item }}"
     src: "{{ nfs_allowed_clients }}"
+  become: true
+  loop:
+    - tcp
+    - udp
+
+# worker-01 reaches the longhorn-backups export over the pod CIDR, not the LAN — see the
+# export task above for why.
+- name: Allow NFS through UFW from pod CIDR
+  community.general.ufw:
+    rule: allow
+    port: "2049"
+    proto: "{{ item }}"
+    src: "{{ nfs_pod_cidr }}"
   become: true
   loop:
     - tcp
