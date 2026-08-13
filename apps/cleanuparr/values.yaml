@@ -1,6 +1,5 @@
 controllers:
   main:
-    replicas: 0    # temporary: Longhorn migration, docs/superpowers/plans/2026-08-13-longhorn-deployment.md
     pod:
       securityContext:
         runAsUser: 1000
@@ -55,12 +54,12 @@ route:
         namespace: envoy-gateway-system
 
 persistence:
-  # local-path, not nfs -- /config is SQLite and SQLite over NFS deadlocks. See
-  # config-pvc.yaml for the rationale, the backup that supplies durability instead,
-  # and the recovery path. Declared as its own manifest so that comment lives with
-  # the volume; the chart just consumes it.
+  # longhorn, not local-path -- /config is SQLite and needs a real block device.
+  # Unlike local-path this volume is replicated, so the pod isn't pinned to one
+  # node. See config-pvc.yaml for the rationale, the backup that supplies
+  # durability instead, and the recovery path.
   config:
-    existingClaim: cleanuparr-config-local
+    existingClaim: cleanuparr-config
     globalMounts:
       - path: /config
   # Blacklist Sync's "Blacklist Path" points here rather than at the upstream
