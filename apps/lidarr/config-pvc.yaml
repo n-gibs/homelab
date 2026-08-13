@@ -31,3 +31,35 @@ spec:
   resources:
     requests:
       storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: lidarr-config
+  namespace: lidarr
+  # No sync-wave annotation. The longhorn class binds Immediate rather than
+  # WaitForFirstConsumer, so unlike the local-path PVC above this does not sit Pending
+  # waiting for a consumer -- but a PVC still has no reason to own a wave.
+spec:
+  accessModes:
+    - ReadWriteOnce
+  # longhorn, not local-path: /config is SQLite, and SQLite needs a real block device with a
+  # real filesystem -- which Longhorn provides and NFS does not. Two replicas, one of them
+  # local to whichever node the pod runs on (best-effort locality), so losing a node
+  # degrades this volume instead of taking it offline.
+  #
+  # Durability still does not come from the volume. Lidarr's own scheduled backup is the
+  # application-consistent copy -- it knows how to quiesce its own database, so no CronJob
+  # is needed here (unlike Cleanuparr, which has no backup feature of its own).
+  #
+  # Recovery if a node dies: nothing to do, the replica rebuilds. If the volume is faulted,
+  # restore the newest zip from /data/backups/lidarr/scheduled/ via System -> Backup -> Restore.
+  #
+  # 2Gi against 396M today (MediaCover 281M, logs 60M, lidarr.db 34M, Backups 18M, logs.db
+  # 4.8M) is 19% used -- the tightest of the eight migrated volumes, but longhorn expands in
+  # place, so this isn't sized once like the local-path PVC above. MediaCover and logs both
+  # grow with library size, so this is the one volume of the eight most likely to need it.
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 2Gi
