@@ -1,0 +1,13 @@
+# 1.11.3, not 1.12.0. 1.11.3 shipped a month *after* 1.12.0 and fixes "PVC resize fails after
+# iscsid restart" (#13413) plus two volume-expansion bugs that 1.12.0 predates -- both of which
+# this cluster depends on, since roles/common now restarts iscsid and every claim here is
+# deliberately under-sized on the assumption expansion works.
+#
+# The trade: 1.12.0 fixes #13152, a Replica CR leak on best-effort locality plus recurring
+# jobs, which is exactly this configuration. 1.12.1 is the first release with both; it was at
+# rc4 on 2026-08-11. Revisit then -- as a deliberate upgrade, which is what
+# dependencyDashboardApproval in renovate.json exists to force.
+chartName: longhorn
+chartRepo: https://charts.longhorn.io
+chartVersion: 1.11.3
+syncWave: "1"
