@@ -1,0 +1,29 @@
+---
+# Longhorn's manager exposes metrics on the longhorn-backend Service. Lives here rather than
+# in longhorn-system for the same reason as argocd-servicemonitor.yaml: monitors are kept
+# with the monitoring stack, selected by namespace.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: longhorn
+  namespace: monitoring-system
+  labels:
+    release: monitoring-system
+spec:
+  namespaceSelector:
+    matchNames:
+      - longhorn-system
+  selector:
+    matchLabels:
+      app: longhorn-manager
+  endpoints:
+    - port: manager
+      path: /metrics
+      interval: 30s
+      relabelings:
+        # Every built-in scrape config in values.yaml stamps cluster: homelab; match it here
+        # too since this ServiceMonitor is outside that config and gets nothing for free.
+        - action: replace
+          sourceLabels: []
+          targetLabel: cluster
+          replacement: homelab

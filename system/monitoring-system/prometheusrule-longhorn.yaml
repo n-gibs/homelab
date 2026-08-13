@@ -1,0 +1,70 @@
+---
+# Three rules, not more. Node-down is already covered by kube-state-metrics, and per-volume
+# IOPS is a dashboard question rather than an alert.
+#
+# Backup coverage comes for free and is deliberately not duplicated here: Longhorn renders
+# each RecurringJob as a Kubernetes CronJob in longhorn-system, so CronJobNotSucceeding,
+# CronJobOverdue and CronJobJobFailed in prometheusrule-backups.yaml already watch them.
+# BackupCronJobMissing's `.+-db-backup` regex does not match them on purpose -- a per-volume
+# expected count would need editing on every migration, and VolumeDegraded covers the same
+# ground from the other direction.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: longhorn
+  namespace: monitoring-system
+  labels:
+    release: monitoring-system
+spec:
+  groups:
+    - name: longhorn
+      rules:
+        # longhorn_volume_robustness is one-hot on a `state` label (0/1 per state), not a
+        # numeric enum -- there is no "degraded == 2" to compare against, that would just
+        # never fire. A detached volume reports state="unknown" 1, not degraded, which is why
+        # scaling an app to zero during a migration does not trip this alert.
+        #
+        # With two replicas this is the only warning before faulted, which is the whole
+        # reason the ServiceMonitor exists. 30m rather than 5m: a node reboot degrades every
+        # volume on it briefly and rebuilds without help.
+        - alert: LonghornVolumeDegraded
+          expr: longhorn_volume_robustness{state="degraded"} == 1
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: Longhorn volume {{ $labels.pvc }} ({{ $labels.volume }}) has been degraded for 30m
+            description: >-
+              One replica is missing or rebuilding. Three nodes are storage nodes, so a
+              healthy cluster re-places the replica on its own; 30m without that points at a
+              node being down or out of space. Check
+              `kubectl -n longhorn-system get nodes.longhorn.io` for schedulability and
+              `kubectl -n longhorn-system get replicas.longhorn.io -l longhornvolume={{ $labels.volume }}`
+              for which replica is missing.
+        - alert: LonghornVolumeFaulted
+          expr: longhorn_volume_robustness{state="faulted"} == 1
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: Longhorn volume {{ $labels.pvc }} ({{ $labels.volume }}) is faulted
+            description: >-
+              No usable replica -- the volume is down and its app is already broken. The
+              recovery path is a restore from the backupstore
+              (`kubectl -n longhorn-system get backups.longhorn.io`), or the app's own
+              archive in /data/backups/ if it has one. Check whether autoSalvage has left a
+              replica marked failed but intact before restoring.
+        - alert: LonghornNodeStorageFull
+          expr: >-
+            longhorn_node_storage_usage_bytes / longhorn_node_storage_capacity_bytes > 0.8
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: Longhorn storage on {{ $labels.node }} is {{ $value | humanizePercentage }} full
+            description: >-
+              /var/lib/longhorn shares the root LV, so Longhorn filling this disk takes k3s
+              with it. worker-00 is the node to watch (69G free at install). Longhorn stops
+              scheduling replicas below storageMinimalAvailablePercentage before it fills the
+              disk, so this firing means either real growth or a claim sized far above its
+              real usage -- check `kubectl get pvc -A | grep longhorn`.
