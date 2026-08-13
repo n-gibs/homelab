@@ -1,0 +1,18 @@
+# Longhorn's dashboard ships with no authentication and can delete volumes. The hostnames
+# resolve to 192.168.30.200 (private), so this is LAN/tailnet exposure rather than
+# internet -- but it is the only app here with no login of its own.
+#
+# One SecurityPolicy per targetRef, and it must live in the targetRef's namespace.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: longhorn-ui-auth
+  namespace: longhorn-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: longhorn-ui
+  basicAuth:
+    users:
+      name: longhorn-ui-auth

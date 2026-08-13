@@ -1,0 +1,24 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: longhorn-ui
+  namespace: longhorn-system
+  annotations:
+    gethomepage.dev/enabled: "true"
+    gethomepage.dev/name: "Longhorn"
+    gethomepage.dev/description: "Replicated block storage"
+    gethomepage.dev/group: "Infrastructure"
+    gethomepage.dev/icon: "longhorn.png"
+    gethomepage.dev/href: "https://longhorn.nik-homelab.dev"
+spec:
+  parentRefs:
+    - name: homelab
+      namespace: envoy-gateway-system
+  hostnames:
+    - longhorn.nik-homelab.dev
+  rules:
+    - matches:
+        - path: { type: PathPrefix, value: / }
+      backendRefs:
+        - name: longhorn-frontend
+          port: 80
