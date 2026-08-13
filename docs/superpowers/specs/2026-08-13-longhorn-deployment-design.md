@@ -79,9 +79,53 @@ chartVersion: 1.11.3
 syncWave: "1"
 ```
 
-**Version 1.11.3, not 1.12.0.** Upstream marks 1.11.3 as the only current *stable* release; 1.12.0
-is latest without that designation. Sync wave 1 puts it alongside `nfs-provisioner` and
-`metrics-server`, so the CSI driver exists well before apps (stack wave 3) bind PVCs.
+Sync wave 1 puts it alongside `nfs-provisioner` and `metrics-server`, so the CSI driver exists well
+before apps (stack wave 3) bind PVCs.
+
+### Version 1.11.3, not 1.12.0
+
+Verified against upstream 2026-08-13, because "1.12 has been out two months" is a fair objection and
+the release table alone does not answer it. In upstream's own table 1.12 has an **empty Stable
+column** while 1.11.3 is designated stable, and no `.0` release has ever held that designation
+(1.7.1 did, so it is not a wait-for-`.3` rule). But the decisive facts are about specific fixes:
+
+**1.11.3 shipped 1 July, a month after 1.12.0 (2 June).** Its fixes carry issue numbers 13383–13424,
+above 1.12.0's ceiling of ~13245, and are labelled `[BACKPORT][v1.11.3]` — they were found after
+1.12.0 was cut, so 1.12.0 does not have them and 1.12.1 inherits them:
+
+- **#13413 "PVC resize fails after `iscsid` restart"**, with #13411/#13383 volume-expansion-stuck.
+  Two direct hits on this plan: the host prerequisite *enables* `iscsid` and re-running
+  `just provision-common` can restart it, and in-place expansion is the entire justification for
+  right-sizing every claim down to 2Gi.
+- #13129 nil-pointer panic in instance-manager during replica rebuild; #13247 longhorn-manager panic
+  during backup deletion; #13211 RecurringJob retention pruning the *newest* CR — the last two land
+  squarely on the daily-backup design.
+
+**What 1.12.0 has that 1.11.3 lacks**, and it is not nothing:
+
+- **#13152 — `dataLocality=best-effort` with insufficient local storage leaks N Replica CRs per
+  recurring-job firing.** This is exactly this cluster's configuration: best-effort locality plus a
+  daily recurring job, with worker-00 as the plausible insufficient-storage node. Reported against
+  1.10.2 and fixed in 1.12.0; absent from 1.11.3's notes, so presumed still present. **This is a
+  watch item, not a blocker** — the plan counts Replica CRs after the first recurring-job firings so
+  a leak is caught by observation.
+- #13087 instance-manager panic during rebuild storms, which terminates *all* iSCSI targets on that
+  manager and cascades detachments across PVCs.
+- #12846 configurable engine-image liveness probe, aimed at exactly worker-00's profile —
+  resource-constrained nodes restarting engine-image pods on transient CPU spikes.
+
+So neither release has everything, and installing 1.12.0 today trades the resize fix for the leak
+fix. **1.12.1 is the first release with both sets** — rc4 as of 11 August, not GA. Also worth
+weighing: GitHub reports 45 commits to `v1.12.x` since 1.12.0 against 7 to `v1.11.x` since 1.11.3.
+
+1.12's headline features — V2 Data Engine GA, V2 fast cloning, V2 sharding, V2 IPv6, and the removal
+of V2 backing images — are all on the data engine this spec rules out for 16G nodes. The upgrade to
+1.12.x is worth taking once 1.12.1 is out, as a deliberate upgrade through the dependency-dashboard
+gate, not for those features.
+
+Backport status above is inferred from issue-number ordering and absence from release notes. That is
+strong but not proof; the definitive check is the `Release-Known-Issues` wiki and the 1.11.x
+milestone.
 
 `csi.kubeletRootDir: /var/lib/kubelet` is set explicitly. Longhorn's k3s guidance covers this
 because the CSI plugin fails in a way that reads like a Longhorn bug when it is wrong.
