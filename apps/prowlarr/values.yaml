@@ -1,5 +1,9 @@
 controllers:
   main:
+    # Temporary: scaled to zero for the Longhorn config migration (Merge A). Restored to
+    # unset once the config PVC swap (Merge B) lands. See
+    # docs/superpowers/plans/2026-08-13-longhorn-deployment.md.
+    replicas: 0
     pod:
       nodeSelector:
         homelab.io/media: "true"
