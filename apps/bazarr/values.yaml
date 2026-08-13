@@ -21,6 +21,14 @@ controllers:
           PUID: "1000"
           PGID: "1000"
           TZ: America/Los_Angeles
+        resources:
+          requests:
+            cpu: 50m
+            memory: 320Mi
+          limits:
+            # Memory only. No cpu limit: VPA preserves the request:limit ratio, so a
+            # shrinking request drags the limit down with it and throttles the container.
+            memory: 640Mi
 
 service:
   main:
