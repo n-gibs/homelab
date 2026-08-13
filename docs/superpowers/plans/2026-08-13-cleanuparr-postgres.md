@@ -1,5 +1,18 @@
 # Cleanuparr SQLite → Postgres Implementation Plan
 
+> **STATUS: DEFERRED, not scheduled.** Decided 2026-08-13. This plan existed to unpin
+> `cleanuparr-config-local` from its node, and Longhorn does that for free as part of
+> `docs/longhorn-evaluation.md` — along with the other six SQLite volumes. The only benefit
+> Postgres would still carry is retiring `apps/cleanuparr/backup-cronjob.yaml`, and Longhorn does
+> **not** make that CronJob redundant either: Longhorn snapshots are crash-consistent, so a
+> WAL-mode SQLite database still needs the online-backup API that CronJob wraps. Running a
+> 2-instance Postgres cluster for 1.5 MB of settings to delete ~200 lines of script is not a
+> trade worth making.
+>
+> Kept because the research is done and non-obvious — in particular the upstream documentation
+> bug recorded under Task 2. Revisit only if Cleanuparr's SQLite handling becomes a problem in
+> its own right, or if the app grows enough that its events database stops being trivial.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Move Cleanuparr's three SQLite databases into a CloudNativePG cluster and return `/config` to `nfs` RWX, so the pod can schedule on any node instead of following its `local-path` PV to worker-00.

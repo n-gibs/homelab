@@ -158,24 +158,30 @@ not an obvious win.
 
 Longhorn goes first, ahead of the NAS. Steps:
 
-1. **Cleanuparr → Postgres** (`docs/superpowers/plans/2026-08-13-cleanuparr-postgres.md`).
-   Independent of Longhorn, but it removes one volume from the list and rehearses the
-   scale-down / copy-Job / `existingClaim`-swap pattern that every Longhorn migration reuses. Do
-   it first because it is the cheapest place to get that pattern wrong.
-2. **Enable `iscsid` via Ansible** on all three nodes. Already-installed package, service is
+1. **Enable `iscsid` via Ansible** on all three nodes. Already-installed package, service is
    `disabled`/`inactive`. Longhorn cannot attach volumes without it.
-3. **Install Longhorn 1.11.3**, `replicaCount: 2`, worker-00 excluded as a storage node, backup
+2. **Install Longhorn 1.11.3**, `replicaCount: 2`, worker-00 excluded as a storage node, backup
    target at the current `/mnt/storage`. Verify `csi.kubeletRootDir` against the k3s doc before
    the first install. UI needs an HTTPRoute and a VPA per repo convention.
-4. **Migrate volumes one at a time, smallest first** — Bazarr (1.9 MB) before Lidarr (35 MB) —
-   app scaled to zero in git, copy Job, `existingClaim` swap. Keep each old `local-path` PVC in
-   git for two weeks as the rollback, exactly as `apps/vaultwarden/data-pvc.yaml` is being held.
+3. **Migrate volumes one at a time, smallest first** — Cleanuparr (1.5 MB) and Bazarr (1.9 MB)
+   before Lidarr (35 MB) — app scaled to zero in git, copy Job, `existingClaim` swap. Keep each
+   old `local-path` PVC in git for two weeks as the rollback, exactly as
+   `apps/vaultwarden/data-pvc.yaml` is being held. The smallest volume is the rehearsal for the
+   rest; there is no need for a separate one.
    Keep the app-level backups running throughout; Longhorn's are crash-consistent, not
-   application-consistent.
-5. **Leave Jellyfin last, or never.** Its pin is wanted — 12th-gen QuickSync lives on worker-01,
+   application-consistent — which is precisely why `apps/cleanuparr/backup-cronjob.yaml` still
+   has to exist after the move.
+4. **Leave Jellyfin last, or never.** Its pin is wanted — 12th-gen QuickSync lives on worker-01,
    and its config PV is what actually enforces that.
-6. **NAS**, then repoint the Longhorn backup target at it.
-7. **Talos** — re-read the replica-count warning above before touching the first node.
+5. **NAS**, then repoint the Longhorn backup target at it.
+6. **Talos** — re-read the replica-count warning above before touching the first node.
+
+**Cleanuparr → Postgres is not on this path.** It was scoped as a way to unpin that volume, and
+Longhorn unpins it for free. The only benefit Postgres would still carry is retiring the bespoke
+`backup-cronjob.yaml`, which is not worth running a 2-instance Postgres cluster for 1.5 MB of
+settings. The plan stays filed at
+`docs/superpowers/plans/2026-08-13-cleanuparr-postgres.md` as a researched option, not a
+scheduled task.
 
 Reality check to keep in view while doing this: the thing being bought is converting a
 ~30-minute documented manual recovery, on an event that has not yet happened, into an automatic
