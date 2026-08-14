@@ -2,6 +2,12 @@
 
 Date: 2026-08-10. Audited against the repo at commit `62e4a30`.
 
+> **Superseded in part.** Longhorn was deployed 2026-08-13 (see
+> `docs/superpowers/specs/2026-08-13-longhorn-deployment-design.md` and
+> `docs/superpowers/plans/2026-08-13-longhorn-deployment.md`), replacing the eight `local-path`
+> config/app-tree volumes this audit assumed would need a `local-path-provisioner` port to Talos.
+> §3 and §5 below are corrected accordingly. The NFS blocker in §2 is unchanged.
+
 ## Verdict
 
 **Don't do it as a like-for-like migration.** One hard blocker dominates everything else:
@@ -85,35 +91,52 @@ top of that is moving in the wrong direction.
 
 ---
 
-### 3. `local-path` StorageClass — real work, 8 manifests
+### 3. Stateful app volumes — now Longhorn, not `local-path`
 
-k3s ships `local-path-provisioner` built in. Talos does not ship any CSI. You currently depend
-on it for eight volumes, and the CLAUDE.md rules make these *mandatory* not incidental (SQLite
-over NFS deadlocks; CNPG on NFS is unsupported):
+This section originally recommended porting Rancher's `local-path-provisioner` to Talos, because
+at audit time all eight config/app-tree volumes were pinned to `local-path`. As of 2026-08-13 all
+eight are on Longhorn instead (`sonarr-config`, `radarr-config`, `lidarr-config`, `prowlarr-config`,
+`bazarr-config`, `navidrome-config`, `cleanuparr-config`, `nextcloud-html-longhorn` — all
+`attached`/`healthy`, 2 replicas). Only the CNPG cluster volumes remain on `local-path`
+(`apps/immich/postgres.yaml`, `apps/nextcloud/postgres.yaml`, and Vaultwarden/Infisical's) — those
+keep the `local-path-provisioner`-on-Talos need this section originally described, for the
+unrelated reason that CNPG's own streaming replication already covers node failure (see the
+addendum below).
 
-```
-apps/sonarr/config-pvc.yaml       apps/immich/postgres.yaml
-apps/radarr/config-pvc.yaml       apps/nextcloud/postgres.yaml
-apps/lidarr/config-pvc.yaml       apps/nextcloud/html-pvc.yaml
-apps/prowlarr/config-pvc.yaml
-apps/cleanuparr/config-pvc.yaml
-```
+That changes what this section needs to cover. Longhorn ships an [official Talos
+guide](https://github.com/siderolabs/extensions) requiring the `iscsi-tools` and
+`util-linux-tools` system extensions and a machine-config user volume mount for
+`/var/lib/longhorn` — no `extraMount`/mount-propagation dance like `local-path-provisioner`
+needed, since Longhorn owns its own directory rather than bind-mounting host paths per PVC.
 
-Deploying Rancher's local-path-provisioner on Talos is documented but has one required twist:
-the chart default root `/opt/local-path-provisioner` is **read-only** on Talos. You must
-relocate to a path under `/var` — the convention is a user volume at
-`/var/mnt/local-path-provisioner` plus a kubelet `extraMount` (bind, `rshared`, rw) so mount
-propagation works. Miss the `extraMount` and PVCs bind but pods fail to see the data.
+**The fsync tax that made this worth measuring, not assuming**, gated the deployment itself
+(Task 9, 2026-08-13, `fio` on worker-01):
 
-Two consequences for your existing invariants:
-- The "NO sync-wave annotation, `WaitForFirstConsumer` deadlocks the sync" comment in all five
-  config PVCs stays true — the behaviour is identical.
-- The recovery paths written into each PVC manifest all say "restore from the app's backup on
-  `/data/backups/`", i.e. **from NFS**. During a Talos migration those backups are on the
-  machine you're reinstalling. Snapshot them off-cluster before you touch worker-01.
+| Class | write IOPS | fdatasync avg | fdatasync p99 |
+|---|---|---|---|
+| local-path | 2294 | 0.43 ms | 0.73 ms |
+| longhorn | 530 | 1.86 ms | 2.93 ms |
 
-**Effort: medium.** One new `system/local-path/` app + machine-config volume/extraMount, then
-zero changes to the eight PVCs themselves (same StorageClass name).
+About 4× on both write IOPS and fdatasync p99 — inside the "roughly an order of magnitude" bar
+the deployment plan set going in. The qualitative half of the same gate ran Lidarr through 792
+album refreshes, 76 artist refreshes, and a full RSS sync entirely on Longhorn: **zero**
+`database is locked` errors. So the volumes this section worried about porting to Talos are, on
+current evidence, fine on replicated block storage — the SQLite-over-network concern that drove
+the original `local-path`-everywhere recommendation was real but survivable at this cluster's
+scale and load.
+
+Two consequences carried over from the old recommendation, now attached to Longhorn instead:
+- The "NO sync-wave annotation" comment no longer applies here — Longhorn's StorageClass binds
+  `Immediate`, unlike `local-path`'s `WaitForFirstConsumer`. It still applies to the CNPG volumes
+  that stayed on `local-path`.
+- The recovery paths written into each PVC manifest still point at the app's own backup on
+  `/data/backups/` (NFS) as the second layer, and a Longhorn backup to the (soon to be relocated)
+  NFS backup target as the volume-level layer underneath that. Both still need to exist off the
+  node being reinstalled during a Talos rebuild.
+
+**Effort: medium.** One new `system/longhorn/` app (already exists) + the two system extensions +
+the machine-config volume mount, then zero changes to the eight PVCs themselves (same
+StorageClass name, same `existingClaim`).
 
 ---
 
@@ -165,6 +188,19 @@ links` on one node before committing.
 - `fs.inotify.max_user_instances=1024` / `max_user_watches` → `machine.sysctls`. Keep the
   audit rationale in a comment; the per-UID limit is a kernel property, not an Ubuntu one.
 - Node labels/taints → `machine.nodeLabels` / `machine.nodeTaints`.
+
+**Now also ports cleanly, added 2026-08-13 after the Longhorn deployment:** `roles/common`
+enables and starts `iscsid` on all three nodes — Longhorn's V1 volumes need `iscsiadm` on the
+host to attach. This is real Ansible work (Task 1 of the deployment) that would be **silently
+lost** if `roles/common` is deleted as part of a Talos cutover without a replacement. The Talos
+equivalent is the `iscsi-tools` and `util-linux-tools` system extensions plus a machine-config
+user volume mount for `/var/lib/longhorn` (see §3) — that is the thing that must exist before
+`roles/common` goes away, not an afterthought discovered when volumes fail to attach.
+
+The audit's own hard blocker is unaffected by any of this: worker-01 running
+`nfs-kernel-server` (§2) still has no Talos equivalent and still waits on the NAS purchase.
+Longhorn's own backup target sits on the same NFS server today, so it inherits the same
+dependency — it does not change the blocker's shape, just adds one more consumer of it.
 
 **Breaks — the SMART temperature exporter:**
 
@@ -372,13 +408,19 @@ Ceph would be re-solving these at ~6G RAM/node and a 1GbE write-amplification ta
 engines, no raw device requirement (it uses a directory under `/var/lib/longhorn`), and it runs
 on Talos with the `iscsi-tools` and `util-linux-tools` extensions. It would fit.
 
-It still shouldn't hold the SQLite configs, for the §5 reason: synchronous replication to two
-peers on every write, over 1GbE. Set `numberOfReplicas: 1` to avoid that and you've built
-`local-path` with extra moving parts.
+**Deployed 2026-08-13, superseding this addendum's conclusion.** The concern raised here — that
+Longhorn shouldn't hold the SQLite configs because of synchronous replication over 1GbE — was
+worth measuring rather than assuming, so it gated the actual deployment (Task 9): fdatasync p99
+came in at 2.93 ms vs 0.73 ms for `local-path`, about 4×, and Lidarr ran 792 album refreshes plus
+a full RSS sync on Longhorn with zero `database is locked` errors. At this cluster's scale and
+load the tax is real but survivable, not "you've built `local-path` with extra moving parts." All
+eight SQLite/app-tree volumes that were on `local-path` are on Longhorn now, at `replicaCount: 2`
+(not 1) — see §3.
 
-**Recommendation stands: NAS for bulk, `local-path` for the pinned volumes, no distributed
-storage layer.** `local-path-provisioner` on Talos (§3) is ~20 lines of machine config and one
-Application. That's the lazy answer and it's also the correct one.
+**Superseded recommendation:** NAS for bulk, Longhorn for the stateful volumes this section
+worried about, `local-path` only for the CNPG cluster volumes whose own streaming replication
+already provides durability. No Ceph — the reasoning against it above (RAM, capacity, single
+NIC) still holds; it was never Longhorn that this addendum's math ruled out.
 
 ## Sources
 
