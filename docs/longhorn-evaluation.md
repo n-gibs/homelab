@@ -3,6 +3,12 @@
 Whether to deploy Longhorn to unpin the `local-path` volumes. Written 2026-08-13, against
 k3s v1.36.3 and the current contents of `apps/`.
 
+> This evaluation predates the deployment. For what was actually built and verified, see
+> `docs/superpowers/specs/2026-08-13-longhorn-deployment-design.md` (spec) and
+> `docs/superpowers/plans/2026-08-13-longhorn-deployment.md` (plan) — those are the implementation
+> of record. Corrections below are marked inline; the rest of this document reflects the reasoning
+> at decision time and still holds.
+
 ## The question
 
 Nine PVCs use `local-path`, excluding the CloudNativePG clusters. Each one binds its pod to a
@@ -25,7 +31,14 @@ Two cheaper options were evaluated first and mostly rejected:
 
 ## What is actually pinned
 
-| Volume | Requested | Real data | Can leave SQLite? |
+**Superseded by measurement.** The "Real data" figures below are database sizes, not volume
+sizes — the spec's own table made the same mistake. Actual `/config` sizes, measured 2026-08-13
+during migration: sonarr 107M, radarr 112M, lidarr 396M, prowlarr 97M, bazarr 7.3M, navidrome
+64.5M, cleanuparr 1.9M, nextcloud-html 885M/28,124 files — mostly `MediaCover` and logs for
+lidarr, which is why it is the tightest fit at 19% of its 2Gi claim. Total actual is ~1.67G
+against 17Gi of claims once each volume was right-sized down from the 10Gi below at deploy time.
+
+| Volume | Requested | Real data (database size, not volume size) | Can leave SQLite? |
 |---|---|---|---|
 | `sonarr-config-local` | 10Gi | 19.5 MB | Postgres, unsupported migration |
 | `radarr-config-local` | 10Gi | 4.3 MB | Postgres, unsupported migration |
@@ -50,7 +63,7 @@ constrains placement.
 
 ## Sizing
 
-Free space on each node's root filesystem, which is where `/var/lib/longhorn` would live:
+Free space on each node's root filesystem, which is where `/var/lib/longhorn` lives:
 
 | Node | Disk | Free | Notes |
 |---|---|---|---|
@@ -58,18 +71,30 @@ Free space on each node's root filesystem, which is where `/var/lib/longhorn` wo
 | worker-01 | 466G | 396G | G9, media node |
 | worker-02 | 233G | 189G | G6 |
 
-At the default 3 replicas, every node holds a full copy — 87Gi on worker-00, which also reserves
-~30% of the disk before it will schedule anything. It does not fit.
+**Superseded by measurement.** The 87Gi figure below came from the spec's sizing table, which
+turned out to be database sizes, not volume sizes — the real per-volume figures, measured
+2026-08-13 during migration, are an order of magnitude larger for some volumes (lidarr alone is
+396M against a claimed 35 MB) but still small in aggregate: ~1.67G of real data against 17Gi of
+requested claims, worst case 29% (nextcloud-html). At that scale even worker-00's 69G free holds
+three full replicas with room to spare, so the right-sizing decision below — all three nodes as
+storage nodes — survives contact with reality; only the reasoning that follows was wrong about
+*why* it was safe.
 
-**Recommended: `replicaCount: 2`, with worker-00 excluded as a storage node.** Replicas land on
-worker-01 and worker-02, both of which have ample room. worker-00 still *runs* workloads and can
-still *mount* Longhorn volumes over the network — it just does not store replicas. This also
-stops the smallest node from capping cluster-wide storage capacity.
+At the default 3 replicas, every node holds a full copy — 87Gi on worker-00 by the (wrong)
+requested-size table, which also reserves ~30% of the disk before it will schedule anything. That
+looked like it didn't fit.
 
-The ceiling that buys you: with two storage nodes and two replicas, losing one node leaves every
-volume degraded but online, with nowhere to rebuild until it returns. That is strictly better
-than today (where losing worker-01 takes the volume offline entirely) and strictly worse than a
-3-node replica set. For a homelab with a nightly backup underneath, it is the right trade.
+**Deployed as: `replicaCount: 2`, all three nodes as storage nodes.** Excluding worker-00 was
+considered and rejected — see risk #2 below, since it turns out instance-manager pods run on
+every node regardless of whether that node stores a replica, so excluding it bought nothing. With
+real usage in single-digit-to-low-hundreds of MB per volume, all three nodes have ample room, and
+`guaranteedInstanceManagerCPU` at 5% (not excluding a node) is what actually keeps worker-00 from
+being squeezed.
+
+The ceiling this buys: with three storage nodes and two replicas, losing one node leaves every
+volume degraded but online, and the two surviving replicas rebuild onto the returning node
+automatically — no manual intervention, unlike the two-storage-node case this section originally
+argued for.
 
 ## Prerequisites
 
@@ -103,8 +128,13 @@ than debugging attach failures afterwards.
    removing is also a form of simplicity.
 2. **Per-node overhead.** Longhorn runs an instance-manager pod per node with meaningful RAM
    cost, plus the manager DaemonSet and CSI plugins. On worker-00 — 16GB, 4 cores, no HT, and
-   the node that already hits per-UID kernel limits first — that is not free. Excluding it as a
-   storage node reduces but does not eliminate this.
+   the node that already hits per-UID kernel limits first — that is not free.
+   **Correction, verified after deployment: excluding worker-00 as a storage node would not have
+   reduced this.** Instance-manager pods are created eagerly on all three nodes regardless of
+   whether any volume has a replica scheduled there — confirmed with zero volumes attached at
+   install time. worker-00 pays the instance-manager cost either way; the actual mitigation is
+   `guaranteedInstanceManagerCPU` at 5%, observed as a 200m CPU request on worker-00 versus 600m
+   on the two 12-core nodes.
 3. **Upgrade discipline.** Longhorn upgrades are a documented, ordered procedure with
    version-specific "important notes" per release. This is not a chart Renovate should bump
    unattended; treat it like Cilium, not like an app.
@@ -125,19 +155,29 @@ Longhorn and the NAS have no hard dependency in either direction. The one touch 
 backup target, which wants NFS or S3: going Longhorn-first means pointing it at the current
 `/mnt/storage` and repointing it after the NAS lands. One setting, no drama.
 
+Worth carrying to the NAS: the backup target needed its own export
+(`/mnt/storage/longhorn-backups`), separate from the main `/mnt/storage` share, because a pod on
+worker-01 reaching its own node's IP is not masqueraded by Cilium — the LAN-scoped export ACL
+that works for pods on the other two nodes doesn't see worker-01's pod traffic as coming from an
+allowed address otherwise. That export also has to agree with the parent share's squash setting
+(`no_root_squash`, here) rather than contradict it — a squashed child export nested under a
+non-squashed parent lets NFSv4 clients resolve through the parent and produces mixed root/nobody
+ownership on the backup tree, which then blocks `mkdir` for whichever client gets squashed. The
+NAS inherits both constraints if it re-creates this export.
+
 Worth knowing rather than acting on: unpinning does not pay off until the NAS exists. Today
 worker-01 *is* the NFS server, so losing it takes down the media stack regardless of where the
 pods could reschedule. A mobile arr only survives worker-01 dying once storage is off-host. So
 Longhorn-first front-loads the work and collects the benefit at step two.
 
-**Talos last has a real consequence for replica count.** Longhorn on Talos needs the
-`iscsi-tools` system extension and a machine-config mount for `/var/lib/longhorn`, so the node
-prerequisites get redone rather than carried over. More importantly, with `replicaCount: 2` and
-worker-00 excluded, there are only two storage nodes — rebuilding either one as Talos drops a
-replica and leaves every volume single-replica with nowhere to rebuild until that node returns.
-Before starting the Talos migration, either temporarily admit worker-00 as a third storage node
-(sizing permitting, which after Cleanuparr and with real usage in the tens of MB it likely does)
-or accept and time-box a single-replica window per node. Do not discover this mid-rebuild.
+**Talos last still needs the node prerequisites redone.** Longhorn on Talos needs the
+`iscsi-tools` and `util-linux-tools` system extensions and a machine-config mount for
+`/var/lib/longhorn`, so this work gets redone rather than carried over from the Ansible role.
+The replica-count concern this section originally raised — rebuilding a storage node drops a
+replica with nowhere to go — does not apply as deployed: with all three nodes as storage nodes
+and `replicaCount: 2`, rebuilding any one node as Talos still leaves two storage nodes standing,
+and the surviving replicas re-place onto the rebuilt node automatically once it returns. No
+manual single-replica window to time-box.
 
 The Talos audit's own hard blocker — worker-01 running `nfs-kernel-server`, which Talos cannot do
 as a host service — is removed by the NAS at step two. That is what makes this order coherent:
@@ -160,9 +200,10 @@ Longhorn goes first, ahead of the NAS. Steps:
 
 1. **Enable `iscsid` via Ansible** on all three nodes. Already-installed package, service is
    `disabled`/`inactive`. Longhorn cannot attach volumes without it.
-2. **Install Longhorn 1.11.3**, `replicaCount: 2`, worker-00 excluded as a storage node, backup
+2. **Install Longhorn 1.11.3**, `replicaCount: 2`, all three nodes as storage nodes, backup
    target at the current `/mnt/storage`. Verify `csi.kubeletRootDir` against the k3s doc before
-   the first install. UI needs an HTTPRoute and a VPA per repo convention.
+   the first install. UI needs an HTTPRoute; deliberately no VPA — Longhorn's own components are
+   not a repo-convention app-template deployment.
 3. **Migrate volumes one at a time, smallest first** — Cleanuparr (1.5 MB) and Bazarr (1.9 MB)
    before Lidarr (35 MB) — app scaled to zero in git, copy Job, `existingClaim` swap. Keep each
    old `local-path` PVC in git for two weeks as the rollback, exactly as

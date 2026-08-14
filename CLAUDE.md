@@ -99,15 +99,18 @@ spec:
 
 ## Storage
 
-Bulk data uses the `nfs` StorageClass; `local-path` is for volumes that can't tolerate NFS. Which
-one a volume gets is a question about the volume, not a default plus exceptions — see the Rules
-section for the three `local-path` cases.
+Three StorageClasses, chosen per volume, not by default: `longhorn` for anything holding state,
+`nfs` for bulk data shared between pods, `local-path` for CNPG cluster volumes only. See the Rules
+section for the `local-path` exception's reasoning.
 
-**A config volume holding a SQLite database goes on `local-path`, not `nfs`.** SQLite over NFS
-does not work: Sonarr logged 996 "database is locked" errors in a week, one of which stalled the
+**A config volume holding a SQLite database goes on `longhorn`, not `nfs`.** SQLite over NFS does
+not work: Sonarr logged 996 "database is locked" errors in a week, one of which stalled the
 nightly refresh for 35 minutes and jammed the task queue until `/api/v3/queue` stopped answering,
-timing out unpackerr 33 times. All four arrs were migrated off NFS on 2026-08-06. This covers most
-of `apps/` — the arrs, and anything else keeping state in SQLite.
+timing out unpackerr 33 times. All four arrs were migrated off NFS on 2026-08-06, then from
+`local-path` to `longhorn` on 2026-08-13 to remove the node pin — Longhorn is still a real block
+device with a real filesystem underneath, so SQLite behaves the same as it did on `local-path`.
+This covers most of `apps/` — the arrs, and anything else keeping state in SQLite, plus app trees
+like Nextcloud's that aren't a database but are still state worth replicating.
 
 Declare the PVC as its own manifest so the rationale and recovery path live with the volume, and
 consume it with `existingClaim` (see `apps/sonarr/config-pvc.yaml`):
@@ -115,22 +118,27 @@ consume it with `existingClaim` (see `apps/sonarr/config-pvc.yaml`):
 ```yaml
 persistence:
   config:
-    existingClaim: myapp-config-local
+    existingClaim: myapp-config
     globalMounts:
       - path: /config
 ```
 
-Non-SQLite config volumes still use `nfs`:
+`longhorn` binds `Immediate` and expands in place, so size it for what the volume holds today
+rather than for what it might grow into. Two replicas: a node failure degrades the volume rather
+than taking it offline, and losing worker-01 no longer means losing the volume outright the way it
+did when `local-path` pinned it there.
+
+Bulk data and anything genuinely shared between pods still uses `nfs`:
 
 ```yaml
 persistence:
-  config:
+  data:
     type: persistentVolumeClaim
     storageClass: nfs
     size: 1Gi
     accessMode: ReadWriteMany
     globalMounts:
-      - path: /config
+      - path: /shared
 ```
 
 Media apps mount the shared NFS data volume directly:
@@ -232,28 +240,28 @@ just todos              # Show remaining TODOs in repo
 
 - **No `sleep` commands** in scripts or manifests. Use `kubectl wait`, `--timeout`, or readiness probes instead.
 - **Never use `Ingress`**. All routing uses Gateway API `HTTPRoute` only.
-- Use `local-path` for PVCs in these three cases, and `nfs` otherwise. (1) **SQLite databases** —
-  required, not merely allowed: SQLite over NFS deadlocks (see Storage). Durability comes from a
-  scheduled backup to the NFS share instead of from the volume, so an app in this case needs a
-  backup path before it ships. **Prefer the app's own built-in backup** — the arrs' System → Backup
+- Use `local-path` for PVCs only for **CNPG cluster volumes** (2+ instances), and `longhorn`
+  otherwise. Postgres streaming replication — not the volume — already provides node-failure
+  durability, and NFS is not a supported CNPG configuration; replicating again at the block layer
+  underneath would double write amplification to solve a solved problem. `local-path` remains the
+  cluster default StorageClass, which is why every other PVC must name its class explicitly.
+  `local-path` cannot be expanded in place, so size CNPG volumes correctly up front, and give the
+  PVC **no** `sync-wave` annotation — `WaitForFirstConsumer` leaves it Pending, which an earlier
+  wave reads as unhealthy and deadlocks the sync. `longhorn` binds `Immediate`, so that warning
+  does not apply to it.
+- Everything else that holds state — SQLite databases and reconstructible app trees alike — uses
+  `longhorn`. Two replicas, so a node failure degrades the volume instead of taking it offline, and
+  it expands in place, so size it for what it holds rather than for what it might grow into.
+  Durability still comes from a backup, not from the volume: Longhorn's own backups are
+  crash-consistent, not application-consistent, so an app in this case needs an app-level backup
+  path before it ships. **Prefer the app's own built-in backup** — the arrs' System → Backup
   pointed at `/data/backups/<app>/`. It knows how to quiesce its own database, produces an archive
   its own restore flow accepts, needs no extra pod, and can't drift from the schema. Write a
   CronJob **only** when the app has no backup feature at all (`apps/cleanuparr/backup-cronjob.yaml`
   — Cleanuparr has none), and back up SQLite with the online-backup API rather than `cp`, since WAL
-  mode spreads committed state across `.db`/`-wal`/`-shm`.
-  (2) **Replicated databases** (CloudNativePG clusters with 2+ instances), where streaming
-  replication — not the volume — provides node-failure durability; NFS is not a supported CNPG
-  configuration. (3) **Volumes reconstructible from a container image**, where the volume is a
-  performance cache rather than a system of record — Nextcloud's PHP app tree
-  (`apps/nextcloud/html-pvc.yaml`): ~15k small files that would otherwise sit on a `sync`-exported
-  USB spinning disk, and whose loss costs a rebuild rather than data.
-  All three pin the pod to one node, so `replicas: 1` and a `Recreate` strategy are prerequisites,
-  and the recovery path must be written down in the PVC manifest. Note the "won't survive node
-  failure" objection is weaker than it looks: worker-01 *is* the NFS server, so `nfs` was never
-  giving these volumes a second node — only a second disk (the USB spinning drive) on the same
-  node. `local-path` cannot be expanded in place, so size these correctly up front, and give the
-  PVC **no** `sync-wave` annotation — `WaitForFirstConsumer` leaves it Pending, which an earlier
-  wave reads as unhealthy and deadlocks the sync.
+  mode spreads committed state across `.db`/`-wal`/`-shm`. Longhorn changed the volume underneath
+  these apps, not the backup story on top of it — `apps/cleanuparr/backup-cronjob.yaml` still
+  exists for exactly the same reason it did on `local-path`.
 - Never commit `secrets/.secrets`, `secrets/.secrets.generated`, `.vault_pass`, `pub-cert.pem`, or anything in `config/` (gitignored).
 - Chart versions in `app.yaml` are managed by Renovate — don't pin to `latest`.
 - Server-side apply only for ArgoCD managed resources (avoids annotation conflicts).
