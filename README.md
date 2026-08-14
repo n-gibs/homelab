@@ -4,7 +4,16 @@ k3s homelab on HP ProDesk Mini PCs. Ansible provisioning, ArgoCD GitOps.
 
 ## Stack
 
-k3s + Cilium (VXLAN) + ArgoCD (GitOps) + Envoy Gateway + cert-manager + Infisical + Tailscale (in-cluster subnet router for remote access to services — not used for node SSH)
+k3s + Cilium (VXLAN) + ArgoCD (GitOps) + Envoy Gateway + cert-manager + Infisical + Longhorn (replicated block storage) + Tailscale (in-cluster subnet router for remote access to services — not used for node SSH)
+
+Storage is chosen per volume, never by default. `longhorn` (`system/longhorn-system`) holds anything
+stateful — SQLite config volumes and app trees — replicated twice, so losing a node degrades a
+volume instead of taking it offline. `nfs` carries bulk data shared between pods, backed by the USB
+disk on worker-01. `local-path` remains the cluster default but is now used only by CNPG Postgres
+clusters, where streaming replication already provides node-failure durability, and by Jellyfin,
+whose pin to worker-01 is what gives it QuickSync. See
+[`system/longhorn-system/README.md`](system/longhorn-system/README.md) for the settings that fail
+silently, the measured fsync cost, and the runbook for migrating a volume.
 
 Application secrets come from a self-hosted Infisical (`system/infisical`), synced into
 Kubernetes Secrets by its operator — see [`system/infisical/README.md`](system/infisical/README.md)
