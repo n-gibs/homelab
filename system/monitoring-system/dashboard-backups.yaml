@@ -1,0 +1,206 @@
+# Backups overview, loaded by the Grafana sidecar (LABEL=grafana_dashboard, LABEL_VALUE=1,
+# NAMESPACE=ALL). Companion to prometheusrule-backups.yaml but a distinct question: that
+# file is what should wake you up; this answers "did last night's backups actually run" in
+# one place, spanning the CronJob-based db dumps, Longhorn volume snapshots, and CNPG.
+#
+# Deliberately not a merge into dashboard-cronjobs.yaml: that dashboard's panels are keyed off
+# kube_cronjob_status_last_successful_time and a point-in-time kube_job_failed count, neither
+# of which Longhorn or CNPG ever populate. Panels 4 and 5 here have no equivalent there at all.
+#
+# Thresholds on panels 1 and 5 must track prometheusrule-backups.yaml's CronJobNotSucceeding
+# window (26h danger, 24h warning) — keep them in sync if that rule's `> 26 * 3600` changes.
+# Panel 5 borrows that window as the closest available signal: prometheusrule-backups.yaml has
+# no CNPG-specific rule, so nothing alerts if a CNPG backup goes stale. cnpg_collector_last_
+# available_backup_timestamp reads 0 (unix epoch) on every cluster right now, meaning no CNPG
+# backup has ever completed — real state this dashboard surfaces that the rule file is silent on.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-backups
+  namespace: monitoring-system
+  labels:
+    grafana_dashboard: "1"
+data:
+  homelab-backups.json: |
+    {
+      "title": "Homelab — Backups",
+      "uid": "homelab-backups",
+      "tags": ["homelab", "backups"],
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "refresh": "5m",
+      "time": { "from": "now-7d", "to": "now" },
+      "templating": {
+        "list": [
+          {
+            "name": "datasource",
+            "label": "Metrics",
+            "type": "datasource",
+            "query": "prometheus",
+            "hide": 0,
+            "current": {}
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "table",
+          "title": "Hours since last CronJob run",
+          "description": "Time since kube-state-metrics last saw this CronJob get scheduled, regardless of whether that run succeeded. Thresholds match CronJobNotSucceeding in prometheusrule-backups.yaml: amber at 24h, red at the 26h where that alert fires.",
+          "gridPos": { "h": 9, "w": 12, "x": 0, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "h",
+              "decimals": 1,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 24 },
+                  { "color": "red", "value": 26 }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {},
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "(time() - kube_cronjob_status_last_schedule_time) / 3600",
+              "format": "table",
+              "instant": true
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": { "Time": true, "__name__": true, "cluster": true, "container": true, "endpoint": true, "instance": true, "job": true, "pod": true, "service": true },
+                "renameByName": { "namespace": "Namespace", "cronjob": "CronJob", "Value": "Hours" }
+              }
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Failed jobs (24h)",
+          "description": "Count of Job failures over the trailing day, not the current-state count dashboard-cronjobs.yaml shows — this catches a job that failed and then succeeded on retry, which the point-in-time count misses.",
+          "gridPos": { "h": 5, "w": 6, "x": 12, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "decimals": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "red", "value": 1 }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "sum(increase(kube_job_status_failed[24h]))"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "type": "table",
+          "title": "Failing jobs by name",
+          "description": "Currently-failed Jobs, by name. Empty is the healthy state — kube_job_status_failed only exists once a Job carries the Failed condition, so there is no zero-series to display.",
+          "gridPos": { "h": 9, "w": 12, "x": 0, "y": 9 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+          "options": {},
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "kube_job_status_failed > 0",
+              "format": "table",
+              "instant": true
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": { "Time": true, "__name__": true, "cluster": true, "condition": true, "container": true, "endpoint": true, "instance": true, "job": true, "pod": true, "service": true },
+                "renameByName": { "namespace": "Namespace", "job_name": "Job", "Value": "Failed" }
+              }
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "type": "table",
+          "title": "Longhorn backup state",
+          "description": "Latest recurring-job backup per volume. 3 = Completed; anything else needs a look at the Longhorn UI.",
+          "gridPos": { "h": 5, "w": 6, "x": 18, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+          "options": {},
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "longhorn_backup_state",
+              "format": "table",
+              "instant": true
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": { "Time": true, "__name__": true, "cluster": true, "container": true, "endpoint": true, "instance": true, "job": true, "namespace": true, "pod": true, "service": true, "backup": true },
+                "renameByName": { "volume": "Volume", "recurring_job": "Recurring Job", "Value": "State" }
+              }
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "type": "stat",
+          "title": "Hours since last CNPG backup",
+          "description": "Oldest last-available-backup timestamp across all CNPG clusters. Colored on the same 24h/26h window as CronJobNotSucceeding for lack of a CNPG-specific rule — see the header comment. A value in the hundreds of thousands means no CNPG backup has ever completed.",
+          "gridPos": { "h": 4, "w": 6, "x": 18, "y": 5 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "h",
+              "decimals": 1,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 24 },
+                  { "color": "red", "value": 26 }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "(time() - max(cnpg_collector_last_available_backup_timestamp)) / 3600"
+            }
+          ]
+        }
+      ]
+    }
