@@ -1,0 +1,80 @@
+---
+# Fills the three holes the chart's own etcd group leaves. That group covers quorum, leader
+# churn, fsync and commit latency, failed proposals, and database quota, and all of it went
+# from decoration to working alerts once the nodes started serving 2381
+# (system/monitoring-system/scrapeconfig-etcd.yaml).
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: etcd
+  namespace: monitoring-system
+  labels:
+    release: monitoring-system
+spec:
+  groups:
+    # Not `etcd`: the chart already ships a group by that name, and two identically named
+    # groups make the /rules API and Grafana's rule list ambiguous.
+    - name: etcd-coverage
+      rules:
+        # The chart's whole etcd group filters on up{job=~".*etcd.*"}, so if the ScrapeConfig
+        # is deleted or renamed there is no `up` series to be 0 and all fifteen rules go
+        # quiet rather than firing. That is the exact state this cluster sat in for 33 days.
+        # ScrapePoolEmpty does not cover it either: a ScrapeConfig's static targets vanish
+        # with the config instead of staying at zero.
+        - alert: EtcdMetricsMissing
+          expr: absent(up{job="kube-etcd"})
+          for: 15m
+          labels:
+            severity: critical
+          annotations:
+            summary: No etcd metrics are being scraped
+            description: >-
+              up{job="kube-etcd"} has had no series for 15m, so every etcd alert is
+              evaluating on an empty series set and cannot fire. Check the kube-etcd
+              ScrapeConfig, and that the servers still carry --etcd-expose-metrics=true from
+              ansible/group_vars/k3s_cluster.yml.
+
+        # Stands in for the chart's etcdGRPCRequestsSlow, which reads
+        # grpc_server_handling_seconds_bucket. etcd only publishes that histogram under
+        # `--metrics extensive`; on default settings it does not exist, so that rule is
+        # permanently dataless. This measures the same symptom from the apiserver side, which
+        # is where slow etcd actually hurts, and needs no etcd flag change.
+        #
+        # Threshold is ~20x the observed baseline: p99 sits at 5-24ms per operation.
+        - alert: EtcdRequestLatencyHigh
+          expr: |
+            histogram_quantile(0.99,
+              sum(rate(etcd_request_duration_seconds_bucket[5m])) by (le, operation)
+            ) > 0.5
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: apiserver etcd {{ $labels.operation }} requests are slow (p99 > 500ms)
+            description: >-
+              p99 latency for {{ $labels.operation }} against etcd has been above 500ms for
+              15m. Check etcdHighFsyncDurations and etcdHighCommitDurations first: slow disk
+              on any one member drags the whole cluster, and NVMe thermal throttling on
+              worker-01 has done it before.
+
+        # A snapshot is the only restore path for this cluster, and k3s writes them to local
+        # disk on each node rather than anywhere off-box. `or absent(...)` because the metric
+        # disappearing is the same emergency as the snapshots stopping: kube-state-metrics
+        # losing its CustomResourceState config or its k3s.cattle.io RBAC would otherwise
+        # leave this rule with nothing to age.
+        #
+        # 26h against a 12h schedule (00:00 and 12:00 UTC) tolerates one missed run.
+        - alert: EtcdSnapshotStale
+          expr: |
+            time() - max(kube_customresource_k3s_etcd_snapshot_creation_timestamp_seconds) > 26 * 3600
+              or absent(kube_customresource_k3s_etcd_snapshot_creation_timestamp_seconds)
+          for: 1h
+          labels:
+            severity: critical
+          annotations:
+            summary: No fresh etcd snapshot in over 26h
+            description: >-
+              The newest etcd snapshot across all three servers is more than 26h old, or the
+              metric backing this check has stopped being reported. Either way the cluster's
+              restore point is aging or unverifiable. Check `kubectl get etcdsnapshotfile`
+              and `journalctl -u k3s | grep -i snapshot` on the servers.
