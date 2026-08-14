@@ -1,0 +1,213 @@
+# Blackbox dashboard, fed by the two Probes in probes.yaml (system/blackbox-exporter/probes.yaml).
+# Every other dashboard in this cluster is Prometheus scraping something that lives inside the
+# cluster — this is the only one where the check leaves the cluster and comes back in through the
+# gateway, the HTTPRoute, and the served certificate, the same path a browser takes.
+#
+# Panel 2 (failing endpoints) is a probe_success == 0 table: an empty table is the healthy state,
+# not a broken query — there is nothing to render when every probe is passing.
+#
+# Panel 4's thresholds are pinned to the one window cert-manager actually alerts on
+# (system/cert-manager/prometheusrule.yaml: CertExpiringSoon fires under 21 days, no second
+# tier exists below that), rather than inventing a red step the rule file doesn't back.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-blackbox
+  namespace: blackbox-exporter
+  labels:
+    grafana_dashboard: "1"
+data:
+  homelab-blackbox.json: |
+    {
+      "title": "Homelab — External Availability",
+      "uid": "homelab-blackbox",
+      "tags": ["homelab", "availability"],
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "refresh": "1m",
+      "time": { "from": "now-24h", "to": "now" },
+      "templating": {
+        "list": [
+          {
+            "name": "datasource",
+            "label": "Data source",
+            "type": "datasource",
+            "query": "prometheus",
+            "hide": 0,
+            "current": {}
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Endpoints up",
+          "description": "Passing probes out of the total probed. Anything less than the total is an endpoint failing the outside-in check right now.",
+          "gridPos": { "h": 5, "w": 8, "x": 0, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "sum(probe_success)",
+              "legendFormat": "up",
+              "refId": "A"
+            },
+            {
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "count(probe_success)",
+              "legendFormat": "total",
+              "refId": "B"
+            }
+          ],
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "value_and_name",
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+          },
+          "fieldConfig": {
+            "defaults": { "unit": "short", "color": { "mode": "palette-classic" } },
+            "overrides": []
+          }
+        },
+        {
+          "id": 2,
+          "type": "table",
+          "title": "Failing endpoints",
+          "description": "Every instance currently failing its probe. Empty is healthy — there is nothing to show when every endpoint passes.",
+          "gridPos": { "h": 9, "w": 12, "x": 0, "y": 5 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "probe_success == 0",
+              "format": "table",
+              "instant": true,
+              "refId": "A"
+            }
+          ],
+          "transformations": [
+            { "id": "organize", "options": { "excludeByName": { "Time": true }, "renameByName": { "instance": "Instance", "job": "Job", "Value": "probe_success" } } }
+          ],
+          "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+        },
+        {
+          "id": 3,
+          "type": "timeseries",
+          "title": "Probe duration",
+          "description": "End-to-end time per probe: DNS, gateway, HTTPRoute, and the served certificate, same as a browser sees.",
+          "gridPos": { "h": 9, "w": 24, "x": 0, "y": 14 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "probe_duration_seconds",
+              "legendFormat": "{{instance}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" }
+            },
+            "overrides": []
+          },
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+        },
+        {
+          "id": 4,
+          "type": "table",
+          "title": "Certificate expiry",
+          "description": "Days left on each endpoint's served certificate. Threshold matches CertExpiringSoon in system/cert-manager/prometheusrule.yaml — that rule has one tier, at 21 days, so this has one too.",
+          "gridPos": { "h": 9, "w": 12, "x": 12, "y": 5 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "(probe_ssl_earliest_cert_expiry - time()) / 86400",
+              "format": "table",
+              "instant": true,
+              "refId": "A"
+            }
+          ],
+          "transformations": [
+            { "id": "organize", "options": { "excludeByName": { "Time": true }, "renameByName": { "instance": "Instance", "job": "Job", "Value": "Days left" } } }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "d",
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "orange", "value": 21 }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "HTTP status codes",
+          "description": "Status code returned by each probe. A code changing without probe_success changing is worth a look on its own.",
+          "gridPos": { "h": 9, "w": 24, "x": 0, "y": 23 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "probe_http_status_code",
+              "legendFormat": "{{instance}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" }
+            },
+            "overrides": []
+          },
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+        },
+        {
+          "id": 6,
+          "type": "stat",
+          "title": "24h availability",
+          "description": "Fraction of the last 24h each endpoint has reported probe_success. Below 99% is more than a blip.",
+          "gridPos": { "h": 5, "w": 8, "x": 8, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "avg_over_time(probe_success[24h])",
+              "legendFormat": "{{instance}}",
+              "refId": "A"
+            }
+          ],
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "green", "value": 0.99 }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        }
+      ]
+    }
