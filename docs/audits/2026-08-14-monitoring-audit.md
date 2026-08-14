@@ -191,5 +191,9 @@ Left open, deliberately:
   cluster CIDRs, none of which are in the `common` role. The `ufw` module only adds, so
   provisioning will not remove them, but that file is not a complete description of the
   nodes.
-- Grafana still ships `adminPassword: changeme` with `auth.anonymous.org_role: Admin`.
-  Not a monitoring gap, and still true.
+Closed without action:
+
+- Grafana ships `adminPassword: changeme` with `auth.anonymous.org_role: Admin`. Accepted
+  on 2026-08-14: Grafana is reachable only from the home network or over Tailscale, so
+  anonymous Admin is the intended behaviour rather than an oversight. Recorded here so it
+  is not re-raised as a finding. Revisit only if the gateway ever fronts it publicly.
