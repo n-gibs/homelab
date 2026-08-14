@@ -15,5 +15,8 @@ nfs_subdirs:
   # Nextcloud file data. Created nobody:nogroup like its siblings; the app's init
   # container chowns it to 33:33 on every start.
   - nextcloud
-  # Longhorn backup target. Exported separately below with all_squash — see tasks/main.yml.
+  # Longhorn backup target. Exported separately below, no_root_squash — see tasks/main.yml.
+  # Created nobody:nogroup like its siblings; harmless, since root (writing here via
+  # no_root_squash) bypasses directory permission checks and can mkdir under it regardless
+  # of who owns it. Longhorn's own backupstore/ subtree ends up root:root.
   - longhorn-backups

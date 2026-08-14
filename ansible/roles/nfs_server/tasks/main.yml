@@ -45,10 +45,11 @@
   notify: Re-export NFS shares
 
 # Longhorn's backup target gets its own export, scoped to just this directory (not the
-# whole share) and all_squash'd to nobody:nogroup on both lines. Both LAN clients (worker-00,
-# worker-02) and pod-CIDR clients (worker-01, reaching its own node's IP unmasqueraded by
-# Cilium) must squash identically, or the same backupstore ends up with files owned root on
-# some nodes and nobody on others, breaking retention deletes across nodes.
+# whole share). It must match the parent /mnt/storage export's no_root_squash, not
+# contradict it: this directory is nested inside that export, and an NFSv4 client can
+# resolve through the parent, so a client writes as root regardless of what this export
+# says. all_squash here just left the backupstore with a mix of root- and nobody-owned
+# directories, and a root-owned drwx------ blocks a squashed client's mkdir.
 - name: Configure NFS export for Longhorn backups
   ansible.builtin.blockinfile:
     path: /etc/exports
@@ -56,8 +57,8 @@
     create: true
     mode: "0644"
     block: |
-      {{ nfs_export_path }}/{{ nfs_backup_subdir }} {{ nfs_allowed_clients }}(rw,sync,no_subtree_check,all_squash,anonuid=65534,anongid=65534)
-      {{ nfs_export_path }}/{{ nfs_backup_subdir }} {{ nfs_pod_cidr }}(rw,sync,no_subtree_check,all_squash,anonuid=65534,anongid=65534)
+      {{ nfs_export_path }}/{{ nfs_backup_subdir }} {{ nfs_allowed_clients }}(rw,sync,no_subtree_check,no_root_squash)
+      {{ nfs_export_path }}/{{ nfs_backup_subdir }} {{ nfs_pod_cidr }}(rw,sync,no_subtree_check,no_root_squash)
   become: true
   notify: Re-export NFS shares
 
