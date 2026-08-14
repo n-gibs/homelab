@@ -173,6 +173,12 @@ prometheus-node-exporter:
 
 prometheus:
   prometheusSpec:
+    # TEMPORARY -- migrating the TSDB PVC from nfs to longhorn. Scaling through git rather
+    # than kubectl because the system ApplicationSet owns this Application and reverts spec
+    # edits, and selfHeal reverts a scaled-down operator: the controllers have to be told,
+    # not fought. Reverted in the follow-up commit once the volume is populated.
+    replicas: 0
+
     # The cluster's largest consumer shipped requestless, so the scheduler saw a free pod
     # and parked it on the 4-core node while it used 179m / 2.9Gi. Memory is 3Gi rather
     # than trimmed to that peak because a TSDB's working set grows with retention and
