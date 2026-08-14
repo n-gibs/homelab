@@ -4,14 +4,20 @@ k3s homelab on HP ProDesk Mini PCs. Ansible provisioning, ArgoCD GitOps.
 
 ## Stack
 
-k3s + Cilium (VXLAN) + ArgoCD (GitOps) + Envoy Gateway + cert-manager + Infisical + Longhorn (replicated block storage) + Tailscale (in-cluster subnet router for remote access to services — not used for node SSH)
+k3s + Cilium (VXLAN) + ArgoCD (GitOps) + Envoy Gateway + cert-manager + Infisical + Longhorn (replicated block storage) + CloudNativePG (Postgres) + Tailscale (in-cluster subnet router for remote access to services — not used for node SSH)
 
-Storage is chosen per volume, never by default. `longhorn` (`system/longhorn-system`) holds anything
-stateful — SQLite config volumes and app trees — replicated twice, so losing a node degrades a
-volume instead of taking it offline. `nfs` carries bulk data shared between pods, backed by the USB
-disk on worker-01. `local-path` remains the cluster default but is now used only by CNPG Postgres
-clusters, where streaming replication already provides node-failure durability, and by Jellyfin,
-whose pin to worker-01 is what gives it QuickSync. See
+Apps keep state one of two ways. Anything that speaks Postgres and warrants it runs on a
+CloudNativePG cluster (`platform/cloudnative-pg`) — Immich, Nextcloud, Infisical and Vaultwarden
+each have a 3-instance cluster, where streaming replication rather than the volume provides
+node-failure durability. Everything else keeps SQLite on a replicated Longhorn volume.
+`.claude/commands/add-app.md` carries the decision rule for new apps.
+
+Storage classes are chosen per volume, never by default. `longhorn` (`system/longhorn-system`)
+holds anything stateful — SQLite config volumes and app trees — replicated twice, so losing a node
+degrades a volume instead of taking it offline. `nfs` carries bulk data shared between pods, backed
+by the USB disk on worker-01. `local-path` remains the cluster default but is now used only by the
+CNPG clusters above, where replicating again at the block layer would double write amplification to
+solve a solved problem, and by Jellyfin, whose pin to worker-01 is what gives it QuickSync. See
 [`system/longhorn-system/README.md`](system/longhorn-system/README.md) for the settings that fail
 silently, the measured fsync cost, and the runbook for migrating a volume.
 
