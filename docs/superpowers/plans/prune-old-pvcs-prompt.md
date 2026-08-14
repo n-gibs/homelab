@@ -20,7 +20,7 @@ Three separate populations, and they do not behave the same way:
 Parts 2 and 3 are the inverse of part 1: there the PVC delete is the point of no return, here
 `kubectl delete pv` frees nothing on disk at all and quietly leaves the bytes behind forever.
 
-## Part 1 — the nine migration PVCs (gates 2026-08-26 / 2026-08-27)
+## Part 1 — the ten migration PVCs (gates 2026-08-26 / 2026-08-27 / 2026-08-28)
 
 Paste the block below into a Claude Code session in this repo.
 
@@ -32,7 +32,7 @@ docs/superpowers/plans/2026-08-13-longhorn-deployment.md) and the Vaultwarden
 Postgres move (Task 10 of docs/superpowers/plans/2026-08-11-vaultwarden-postgres.md).
 Read the status note at the top of the Longhorn plan first.
 
-## The nine PVCs to remove — and nothing else
+## The ten PVCs to remove — and nothing else
 
   apps/bazarr/config-pvc.yaml        bazarr-config-local        5Gi   worker-01
   apps/cleanuparr/config-pvc.yaml    cleanuparr-config-local    2Gi   worker-00
@@ -43,6 +43,8 @@ Read the status note at the top of the Longhorn plan first.
   apps/sonarr/config-pvc.yaml        sonarr-config-local       10Gi   worker-01
   apps/nextcloud/html-pvc.yaml       nextcloud-html            10Gi   worker-01
   apps/vaultwarden/data-pvc.yaml     vaultwarden-data-local     5Gi   worker-00
+  apps/jellyfin/config-pvc.yaml      jellyfin-config-local     20Gi   worker-01
+                                     ^ gated to 2026-08-28, migrated later than the rest
 
 Each file declares BOTH the old and the new PVC. Remove only the old block; the
 Longhorn one stays. (apps/vaultwarden/data-pvc.yaml declares only the old one, so
@@ -54,9 +56,6 @@ that whole file goes; the live volume lives in data-pvc-nfs.yaml.)
   /data. Only the SQLite *database* moved to Postgres; attachments, sends, icon
   cache and the RSA keys still live here. values.yaml:78 points at it. The
   Postgres move retired vaultwarden-data-local, not this.
-- jellyfin-config-local (local-path, 20Gi, worker-01). NEVER MIGRATED — the
-  jellyfin pod is running on it right now (values.yaml:77). The name matches the
-  prune pattern and it is not in scope. See the note at the bottom of this prompt.
 - Every *-database-N PVC on local-path (immich, infisical, nextcloud,
   vaultwarden). CNPG volumes are local-path deliberately; see CLAUDE.md Rules.
 
@@ -93,12 +92,12 @@ So treat verification as load-bearing, not a formality. Before deleting anything
   migration. There is a LonghornBackupFailed alert now; verify directly anyway.
 - For Vaultwarden, confirm the CNPG cluster is 3/3 and a pg-backup has run, since
   vaultwarden-data-local is the last copy of the pre-migration SQLite database.
-- Confirm nothing mounts the nine claims:
+- Confirm nothing mounts the ten claims:
     kubectl get pods -A -o json | jq -r '.items[] | .metadata.namespace as $n |
       .spec.volumes[]? | select(.persistentVolumeClaim) |
       "\($n) \(.persistentVolumeClaim.claimName)"' | sort -u
-  Expect hits only for jellyfin-config-local and vaultwarden-data (both keepers),
-  plus cleanuparr-config-local until the CronJob fix above lands.
+  Expect a hit only for vaultwarden-data (a keeper), plus cleanuparr-config-local
+  until the CronJob fix above lands.
 
 Only then delete the old PVC blocks, one commit per app, and watch ArgoCD sync
 each one before moving to the next.
@@ -190,13 +189,12 @@ Part 3 in particular is in no document anywhere — the arr NFS migration on 202
 happened in the monitoring audit. The pattern is the same: the leftover is invisible because
 nothing is looking, not because anything is wrong.
 
-## Separately: Jellyfin never moved to Longhorn
+## Jellyfin: migrated 2026-08-14, gate is 2026-08-28
 
-`jellyfin-config-local` is a 20Gi local-path volume pinned to worker-01, holding `jellyfin.db`
-(SQLite). It is exactly the case CLAUDE.md's Storage section says belongs on `longhorn`, and it was
-missed by the 2026-08-13 migration — the seven arrs and `nextcloud-html` moved, Jellyfin did not.
-Not part of this prune. Worth its own small migration, following the same shape as
-`apps/sonarr/config-pvc.yaml`.
+The 2026-08-13 migration missed `jellyfin-config-local`; it moved to `jellyfin-config` (longhorn,
+5Gi) on 2026-08-14. That is why its row above carries a later gate than the other nine. 5Gi rather
+than the ~3Gi the data needs: Jellyfin 10.11 refuses to start unless `/config/data/data` has 2GiB
+*free*, so a right-sized volume crash-loops.
 
 Supporting detail, if needed: the execution ledgers at
 `.superpowers/sdd/2026-08-13-longhorn-deployment/progress.md` and
