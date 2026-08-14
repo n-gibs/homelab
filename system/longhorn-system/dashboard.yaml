@@ -1,0 +1,221 @@
+# Longhorn dashboard, fed by the longhorn-backend scrape (system/longhorn-system/networkpolicy-monitoring.yaml).
+# Before that NetworkPolicy, this scrape was dead and every longhorn_* series below was empty.
+#
+# The question this answers is whether the volumes underneath the control plane are actually
+# healthy, current, and backed up — not just whether the Longhorn UI is reachable.
+#
+# Panel 2 (engine images in use) exists because a Longhorn chart bump upgrades the manager
+# and reports green while existing volumes keep running their old engine image until each one
+# is individually upgraded — the control plane and the data plane can silently disagree.
+#
+# Panel 6 (scrape health) exists because Task 1's failure mode was invisible: a dashboard fed
+# by a dead scrape renders identically to a healthy idle cluster. Below 3 targets up means the
+# rest of this dashboard is stale, not quiet.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-longhorn
+  namespace: longhorn-system
+  labels:
+    grafana_dashboard: "1"
+data:
+  homelab-longhorn.json: |
+    {
+      "title": "Homelab — Longhorn",
+      "uid": "homelab-longhorn",
+      "tags": ["homelab", "storage"],
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "refresh": "1m",
+      "time": { "from": "now-24h", "to": "now" },
+      "templating": {
+        "list": [
+          {
+            "name": "datasource",
+            "label": "Data source",
+            "type": "datasource",
+            "query": "prometheus",
+            "hide": 0,
+            "current": {}
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Volume health",
+          "description": "Volumes by robustness state. Anything other than all-healthy needs attention.",
+          "gridPos": { "h": 5, "w": 8, "x": 0, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "count by (state) (longhorn_volume_robustness == 1)",
+              "legendFormat": "{{state}}",
+              "refId": "A"
+            }
+          ],
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "value_and_name",
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+          },
+          "fieldConfig": {
+            "defaults": { "unit": "short", "color": { "mode": "palette-classic" } },
+            "overrides": [
+              {
+                "matcher": { "id": "byName", "options": "healthy" },
+                "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } }]
+              }
+            ]
+          }
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Engine images in use",
+          "description": "More than one image means a chart bump upgraded the manager but left some volumes on the old engine — the control plane can report green while the data plane is split.",
+          "gridPos": { "h": 5, "w": 8, "x": 8, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "count by (image) (longhorn_engine_info)",
+              "legendFormat": "{{image}}",
+              "refId": "A"
+            }
+          ],
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "value_and_name",
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+          },
+          "fieldConfig": {
+            "defaults": { "unit": "short", "color": { "mode": "palette-classic" } },
+            "overrides": []
+          }
+        },
+        {
+          "id": 3,
+          "type": "timeseries",
+          "title": "Disk usage vs capacity per node",
+          "description": "Longhorn's own disk accounting, not node free space — this is what backs volume scheduling.",
+          "gridPos": { "h": 9, "w": 24, "x": 0, "y": 5 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "sum by (node) (longhorn_disk_usage_bytes)",
+              "legendFormat": "{{node}} used",
+              "refId": "A"
+            },
+            {
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "sum by (node) (longhorn_disk_capacity_bytes)",
+              "legendFormat": "{{node}} capacity",
+              "refId": "B"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" }
+            },
+            "overrides": [
+              {
+                "matcher": { "id": "byRegexp", "options": ".* capacity" },
+                "properties": [
+                  { "id": "custom.lineStyle", "value": { "dash": [10, 10] } },
+                  { "id": "custom.fillOpacity", "value": 0 }
+                ]
+              }
+            ]
+          },
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+        },
+        {
+          "id": 4,
+          "type": "table",
+          "title": "Backup state by volume",
+          "description": "Most recent recurring-job backups per volume. A stuck non-completed state here is a backup that isn't actually protecting the volume.",
+          "gridPos": { "h": 9, "w": 12, "x": 0, "y": 14 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "longhorn_backup_state",
+              "format": "table",
+              "instant": true,
+              "refId": "A"
+            }
+          ],
+          "transformations": [
+            { "id": "organize", "options": { "excludeByName": { "Time": true }, "renameByName": { "volume": "Volume", "backup": "Backup", "recurring_job": "Recurring job", "Value": "State" } } }
+          ],
+          "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "Volume actual size",
+          "description": "Top 10 volumes by on-disk usage. Snapshots and the volume's own writes both count here.",
+          "gridPos": { "h": 9, "w": 12, "x": 12, "y": 14 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "topk(10, longhorn_volume_actual_size_bytes)",
+              "legendFormat": "{{pvc_namespace}}/{{pvc}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" }
+            },
+            "overrides": []
+          },
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+        },
+        {
+          "id": 6,
+          "type": "stat",
+          "title": "Scrape health",
+          "description": "Longhorn manager targets up, out of 3 (one per node). Below 3 means the rest of this dashboard is stale, not that the cluster is quiet.",
+          "gridPos": { "h": 5, "w": 8, "x": 16, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "sum(up{job=\"longhorn-backend\"})",
+              "legendFormat": "targets up",
+              "refId": "A"
+            }
+          ],
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "decimals": 0,
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "green", "value": 3 }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        }
+      ]
+    }
