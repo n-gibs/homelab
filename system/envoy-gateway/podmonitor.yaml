@@ -1,0 +1,57 @@
+---
+# Both Envoy Gateway pods already serve Prometheus metrics on 19001 and carry
+# prometheus.io/scrape annotations, which nothing in this cluster reads. Only the scrape was
+# missing, so neither the EnvoyProxy nor the Gateway needs touching -- deliberately, given
+# that a parametersRef change here once took the whole data plane out.
+#
+# No namespaceSelector: these land in the envoy-gateway namespace alongside the pods they
+# select. The EnvoyProxy and Gateway CRs live in envoy-gateway-system, but the workloads the
+# controller creates from them run here.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: envoy-proxy
+  namespace: envoy-gateway
+  labels:
+    release: monitoring-system
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: envoy
+      app.kubernetes.io/component: proxy
+  # Carries which Gateway this proxy serves, so samples stay attributable if a second
+  # Gateway is ever added.
+  podTargetLabels:
+    - gateway.envoyproxy.io/owning-gateway-name
+  podMetricsEndpoints:
+    # Envoy serves its stats under /stats/prometheus, not /metrics. ~5.2k series per pod.
+    - port: metrics
+      path: /stats/prometheus
+      relabelings:
+        - action: replace
+          sourceLabels: []
+          targetLabel: cluster
+          replacement: homelab
+---
+# The control plane, scraped separately because it serves /metrics rather than
+# /stats/prometheus. It is what translates HTTPRoutes into Envoy config, so when it stops,
+# routes quietly stop updating while the proxy keeps serving the last config it received.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: envoy-gateway-controller
+  namespace: envoy-gateway
+  labels:
+    release: monitoring-system
+spec:
+  selector:
+    matchLabels:
+      control-plane: envoy-gateway
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      relabelings:
+        - action: replace
+          sourceLabels: []
+          targetLabel: cluster
+          replacement: homelab
