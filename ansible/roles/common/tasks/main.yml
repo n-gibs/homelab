@@ -154,6 +154,20 @@
     state: started
   become: true
 
+# multipathd can claim the block devices Longhorn attaches over iSCSI before Longhorn does,
+# which Longhorn surfaces as the `multipathd` node condition. `multipath -ll` returned no maps
+# on any of the three nodes -- it manages nothing here (direct-attached NVMe + one USB disk),
+# so this removes an unused daemon rather than a capability. If real multipath storage is ever
+# added, Longhorn's documented alternative is to blacklist its devices in /etc/multipath.conf
+# instead of disabling the daemon outright. Talos status unverified: docs/talos-migration-audit.md
+# doesn't mention multipathd and this hasn't been checked against a Talos image.
+- name: Disable and stop multipathd
+  ansible.builtin.systemd_service:
+    name: multipathd
+    enabled: false
+    state: stopped
+  become: true
+
 # chrony is the only time source on these nodes — no systemd-timesyncd. It ships
 # without Restart=, so a stray SIGTERM (once collateral from a `kill` sweep) leaves
 # it dead silently and the clock drifts unmonitored. Same for thermald and fail2ban,
