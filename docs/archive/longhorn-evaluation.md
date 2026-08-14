@@ -4,10 +4,10 @@ Whether to deploy Longhorn to unpin the `local-path` volumes. Written 2026-08-13
 k3s v1.36.3 and the current contents of `apps/`.
 
 > This evaluation predates the deployment. For what was actually built and verified, see
-> `docs/superpowers/specs/2026-08-13-longhorn-deployment-design.md` (spec) and
-> `docs/superpowers/plans/2026-08-13-longhorn-deployment.md` (plan) — those are the implementation
-> of record. Corrections below are marked inline; the rest of this document reflects the reasoning
-> at decision time and still holds.
+> `docs/archive/superpowers/specs/2026-08-13-longhorn-deployment-design.md` (spec) and
+> `docs/superpowers/plans/2026-08-13-longhorn-deployment.md` (plan, still active — Task 16 is
+> date-gated to 2026-08-27) — those are the implementation of record. Corrections below are marked
+> inline; the rest of this document reflects the reasoning at decision time and still holds.
 
 ## The question
 

@@ -2,6 +2,22 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Status: migration complete 2026-08-13.** All eight volumes are on Longhorn and verified. The
+> only open item is **Task 16** (retiring the eight retained `local-path` PVC blocks), gated to
+> **2026-08-27** — two weeks from the last Merge B, matching the `apps/vaultwarden/data-pvc.yaml`
+> precedent. This file moves to `docs/archive/superpowers/plans/` once Task 16 runs; until then it
+> stays here per the archive convention (no open-item docs in `docs/archive/`).
+>
+> **Correction for whoever runs Task 16: the old `local-path` PVs are `reclaimPolicy: Delete`, not
+> `Retain`.** Task 16 Steps 3–4 below assume `Retain` and describe reclaiming `Released` PVs
+> afterwards — there will be no `Released` PVs to reclaim. Deleting a `*-config-local` PVC block
+> from git, or letting ArgoCD prune it, destroys the underlying data immediately, with no second
+> layer. The two weeks of git history is the only rollback, not the outer of two as Step 3 implies.
+> **Verify every volume has a completed backup in the Longhorn backupstore
+> (`kubectl -n longhorn-system get backups.longhorn.io`) before deleting anything** — Step 2 already
+> says this, but treat it as the load-bearing check, not a formality, given Step 3/4 no longer have
+> a `Released`-PV fallback behind them.
+
 **Goal:** Replace `local-path` with Longhorn for eight volumes, so a node failure stops meaning a
 hand restore from the newest backup archive.
 
@@ -16,10 +32,10 @@ before the remaining six.
 Envoy Gateway v1.8.3, Infisical operator, kube-prometheus-stack, Cilium 1.19.5 with
 `kubeProxyReplacement: true`, Ansible for the host prerequisite.
 
-**Spec:** [`docs/superpowers/specs/2026-08-13-longhorn-deployment-design.md`](../specs/2026-08-13-longhorn-deployment-design.md)
+**Spec:** [`docs/archive/superpowers/specs/2026-08-13-longhorn-deployment-design.md`](../../archive/superpowers/specs/2026-08-13-longhorn-deployment-design.md)
 
 This file replaces the 2026-08-10 plan (`git log --follow` for it). That plan predates
-`docs/longhorn-evaluation.md` and disagreed with it on chart version, scope, UI, VPA, backups and
+`docs/archive/longhorn-evaluation.md` and disagreed with it on chart version, scope, UI, VPA, backups and
 pilot app. Its fsync benchmark gate survives, in Phase 4.
 
 ## Global Constraints
@@ -90,7 +106,7 @@ on `nfs`, Longhorn RWX, the v2 SPDK data engine.
 | `apps/<app>/config-pvc.yaml` | **Modify** ×8. New Longhorn PVC alongside the retained old one |
 | `apps/<app>/values.yaml` | **Modify** ×8. `replicas: 0` then `existingClaim` swap |
 | `CLAUDE.md` | **Modify.** Storage section rewrite (not an amendment — see Task 17) |
-| `docs/longhorn-evaluation.md` | **Modify.** Four superseded passages |
+| `docs/archive/longhorn-evaluation.md` | **Modify.** Four superseded passages |
 | `docs/talos-migration-audit.md` | **Modify.** §3 recommendation, §5 system extensions |
 
 **There is no test framework in this repo.** The equivalent of a failing test is `helm template`
@@ -1395,7 +1411,7 @@ app noticing its own downtime, and it self-corrects on the next sync.
 - [ ] Roll Lidarr back (Task 8 rollback) and Cleanuparr too (Task 7 rollback).
 - [ ] Write the measured numbers into `docs/talos-migration-audit.md` §3 and change its
       recommendation to "keep `local-path` on Talos, measured".
-- [ ] Update `docs/longhorn-evaluation.md`'s "Do nothing" section: it is now the chosen option, with
+- [ ] Update `docs/archive/longhorn-evaluation.md`'s "Do nothing" section: it is now the chosen option, with
       data behind it.
 - [ ] Decide separately whether to leave Longhorn installed. Either is fine; if removing it, Task 2's
       rollback applies plus `deletingConfirmationFlag: true` for the teardown.
@@ -1732,7 +1748,7 @@ reclaiming the disk is a separate manual step -- done."
 
 **Files:**
 - Modify: `CLAUDE.md` (Storage section and the `local-path` rule under Rules)
-- Modify: `docs/longhorn-evaluation.md` (four passages)
+- Modify: `docs/archive/longhorn-evaluation.md` (four passages)
 - Modify: `docs/talos-migration-audit.md` (§3, §5)
 - Modify: all eight `apps/*/config-pvc.yaml` comments if Task 7–15 left any stale
 
@@ -1763,7 +1779,7 @@ The new rule, in the repo's voice — stating what to use, why, and what the exc
 - Drop the `WaitForFirstConsumer`/no-sync-wave warning from the general rule and keep it only where
   `local-path` is still used. The `longhorn` class binds `Immediate`.
 
-- [ ] **Step 2: Amend `docs/longhorn-evaluation.md`**
+- [ ] **Step 2: Amend `docs/archive/longhorn-evaluation.md`**
 
 Four passages, all currently wrong in-repo:
 
@@ -1835,7 +1851,7 @@ right-sizing, and its risk #2 was wrong about what excluding worker-00 saves."
   failure takes with it.
 - **Retiring any app-level backup.** Longhorn's backups are crash-consistent; the apps' own are
   application-consistent. Both stay.
-- **Postgres migrations for the arrs or Cleanuparr.** Settled in `docs/longhorn-evaluation.md` and
+- **Postgres migrations for the arrs or Cleanuparr.** Settled in `docs/archive/longhorn-evaluation.md` and
   `docs/superpowers/plans/2026-08-13-cleanuparr-postgres.md` (filed as researched, not scheduled).
   Longhorn unpins those volumes for free.
 - **Repointing the backup target at the NAS.** That is the NAS project's step, one setting, and it
