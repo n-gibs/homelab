@@ -1,7 +1,7 @@
 # Longhorn Deployment — Design
 
 Written 2026-08-13. Decides *how* Longhorn is deployed. Whether to deploy it at all is settled in
-[`docs/longhorn-evaluation.md`](../../longhorn-evaluation.md); the sizing and Talos sections of that
+[`docs/archive/longhorn-evaluation.md`](../../longhorn-evaluation.md); the sizing and Talos sections of that
 document are superseded here and are amended as part of the implementation.
 
 **Supersedes** `docs/superpowers/plans/2026-08-10-longhorn-migration.md`, which was written before
@@ -460,7 +460,7 @@ rest are check-at-implementation, and each one gets an explicit step in the plan
   `local-path`, everything else `longhorn`," which is a different rule with a different shape. Budget
   for that rather than expecting a three-line edit. The `local-path` recovery paths written into each
   `config-pvc.yaml` also stop being true.
-- **`docs/longhorn-evaluation.md`** — four places, all currently wrong in-repo: the Sizing section
+- **`docs/archive/longhorn-evaluation.md`** — four places, all currently wrong in-repo: the Sizing section
   (lines 51-72) and the Talos replica-count warning (133-140), both superseded by right-sizing and
   three storage nodes; risk #2's claim that excluding worker-00 reduces per-node overhead; and step
   2's "needs a VPA". These are amended in the same branch as the plan, not deferred.

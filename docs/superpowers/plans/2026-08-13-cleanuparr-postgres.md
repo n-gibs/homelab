@@ -2,7 +2,7 @@
 
 > **STATUS: DEFERRED, not scheduled.** Decided 2026-08-13. This plan existed to unpin
 > `cleanuparr-config-local` from its node, and Longhorn does that for free as part of
-> `docs/longhorn-evaluation.md` — along with the other six SQLite volumes. The only benefit
+> `docs/archive/longhorn-evaluation.md` — along with the other six SQLite volumes. The only benefit
 > Postgres would still carry is retiring `apps/cleanuparr/backup-cronjob.yaml`, and Longhorn does
 > **not** make that CronJob redundant either: Longhorn snapshots are crash-consistent, so a
 > WAL-mode SQLite database still needs the online-backup API that CronJob wraps. Running a

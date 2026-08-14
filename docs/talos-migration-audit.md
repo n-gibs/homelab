@@ -3,7 +3,7 @@
 Date: 2026-08-10. Audited against the repo at commit `62e4a30`.
 
 > **Superseded in part.** Longhorn was deployed 2026-08-13 (see
-> `docs/superpowers/specs/2026-08-13-longhorn-deployment-design.md` and
+> `docs/archive/superpowers/specs/2026-08-13-longhorn-deployment-design.md` and
 > `docs/superpowers/plans/2026-08-13-longhorn-deployment.md`), replacing the eight `local-path`
 > config/app-tree volumes this audit assumed would need a `local-path-provisioner` port to Talos.
 > §3 and §5 below are corrected accordingly. The NFS blocker in §2 is unchanged.
