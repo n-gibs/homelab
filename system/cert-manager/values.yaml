@@ -1,3 +1,18 @@
 crds:
   enabled: true
 replicaCount: 1
+
+# Without this nothing scrapes cert-manager, so certmanager_certificate_expiration_timestamp_seconds
+# does not exist and a failed renewal on the *.nik-homelab.dev wildcard surfaces as a browser
+# warning roughly 90 days after the last good issue. Alerts in
+# system/monitoring-system/prometheusrule-cert-manager.yaml.
+prometheus:
+  servicemonitor:
+    enabled: true
+    endpointAdditionalProperties:
+      # Matches the relabeling every other scrape in this stack applies.
+      relabelings:
+        - action: replace
+          sourceLabels: []
+          targetLabel: cluster
+          replacement: homelab
