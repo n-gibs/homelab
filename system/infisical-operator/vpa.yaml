@@ -11,7 +11,7 @@ spec:
     # is not "secrets-operator-controller-manager" as the chart name suggests.
     name: infisical-opera-controller-manager
   updatePolicy:
-    updateMode: "Recreate"
+    updateMode: "InPlaceOrRecreate"
   resourcePolicy:
     containerPolicies:
       - containerName: "*"

@@ -85,7 +85,7 @@ spec:
     kind: Deployment
     name: <app>
   updatePolicy:
-    updateMode: "Recreate"
+    updateMode: "InPlaceOrRecreate"
   resourcePolicy:
     containerPolicies:
       - containerName: "*"
