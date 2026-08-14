@@ -16,9 +16,9 @@ three instances rather than from the volume. Disk-failure durability comes from 
 one streaming replica still serves reads and writes normally while no longer having a
 surviving copy of the data.
 
-Monitoring lives in `system/monitoring-system/podmonitor-cnpg.yaml` (one PodMonitor,
+Monitoring lives in `platform/cloudnative-pg/podmonitor.yaml` (one PodMonitor,
 `namespaceSelector: any`, covers every current and future cluster) and
-`prometheusrule-cnpg.yaml`.
+`prometheusrule.yaml`.
 
 ## The metrics exporter needs a CONNECT grant, and it is not in git
 
@@ -37,7 +37,7 @@ stop being emitted — and an alert that compares a series against a threshold d
 when the series is absent, it goes quiet. `nextcloud` sat in exactly this state from at
 least 2026-08-03 until 2026-08-12, healthy and completely unmonitored.
 
-`CNPGReplicationMetricsMissing` in `system/monitoring-system/prometheusrule-cnpg.yaml`
+`CNPGReplicationMetricsMissing` in `platform/cloudnative-pg/prometheusrule.yaml`
 exists to catch this. It uses `unless` rather than a comparison, precisely because the
 failure mode is an absent series.
 

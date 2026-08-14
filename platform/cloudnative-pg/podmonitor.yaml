@@ -9,7 +9,7 @@ apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:
   name: cnpg-instances
-  namespace: monitoring-system
+  namespace: cloudnative-pg
   labels:
     release: monitoring-system
 spec:
