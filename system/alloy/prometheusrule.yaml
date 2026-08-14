@@ -1,0 +1,59 @@
+---
+# Alloy is the only thing shipping logs into Loki. If it stops, Loki stays up and answers
+# queries against an increasingly stale index, so nothing looks broken — and the log-based
+# alert the Loki ruler evaluates quietly stops being able to match anything.
+#
+# Requires serviceMonitor.enabled in system/alloy/values.yaml.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: alloy
+  namespace: alloy
+  labels:
+    release: monitoring-system
+spec:
+  groups:
+    - name: alloy
+      rules:
+        # Baseline is ~17 entries/s sustained (1157 entries over 68s, 2026-08-14) and the arrs
+        # log continuously, so a flat zero is an outage rather than a quiet hour. 15m of it
+        # covers a pod restart without complaining.
+        - alert: AlloyNotShippingLogs
+          expr: sum(rate(loki_write_sent_entries_total[10m])) == 0
+          for: 15m
+          labels:
+            severity: critical
+          annotations:
+            summary: Alloy has shipped no log entries for 15 minutes
+            description: >-
+              loki.write.local has sent nothing to Loki. Every log-based alert is blind for
+              the duration, and the gap is unrecoverable — Alloy tails from the current
+              position, it does not backfill. Check the alloy pod logs and that
+              loki.loki.svc.cluster.local:3100 is reachable.
+
+        # The other half: shipping fine but Loki refusing the writes. Counter is 337065
+        # lifetime, all reason="ingester_error", and static — any increase is new.
+        - alert: AlloyDroppingLogs
+          expr: sum by (reason) (rate(loki_write_dropped_entries_total[15m])) > 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: Alloy is dropping log entries ({{ $labels.reason }})
+            description: >-
+              Entries are being discarded before they reach Loki, so logs are missing without
+              any gap in the pipeline being visible. reason=rate_limited or stream_limited
+              means Loki's limits_config; ingester_error means Loki itself is rejecting.
+
+        - alert: AlloyMetricsMissing
+          expr: absent(alloy_build_info)
+          for: 1h
+          labels:
+            severity: critical
+          annotations:
+            summary: Alloy is not being scraped
+            description: >-
+              alloy_build_info has had no series for an hour, so AlloyNotShippingLogs cannot
+              fire and the log pipeline is unwatched again. Check that serviceMonitor.enabled
+              survived a chart bump in system/alloy/values.yaml, and that the alloy Deployment
+              is up.
