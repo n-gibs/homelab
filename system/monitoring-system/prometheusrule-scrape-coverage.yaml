@@ -1,0 +1,34 @@
+---
+# Catches a scrape pool that resolves to zero targets — a ServiceMonitor whose selector
+# matches nothing, or a Service with no endpoints.
+#
+# TargetDown cannot cover this case: an empty pool produces no `up` series at all, so
+# there is nothing to compare against 0. Every rule written against that subsystem's
+# metrics then sits permanently empty and silently never fires, which looks identical to
+# healthy.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: scrape-coverage
+  namespace: monitoring-system
+  labels:
+    release: monitoring-system
+spec:
+  groups:
+    - name: scrape-coverage
+      rules:
+        - alert: ScrapePoolEmpty
+          expr: prometheus_target_scrape_pool_targets == 0
+          # Long enough to ride out startup and a rollout of whatever is being scraped,
+          # which both legitimately empty a pool for a few minutes.
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: Scrape pool {{ $labels.scrape_job }} has no targets
+            description: >-
+              Prometheus has had zero targets for {{ $labels.scrape_job }} for 30m, so
+              every alert written against that job's metrics is evaluating on an empty
+              series set and cannot fire. Check the ServiceMonitor's selector and whether
+              the Service it points at has endpoints — an empty Endpoints object is the
+              usual cause.
