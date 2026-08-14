@@ -50,6 +50,12 @@ sidecar:
   rules:
     folderAnnotation: k8s-sidecar-target-directory
 
+# Scrapes the ruler's own evaluation metrics — see prometheusrule.yaml. This is the only
+# resource the monitoring section adds; the chart's dashboards and its bundled rules stay off.
+monitoring:
+  serviceMonitor:
+    enabled: true
+
 singleBinary:
   replicas: 1
   persistence:
