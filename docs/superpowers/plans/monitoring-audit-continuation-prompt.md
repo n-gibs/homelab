@@ -18,6 +18,7 @@ Start with task 6 unless I say otherwise.
 | 4 | #47 | cert-manager scraped; `system/cert-manager/prometheusrule.yaml` — 4 rules. Wildcard expiry now a metric |
 | 5 | #48 | `system/envoy-gateway/podmonitor.yaml` + `prometheusrule.yaml` — 3 rules, 19 backends healthy |
 | — | #49 | Longhorn, CoreDNS, CNPG monitoring moved next to their apps |
+| — | #51 | `/add-app` gained a required "decide what to monitor" step that encodes the convention below |
 
 Current state: 46 rule groups, 241 rules, ~493k head series, zero empty scrape pools, Watchdog
 the only firing alert. Also during task 2, worker-01 and worker-02 went k3s v1.36.2 -> v1.36.3;
@@ -53,6 +54,10 @@ Optional, found but deliberately skipped:
 - The audit doc's plan table has no status column. Worth marking 1-5 done.
 
 ## Conventions established this session
+
+These are written into `.claude/commands/add-app.md` as a required Step 4, so `/add-app` now
+asks "how would I know this app is broken?" before an app ships and expects the answer in the
+app's own directory. Keep that file and this section in step if you change the convention.
 
 **Rule placement.** Colocate a PrometheusRule/ServiceMonitor/PodMonitor with the app it
 watches when that app owns a directory, so ArgoCD prunes the rule with the app. An orphaned
