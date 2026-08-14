@@ -1,0 +1,81 @@
+---
+# Every public hostname in the cluster is served from one wildcard certificate, renewed by
+# cert-manager over DNS-01 against Cloudflare. Nothing watched it: no scrape existed, so no
+# expiry metric existed, and a renewal that stopped working would have shown up as a browser
+# warning about 90 days after the last successful issue.
+#
+# Requires prometheus.servicemonitor.enabled in system/cert-manager/values.yaml.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: cert-manager
+  namespace: monitoring-system
+  labels:
+    release: monitoring-system
+spec:
+  groups:
+    - name: cert-manager
+      rules:
+        # The backstop, and the one that matters: cert-manager holds a Certificate Ready
+        # while renewal attempts fail behind it, because the existing secret is still valid.
+        # So a broken renewal is invisible on readiness and only shows in the clock.
+        #
+        # Let's Encrypt issues for 90d and cert-manager renews at 30d out, so 21d means
+        # renewal has been failing for over a week and there are still three weeks to fix it.
+        - alert: CertExpiringSoon
+          expr: certmanager_certificate_expiration_timestamp_seconds - time() < 21 * 86400
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.namespace }}/{{ $labels.name }} expires in under 21 days"
+            description: >-
+              Certificate {{ $labels.name }} should have renewed 30 days before expiry and
+              has not. Check `kubectl -n {{ $labels.namespace }} describe certificate
+              {{ $labels.name }}` and the CertificateRequest it owns, then the cert-manager
+              controller logs. ClusterIssuerNotReady firing alongside this points at the
+              Cloudflare token rather than the certificate.
+
+        # Catches the other shape: issuance that never succeeded, so there is no expiry
+        # timestamp to run down. condition is one-hot, hence the explicit True == 0 rather
+        # than a False == 1.
+        - alert: CertNotReady
+          expr: certmanager_certificate_ready_status{condition="True"} == 0
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.namespace }}/{{ $labels.name }} is not Ready"
+            description: >-
+              Certificate {{ $labels.name }} has been not-Ready for an hour. If it has never
+              issued there is no served certificate at all; if it had issued before, the
+              secret may still be serving valid TLS while renewal fails underneath.
+
+        # The earliest signal of the three, and the common root cause: a revoked or rotated
+        # Cloudflare API token breaks DNS-01 for every future renewal while the current
+        # certificate keeps serving happily for weeks.
+        - alert: ClusterIssuerNotReady
+          expr: certmanager_clusterissuer_ready_status{condition="True"} == 0
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: ClusterIssuer {{ $labels.name }} is not Ready
+            description: >-
+              ClusterIssuer {{ $labels.name }} cannot issue, so every renewal from here will
+              fail even though existing certificates keep serving. Usually the Cloudflare
+              token in the cert-manager secret. Nothing breaks until the first renewal comes
+              due, which is what makes this worth fixing now rather than at expiry.
+
+        - alert: CertManagerMetricsMissing
+          expr: absent(certmanager_certificate_expiration_timestamp_seconds)
+          for: 1h
+          labels:
+            severity: critical
+          annotations:
+            summary: No cert-manager certificate metrics are being reported
+            description: >-
+              certmanager_certificate_expiration_timestamp_seconds has had no series for an
+              hour, so CertExpiringSoon cannot fire and TLS expiry is unwatched again. Check
+              that prometheus.servicemonitor.enabled survived a chart bump in
+              system/cert-manager/values.yaml, and that the cert-manager Deployment is up.
