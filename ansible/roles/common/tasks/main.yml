@@ -491,6 +491,53 @@
     - "9965"      # hubble metrics
   become: true
 
+# Embedded etcd: 2379 client, 2380 peer, 2381 metrics, all three listening on the node IP
+# on every server. This was hand-added and never written down, which is the only reason the
+# HA control plane worked at all while the role claimed to describe the firewall.
+# Node-subnet source, unlike the hand-added rule it replaces: every etcd peer is on
+# 192.168.30.0/24 and nothing off that subnet has any business holding a cluster datastore
+# connection.
+- name: Allow etcd client, peer and metrics from cluster node subnet
+  community.general.ufw:
+    rule: allow
+    port: "2379:2381"
+    proto: tcp
+    src: 192.168.30.0/24
+  become: true
+
+# Kept deliberately, not by accident. Pods reach the host on more ports than anyone can
+# enumerate — kubelet, hostPort metrics endpoints, NFS, cilium-health — and the failure mode
+# of missing one is a silent timeout that reads as a network fault, which cost real hours
+# once already. The pod CIDR is inside the cluster's trust boundary; anything that can source
+# from it is already running on these nodes. The service CIDR twin of this rule was removed
+# rather than codified: a service IP is a destination that DNAT rewrites, so no packet ever
+# arrives with a source address in 10.43.0.0/16 and the rule matched nothing.
+- name: Allow all traffic from the pod network
+  community.general.ufw:
+    rule: allow
+    src: 10.42.0.0/16
+  become: true
+
+# Hand-added, then found to be backed by nothing: no listener on any node, no hostPort, no
+# registry mirror for 5001, and Tailscale actually uses 41641/udp outbound — it has been
+# working this whole time without an inbound allow, so 51820/51821 are WireGuard ports for a
+# WireGuard nobody runs. Removing rather than codifying; the ufw module only adds, so these
+# need an explicit delete to leave the nodes.
+- name: Remove UFW rules with nothing behind them
+  community.general.ufw:
+    rule: allow
+    delete: true
+    port: "{{ item.port | default(omit) }}"
+    proto: "{{ item.proto | default(omit) }}"
+    src: "{{ item.src | default(omit) }}"
+  loop:
+    - { port: "5001", proto: tcp }
+    - { port: "51820", proto: udp }
+    - { port: "51821", proto: udp }
+    - { src: "10.43.0.0/16" }
+    - { port: "2379:2381", proto: tcp }   # the Anywhere-source version, replaced above
+  become: true
+
 - name: Enable UFW
   community.general.ufw:
     state: enabled
