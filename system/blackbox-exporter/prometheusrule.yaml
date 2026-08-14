@@ -1,0 +1,62 @@
+---
+# 16 apps had one app-level alert between them. Crashlooping and NotReady were covered by
+# the chart's default rules, but "pod is Running and the app is broken" was not — including
+# Vaultwarden, the highest-consequence app in the cluster.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: blackbox-exporter
+  namespace: blackbox-exporter
+  labels:
+    release: monitoring-system
+spec:
+  groups:
+    - name: blackbox-exporter
+      rules:
+        # 5m is five consecutive failed probes at the 60s interval, which rules out a single
+        # gateway reload or a rolling restart. probe_success is one-hot per target, so this
+        # fires per hostname and names the one that is down.
+        - alert: EndpointDown
+          expr: probe_success == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $labels.instance }} is not answering"
+            description: >-
+              Five consecutive probes to {{ $labels.instance }} failed. This is the whole
+              path — DNS, the gateway, the HTTPRoute, TLS and the app — so check pod
+              readiness first, then the HTTPRoute, then whether the name still resolves to
+              the gateway. probe_http_status_code and probe_duration_seconds for this
+              instance narrow it down quickly.
+
+        # The certificate the gateway actually serves, which is a different fact from the one
+        # cert-manager holds in a Secret. CertExpiringSoon fires at 21d on the Secret; if
+        # renewal worked but Envoy never reloaded it over SDS, that rule sees a fresh
+        # certificate and stays quiet while browsers get the old one. 14d is deliberately
+        # below 21 so the two are distinguishable: this one alone means a reload problem,
+        # both together mean renewal itself is failing. Served cert had 35d when this shipped.
+        - alert: ProbeCertExpiringSoon
+          expr: probe_ssl_earliest_cert_expiry - time() < 14 * 86400
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.instance }} is serving a certificate expiring in under 14 days"
+            description: >-
+              The certificate presented by {{ $labels.instance }} is close to expiry. If
+              CertExpiringSoon is quiet, cert-manager has renewed and the gateway is still
+              serving the old certificate — restart the Envoy proxy pods. If both are
+              firing, the renewal itself is failing.
+
+        - alert: BlackboxMetricsMissing
+          expr: absent(probe_success)
+          for: 1h
+          labels:
+            severity: critical
+          annotations:
+            summary: No blackbox probes are reporting
+            description: >-
+              probe_success has had no series for an hour, so every endpoint is unwatched
+              from the outside again. Check the blackbox-exporter Deployment and that the
+              Probe in system/blackbox-exporter/probes.yaml still exists.
