@@ -123,18 +123,18 @@ Ordered so each task is independently shippable and verifiable. Same pattern thr
 enable the scrape, add the alerts, and add the `absent()` guard so the *next* silent gap
 announces itself.
 
-| # | Task | Files | Verify |
-|---|------|-------|--------|
-| 1 | Generic empty-scrape-pool alert (`ScrapePoolEmpty`, `for: 30m`) | `prometheusrule.yaml` | fires for etcd today, nothing else |
-| 2 | Expose k3s etcd metrics: `etcd-expose-metrics: true` in the k3s config, `kubeEtcd.endpoints` = the three node IPs so the chart renders static Endpoints | `ansible/`, `monitoring-system/values.yaml` | `etcd_server_has_leader == 1` ×3; task 1's alert clears |
-| 3 | `prometheusrule-etcd.yaml` gap-fill + `EtcdMetricsMissing` | new file | trip-test with an invented severity |
-| 4 | cert-manager ServiceMonitor + `CertExpiringSoon` (<21d), `CertNotReady`, `CertManagerMetricsMissing` | `system/cert-manager/`, new rule file | expiry series present for every live cert |
-| 5 | Envoy Gateway telemetry (PodMonitor via the existing `EnvoyProxy` parametersRef) + `Gateway5xxRateHigh`, `GatewayNoHealthyUpstream`, `EnvoyMetricsMissing` | `system/envoy-gateway/`, new rule file | 5xx rate visible during a deliberate 503 |
-| 6 | Loki + Alloy ServiceMonitors + `LokiRulerNotEvaluating`, `AlloyNotShippingLogs`, `LogPipelineMetricsMissing` | `system/loki/`, `system/alloy/`, new rule file | scale Alloy to 0 → alert fires |
-| 7 | Cilium agent/operator metrics (+ Hubble drop/DNS metrics only — flow metrics are a cardinality trap at 414k series) + `CiliumUnreachableNodes`, `CiliumAgentRestarting`, `CiliumMetricsMissing` | `bootstrap/` (Cilium is helmfile-managed, not in `system/`), new rule file | `cilium_unreachable_nodes == 0` ×3; watch series count after |
-| 8 | Move the Prometheus TSDB PVC to `longhorn` (20Gi, 2 replicas). Accept the history loss or copy the blocks; do it deliberately — this is the alerting path | `monitoring-system/values.yaml` | Prometheus Ready, `wal_corruptions_total == 0`, Watchdog ping never gaps |
-| 9 | blackbox-exporter + `Probe`s for vaultwarden / grafana / jellyfin / nextcloud / immich + `EndpointDown`, `ProbeCertExpiringSoon` | new `system/blackbox-exporter/`, new rule file | `probe_success == 1` for each; block one app to confirm it trips |
-| 10 | external-dns ServiceMonitor + `ExternalDNSRegistryErrors` | `system/external-dns/` | errors counter present |
+| # | Done | Task | Files | Verify |
+|---|------|------|-------|--------|
+| 1 | #43 | Generic empty-scrape-pool alert (`ScrapePoolEmpty`, `for: 30m`) | `prometheusrule.yaml` | fires for etcd today, nothing else |
+| 2 | #44 #45 | Expose k3s etcd metrics: `etcd-expose-metrics: true` in the k3s config, `kubeEtcd.endpoints` = the three node IPs so the chart renders static Endpoints | `ansible/`, `monitoring-system/values.yaml` | `etcd_server_has_leader == 1` ×3; task 1's alert clears |
+| 3 | #46 | `prometheusrule-etcd.yaml` gap-fill + `EtcdMetricsMissing` | new file | trip-test with an invented severity |
+| 4 | #47 | cert-manager ServiceMonitor + `CertExpiringSoon` (<21d), `CertNotReady`, `CertManagerMetricsMissing` | `system/cert-manager/`, new rule file | expiry series present for every live cert |
+| 5 | #48 | Envoy Gateway telemetry (PodMonitor via the existing `EnvoyProxy` parametersRef) + `Gateway5xxRateHigh`, `GatewayNoHealthyUpstream`, `EnvoyMetricsMissing` | `system/envoy-gateway/`, new rule file | 5xx rate visible during a deliberate 503 |
+| 6 | #53 | Loki + Alloy ServiceMonitors + `LokiRulerNotEvaluating`, `AlloyNotShippingLogs`, `LogPipelineMetricsMissing` | `system/loki/`, `system/alloy/`, new rule file | scale Alloy to 0 → alert fires |
+| 7 | #54 #55 | Cilium agent/operator metrics (+ Hubble drop/DNS metrics only — flow metrics are a cardinality trap at 414k series) + `CiliumUnreachableNodes`, `CiliumAgentRestarting`, `CiliumMetricsMissing` | `bootstrap/` (Cilium is helmfile-managed, not in `system/`), new rule file | `cilium_unreachable_nodes == 0` ×3; watch series count after |
+| 8 | #56 #57 #58 | Move the Prometheus TSDB PVC to `longhorn` (20Gi, 2 replicas). Accept the history loss or copy the blocks; do it deliberately — this is the alerting path | `monitoring-system/values.yaml` | Prometheus Ready, `wal_corruptions_total == 0`, Watchdog ping never gaps |
+| 9 | #59 | blackbox-exporter + `Probe`s for vaultwarden / grafana / jellyfin / nextcloud / immich + `EndpointDown`, `ProbeCertExpiringSoon` | new `system/blackbox-exporter/`, new rule file | `probe_success == 1` for each; block one app to confirm it trips |
+| 10 | #60 | external-dns ServiceMonitor + `ExternalDNSRegistryErrors` | `system/external-dns/` | errors counter present |
 
 Deliberately **not** in the plan:
 
@@ -150,3 +150,46 @@ Deliberately **not** in the plan:
 
 Tasks 1–3 are the ones that matter; 1 is ~10 lines and closes the class of bug that hid
 the other one for a month.
+
+## Outcome
+
+All ten tasks shipped on 2026-08-14. 46 rule groups and 241 rules became 51 and 297; 62
+scrape targets became 68; head series went 493k to 503k, almost all of it Cilium.
+
+Three things the audit did not predict:
+
+**The health mesh had been broken the whole time.** Task 7 turned on Cilium metrics and
+`cilium_unreachable_nodes` read 2 on all three nodes — `cilium-health` had been reporting
+1/3 reachable indefinitely. UFW's default deny had no rule for `:4240` or the metrics
+ports, so every cross-node probe timed out while ICMP and pod-to-pod both passed. 6443 and
+2380 worked throughout because they have explicit rules, which is what made it look like a
+selective network fault rather than a firewall. Four allows in
+`ansible/roles/common/tasks/main.yml` took it to 3/3. The alert found its own root cause
+within ten minutes of the metrics existing, and never fired.
+
+**Prometheus cannot be stopped with `kubectl`.** Task 8 needed the pod down to swap its
+PVC. Scaling the operator to 0 is reverted by `selfHeal`; removing `automated` from the
+Application is reverted by the `system` ApplicationSet that owns it. The only lever the
+controllers agree with is `prometheusSpec.replicas: 0` committed to main, which is why
+that window is two commits in the history rather than none.
+
+**A storage class change is a silent no-op.** After merging task 8's values change, the
+Prometheus CR and its StatefulSet both said `longhorn`, ArgoCD said Synced and Healthy, and
+the PVC was still `nfs`. `volumeClaimTemplates` are immutable, so the operator recreates
+the StatefulSet, and the recreated one adopts the PVC that already exists under that name.
+Nothing anywhere indicates the migration has not happened.
+
+Left open, deliberately:
+
+- The old NFS PV `pvc-9dbb49b1` is `Released` with `Retain`, holding 10.3GB at
+  `worker-01:/mnt/storage/monitoring-system/prometheus-…-0`. It is the rollback for task 8;
+  deleting it is irreversible.
+- Blackbox probes cover 5 of 16 hostnames. Extending is one line each in
+  `system/blackbox-exporter/probes.yaml`, worth doing once `EndpointDown` has been quiet
+  for a while.
+- The live UFW rules include `2379:2381`, `5001`, `51820/51821` and blanket allows for both
+  cluster CIDRs, none of which are in the `common` role. The `ufw` module only adds, so
+  provisioning will not remove them, but that file is not a complete description of the
+  nodes.
+- Grafana still ships `adminPassword: changeme` with `auth.anonymous.org_role: Admin`.
+  Not a monitoring gap, and still true.
