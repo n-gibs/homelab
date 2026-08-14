@@ -39,6 +39,13 @@ renovate:
           matchHost: 'lscr.io',
           username: 'n-gibs',
           password: process.env.RENOVATE_TOKEN,
+          // Auth alone didn't stop the 429s: Renovate's default queue is 16
+          // concurrent requests per host, and six `tags/list?n=10000` lookups
+          // fired at once still trip ghcr.io's edge limit. A throttled run takes
+          // seconds longer; a throttled lookup reports "no-result" and silently
+          // skips the update.
+          concurrentRequestLimit: 4,
+          maxRequestsPerSecond: 5,
         },
       ],
     };
