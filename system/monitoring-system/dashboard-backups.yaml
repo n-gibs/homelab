@@ -7,12 +7,23 @@
 # kube_cronjob_status_last_successful_time and a point-in-time kube_job_failed count, neither
 # of which Longhorn or CNPG ever populate. Panels 4 and 5 here have no equivalent there at all.
 #
-# Thresholds on panels 1 and 5 must track prometheusrule-backups.yaml's CronJobNotSucceeding
-# window (26h danger, 24h warning) — keep them in sync if that rule's `> 26 * 3600` changes.
-# Panel 5 borrows that window as the closest available signal: prometheusrule-backups.yaml has
-# no CNPG-specific rule, so nothing alerts if a CNPG backup goes stale. cnpg_collector_last_
-# available_backup_timestamp reads 0 (unix epoch) on every cluster right now, meaning no CNPG
-# backup has ever completed — real state this dashboard surfaces that the rule file is silent on.
+# Thresholds on panels 1 and 5 both borrow CronJobNotSucceeding's window (26h danger, 24h
+# warning) — keep them in sync if that rule's `> 26 * 3600` changes.
+#
+# Neither panel colors the metric that alert actually keys on. Panel 1 colors time since
+# kube_cronjob_status_last_schedule_time; CronJobNotSucceeding fires on last_successful_time.
+# The rule that does key on a "last schedule" style metric is CronJobOverdue, off
+# next_schedule_time with a 1h/1h window — but that window is wrong for this panel: the daily
+# db-backup jobs sit at ~19-21h since their last schedule for most of the day by design (they
+# run once every 24h), so a 1h threshold would paint them red almost permanently. 24h/26h is
+# the only window in this file that colors a "how many hours since a scheduled run" number
+# sanely across both the daily and the */5-/10 jobs sharing this table.
+#
+# Panel 5 borrows the same window for a different reason: prometheusrule-backups.yaml has no
+# CNPG-specific rule at all, so nothing alerts if a CNPG backup goes stale, and 24h/26h is the
+# only staleness window on offer. cnpg_collector_last_available_backup_timestamp reads 0 (unix
+# epoch) on every cluster right now, meaning no CNPG backup has ever completed — real state
+# this dashboard surfaces that the rule file is silent on.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -47,7 +58,7 @@ data:
           "id": 1,
           "type": "table",
           "title": "Hours since last CronJob run",
-          "description": "Time since kube-state-metrics last saw this CronJob get scheduled, regardless of whether that run succeeded. Thresholds match CronJobNotSucceeding in prometheusrule-backups.yaml: amber at 24h, red at the 26h where that alert fires.",
+          "description": "Time since kube-state-metrics last saw this CronJob get scheduled, regardless of whether that run succeeded. Thresholds borrow CronJobNotSucceeding's 24h/26h window in prometheusrule-backups.yaml even though that alert keys on last_successful_time, not this panel's last_schedule_time — see the header comment for why CronJobOverdue's own 1h window would misfire here.",
           "gridPos": { "h": 9, "w": 12, "x": 0, "y": 0 },
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
           "fieldConfig": {
