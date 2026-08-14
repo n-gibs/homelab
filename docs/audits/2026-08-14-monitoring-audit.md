@@ -184,7 +184,9 @@ Left open, deliberately:
 - The old NFS PV `pvc-9dbb49b1` is `Released` with `Retain`, holding 10.3GB at
   `worker-01:/mnt/storage/monitoring-system/prometheus-…-0`. It is the rollback for task 8;
   deleting it is irreversible.
-  Gated to 2026-08-28.
+  Gated to 2026-08-28, and now tracked as part 2 of
+  `docs/superpowers/plans/prune-old-pvcs-prompt.md` rather than here — it is one of 16 dead
+  `Retain` PVs on that drive and there is no reason to prune it alone.
 - ~~Blackbox probes cover 5 of 16 hostnames.~~ Closed 2026-08-14 (#63). All 17 are probed.
   Each was measured through the exporter first: eleven answer 200, longhorn answers 401 and
   got a second module accepting 200/401/403 rather than a standing critical `EndpointDown`.
