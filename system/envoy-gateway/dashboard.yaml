@@ -1,0 +1,200 @@
+# Envoy Gateway dashboard, fed by the envoy-proxy PodMonitor (system/envoy-gateway/podmonitor.yaml).
+#
+# Deliberately not built on envoy_http_downstream_rq_xx: that metric only ever carries
+# envoy_http_conn_manager_prefix values "admin" and "eg-ready-http" -- Envoy's own admin and
+# readiness listeners, never a routed request. It looks like the obvious per-route request
+# counter and shows nothing that matters. Real per-route traffic is envoy_cluster_upstream_rq,
+# labelled by envoy_cluster_name ("httproute/<namespace>/<name>/rule/0") and envoy_response_code.
+#
+# The question this answers is whether routed traffic is healthy -- not whether Envoy is up --
+# after this cluster's worst incident: the Gateway Programmed=False outage and the VPA-shrunk
+# CPU limit that turned into 504s.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-envoy-gateway
+  namespace: envoy-gateway
+  labels:
+    grafana_dashboard: "1"
+data:
+  homelab-envoy-gateway.json: |
+    {
+      "title": "Homelab — Envoy Gateway",
+      "uid": "homelab-envoy-gateway",
+      "tags": ["homelab", "networking"],
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "refresh": "1m",
+      "time": { "from": "now-24h", "to": "now" },
+      "templating": {
+        "list": [
+          {
+            "name": "datasource",
+            "label": "Data source",
+            "type": "datasource",
+            "query": "prometheus",
+            "hide": 0,
+            "current": {}
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "timeseries",
+          "title": "Requests per route",
+          "description": "Per-route request rate from envoy_cluster_upstream_rq, not downstream_rq_xx -- that metric never carries routed traffic.",
+          "gridPos": { "h": 9, "w": 24, "x": 0, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "sum by (envoy_cluster_name) (rate(envoy_cluster_upstream_rq[$__rate_interval]))",
+              "legendFormat": "{{envoy_cluster_name}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" }
+            },
+            "overrides": []
+          },
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+        },
+        {
+          "id": 2,
+          "type": "timeseries",
+          "title": "Non-2xx per route",
+          "description": "Error responses by route and code. Anything here on a route that is normally clean is worth a look.",
+          "gridPos": { "h": 9, "w": 24, "x": 0, "y": 9 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "sum by (envoy_cluster_name, envoy_response_code) (rate(envoy_cluster_upstream_rq{envoy_response_code!~\"2..\"}[$__rate_interval]))",
+              "legendFormat": "{{envoy_cluster_name}} {{envoy_response_code}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" }
+            },
+            "overrides": []
+          },
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+        },
+        {
+          "id": 3,
+          "type": "timeseries",
+          "title": "p99 upstream latency per route",
+          "description": "envoy_cluster_upstream_rq_time_bucket is in milliseconds, not seconds -- unit below is ms.",
+          "gridPos": { "h": 9, "w": 24, "x": 0, "y": 18 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "histogram_quantile(0.99, sum by (le, envoy_cluster_name) (rate(envoy_cluster_upstream_rq_time_bucket[5m])))",
+              "legendFormat": "{{envoy_cluster_name}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ms",
+              "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" }
+            },
+            "overrides": []
+          },
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+        },
+        {
+          "id": 4,
+          "type": "timeseries",
+          "title": "Upstream timeouts",
+          "description": "Requests Envoy gave up on waiting for the upstream. Any sustained rate here means a backend, not Envoy, is the problem.",
+          "gridPos": { "h": 9, "w": 24, "x": 0, "y": 27 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "sum by (envoy_cluster_name) (rate(envoy_cluster_upstream_rq_timeout[$__rate_interval]))",
+              "legendFormat": "{{envoy_cluster_name}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" }
+            },
+            "overrides": []
+          },
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+        },
+        {
+          "id": 5,
+          "type": "stat",
+          "title": "Active connections",
+          "description": "Downstream connections currently open across all listeners.",
+          "gridPos": { "h": 5, "w": 12, "x": 0, "y": 36 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "sum(envoy_http_downstream_cx_active)",
+              "legendFormat": "active connections",
+              "refId": "A"
+            }
+          ],
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+          },
+          "fieldConfig": {
+            "defaults": { "unit": "short", "decimals": 0, "color": { "mode": "palette-classic" } },
+            "overrides": []
+          }
+        },
+        {
+          "id": 6,
+          "type": "stat",
+          "title": "Proxy scrape health",
+          "description": "Envoy proxy targets up. Below the expected replica count means the rest of this dashboard is stale, not that traffic stopped.",
+          "gridPos": { "h": 5, "w": 12, "x": 12, "y": 36 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "sum(up{job=\"envoy-gateway/envoy-proxy\"})",
+              "legendFormat": "targets up",
+              "refId": "A"
+            }
+          ],
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "decimals": 0,
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "green", "value": 1 }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        }
+      ]
+    }
