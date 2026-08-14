@@ -2,3 +2,14 @@ config:
   envoyGateway:
     gateway:
       controllerName: gateway.envoyproxy.io/gatewayclass-controller
+    provider:
+      type: Kubernetes
+      kubernetes:
+        # The Gateway's Programmed condition is recomputed only when a watch event
+        # fires on the proxy Deployment. On 2026-08-14 the proxy briefly lost its
+        # only replica; the recompute raced the recovery, read AvailableReplicas=0,
+        # and wrote Programmed=False. No further Deployment event ever arrived, so
+        # the condition stayed False for hours while ingress served fine — and
+        # ArgoCD reported the app Progressing the whole time. The informer resync
+        # is the only thing that re-fires that event; upstream defaults it to 10h.
+        cacheSyncPeriod: 10m
