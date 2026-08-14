@@ -1,17 +1,11 @@
 controllers:
   main:
-    replicas: 0    # temporary: Longhorn migration, see docs/superpowers/plans/2026-08-13-longhorn-deployment.md
-    # local-path is ReadWriteOnce and node-pinned, and two Jellyfins must never open
-    # the same SQLite database: the old pod has to be gone before the new one starts.
+    # longhorn is ReadWriteOnce, and two Jellyfins must never open the same SQLite
+    # database: the old pod has to be gone before the new one starts.
     strategy: Recreate
     pod:
       nodeSelector:
         homelab.io/media: "true"
-      tolerations:
-        - key: homelab.io/media
-          operator: Equal
-          value: "true"
-          effect: PreferNoSchedule
       securityContext:
         # render (991) and video (44) own the DRI devices; the container runs as uid 1000.
         supplementalGroups: [991, 44]
@@ -72,15 +66,15 @@ route:
 
 persistence:
   config:
-    # local-path, not nfs -- jellyfin.db is SQLite and SQLite over NFS deadlocks.
+    # longhorn, not nfs -- jellyfin.db is SQLite and SQLite over NFS deadlocks.
     # See config-pvc.yaml for the rationale and the restore path. Defined as its
     # own manifest so the comment lives with the volume.
-    existingClaim: jellyfin-config-local
+    existingClaim: jellyfin-config
     globalMounts:
       - path: /config
   # Jellyfin writes backups to <datadir>/backups, which is /config/data/data/backups
   # in the linuxserver image (verified against the Path in GET /Backup). Mounting the
-  # NFS share there puts the archives on a different disk from the local-path config
+  # NFS share there puts the archives on a different disk from the Longhorn config
   # volume they protect, without making the rest of /data writable.
   backups:
     type: nfs
