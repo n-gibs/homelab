@@ -9,7 +9,7 @@ spec:
     kind: Deployment
     name: unpackerr
   updatePolicy:
-    updateMode: "Recreate"
+    updateMode: "InPlaceOrRecreate"
   resourcePolicy:
     containerPolicies:
       - containerName: "*"
