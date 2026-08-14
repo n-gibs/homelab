@@ -1,0 +1,28 @@
+---
+# One Probe with five targets rather than five Probes: they share a module, an interval and
+# a prober, so the only thing a split would buy is more files to keep in step.
+#
+# Public hostnames, not Services. All five resolve to 192.168.30.200, the gateway's address,
+# so the probe traverses DNS, the gateway, the HTTPRoute and the served certificate — the
+# whole path a browser takes. A Service-level probe would skip every one of those and only
+# retest what pod readiness already covers.
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: apps
+  namespace: blackbox-exporter
+  labels:
+    release: monitoring-system
+spec:
+  interval: 60s
+  module: http_2xx
+  prober:
+    url: blackbox-exporter.blackbox-exporter.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        - https://vault.nik-homelab.dev
+        - https://grafana.nik-homelab.dev
+        - https://jellyfin.nik-homelab.dev
+        - https://nextcloud.nik-homelab.dev
+        - https://immich.nik-homelab.dev

@@ -1,0 +1,17 @@
+# Every check in this cluster was inside-out: pod Ready, container not restarting, scrape
+# succeeding. None of that notices an app that is Running and answering 500s, a DNS record
+# that stopped resolving, or a certificate the gateway never reloaded. This probes the same
+# URL a browser would, from inside the cluster, through the real gateway and the real cert.
+#
+# Chart default config is left alone: its one http_2xx module already sets
+# follow_redirects (jellyfin and nextcloud both 302 to a login path) and prefers ip4.
+fullnameOverride: blackbox-exporter
+
+replicas: 1
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    memory: 64Mi
