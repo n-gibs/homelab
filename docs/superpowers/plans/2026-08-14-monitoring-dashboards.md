@@ -224,7 +224,11 @@ promq 'longhorn_disk_capacity_bytes'
 promq 'longhorn_volume_actual_size_bytes'
 ```
 
-Record the label sets returned. `longhorn_engine_info` in particular carries the engine image as a label — note its exact key, because Step 3's panel groups by it.
+Label sets were confirmed on 2026-08-14 once Task 1 restored the scrape:
+
+- `longhorn_volume_robustness` carries `state` (`healthy` / `degraded` / `faulted` / `unknown`), `volume`, `pvc`, `pvc_namespace`, `node`. It emits one series **per state per volume**, valued 0 or 1, so the current state is `longhorn_volume_robustness == 1` — a bare `count by (state)` counts every volume in every state and always returns a flat 10.
+- `longhorn_engine_info` carries `image` (e.g. `docker.io/longhornio/longhorn-engine:v1.12.1`), `engine`, `volume`, `node`, `data_engine`.
+- `longhorn_backup_state` carries `backup`, `volume`, `recurring_job`.
 
 - [ ] **Step 3: Write the dashboard**
 
@@ -232,8 +236,8 @@ Copy `system/vpa/dashboard.yaml` to `system/longhorn-system/dashboard.yaml`, the
 
 | # | Type | Title | Query |
 |---|---|---|---|
-| 1 | stat | Volume health | `count by (robustness) (longhorn_volume_robustness)` |
-| 2 | stat | Engine images in use | `count by (image) (longhorn_engine_info)` — substitute the real image label key found in Step 2 |
+| 1 | stat | Volume health | `count by (state) (longhorn_volume_robustness == 1)` |
+| 2 | stat | Engine images in use | `count by (image) (longhorn_engine_info)` |
 | 3 | timeseries | Disk usage vs capacity per node | `sum by (node) (longhorn_disk_usage_bytes)` and `sum by (node) (longhorn_disk_capacity_bytes)`, unit `bytes` |
 | 4 | table | Backup state by volume | `longhorn_backup_state`, format table, instant |
 | 5 | timeseries | Volume actual size | `topk(10, longhorn_volume_actual_size_bytes)`, unit `bytes` |
