@@ -114,26 +114,50 @@ route:
 
 If the chart has a **built-in HTTPRoute** (found in Step 2), configure it via the chart's own values and add the Homepage annotations there. Never use `Ingress` — if the chart only supports ingress, disable it (`ingress.enabled: false`) and use app-template's `route:` block instead.
 
-Add persistence if needed. First check **whether the app stores state in SQLite** — most self-hosted
-apps do. If so the config volume must be `local-path`, not `nfs`: SQLite over NFS deadlocks. Declare
-it as its own manifest (`config-pvc.yaml`, no `sync-wave` annotation, rationale and recovery path in
-a comment — copy `apps/sonarr/config-pvc.yaml`) and consume it by name:
+Add persistence if needed. First decide **how the app keeps state** — this is a decision, not a
+default:
+
+- **CNPG Postgres cluster** if the app supports Postgres natively *and* the workload justifies
+  running one: concurrent writers, a multi-user app, a large or fast-growing dataset, or an app
+  with known SQLite contention (Vaultwarden migrated to Postgres 2026-08-12 for this reason — see
+  `apps/vaultwarden/postgres.yaml` for the pattern, or `apps/immich/postgres.yaml`,
+  `apps/nextcloud/`). Durability comes from streaming replication across instances, which is why
+  a CNPG cluster's own volume is the **one remaining `local-path` case** — replicating again at
+  the block layer would double write amplification to solve a problem replication already solves,
+  and neither `nfs` nor `longhorn` is a supported CNPG configuration. This only pays for itself
+  with 2+ instances (`spec.instances`); a single-instance CNPG cluster has none of the replication
+  benefit and all of the operational cost of running Postgres, so don't reach for it just because
+  an app *can* speak Postgres.
+- **SQLite on `longhorn`** otherwise — the default for a typical single-user self-hosted app, and
+  what the arrs, Bazarr, Navidrome and Cleanuparr use today. Two replicas, so losing a node
+  degrades the volume instead of taking it offline; binds `Immediate`, not
+  `WaitForFirstConsumer`; expands in place, so size it for what the app holds today rather than
+  guessing at growth. The real cost: Longhorn's fdatasync p99 measured ~4× `local-path`'s (2.93 ms
+  vs 0.73 ms) — invisible for these workloads but not free. See
+  `system/longhorn-system/README.md` for the full benchmark and the settings that fail silently.
+  Declare the PVC as its own manifest (`config-pvc.yaml`, no `sync-wave` annotation, rationale and
+  recovery path in a comment) and consume it by name. `apps/sonarr/config-pvc.yaml` shows the
+  pattern but is **not** a clean copy-me template right now — it still carries the retained
+  `local-path` PVC from Sonarr's own migration, due to go away 2026-08-27.
 
 ```yaml
 persistence:
   config:
-    existingClaim: <app>-config-local
+    existingClaim: <app>-config
     globalMounts:
       - path: /config
 ```
 
-A `local-path` config volume also needs a backup to NFS before it ships. **Check the app's settings
-for a built-in backup feature first and prefer it** — the arrs' System → Backup pointed at
+**App-level backups are required regardless of storage class**, and this is unchanged by the
+Longhorn migration. Longhorn's own nightly backup (see `system/longhorn-system/README.md`) is
+crash-consistent, not application-consistent — it's a safety net under the volume, not a
+substitute for the app quiescing its own database. **Check the app's settings for a built-in
+backup feature first and prefer it** — the arrs' System → Backup pointed at
 `/data/backups/<app>/`. It quiesces its own database, writes an archive its own restore flow
 accepts, and adds no manifest to maintain. Only write a CronJob when the app has no backup feature
-(`apps/cleanuparr/backup-cronjob.yaml`).
+at all (`apps/cleanuparr/backup-cronjob.yaml` — Cleanuparr has none).
 
-Otherwise, `nfs`:
+For bulk data genuinely shared between pods (media, backups) — never a database — use `nfs`:
 ```yaml
 persistence:
   config:
@@ -232,8 +256,8 @@ Watch sync: `kubectl get application -n argocd` or check ArgoCD UI at `argocd.ni
 - [ ] Chart inspected for built-in HTTPRoute — use it if present, otherwise use app-template `route:`
 - [ ] Homepage annotations on the route
 - [ ] `vpa.yaml` present
-- [ ] Storage class chosen per volume: `local-path` for SQLite config, `nfs` otherwise
-- [ ] `local-path` volume has a backup to `/data/backups/<app>/` — app's built-in backup if it has one, CronJob only if not
+- [ ] Storage decided per volume: CNPG + `local-path` only if Postgres is justified (2+ instances, real concurrency/scale need), `longhorn` for SQLite config otherwise, `nfs` for shared bulk data
+- [ ] App-level backup to `/data/backups/<app>/` exists regardless of storage class — app's built-in backup if it has one, CronJob only if not
 - [ ] nodeSelector `homelab.io/media: "true"` if accessing `/data` on NFS (no toleration — worker-01 is untainted)
 - [ ] Secrets created in Infisical at `/<appname>/<secret-name>` and an `infisical-secret.yaml` committed
 - [ ] If arr-stack app: added to `wire-media` recipe in `Justfile` (root folder and/or Prowlarr application link)
