@@ -10,7 +10,7 @@ spec:
     # Chart-derived name; fullnameOverride does not change it. Not "infisical".
     name: infisical-infisical-standalone-infisical
   updatePolicy:
-    updateMode: "Recreate"
+    updateMode: "InPlaceOrRecreate"
   resourcePolicy:
     containerPolicies:
       - containerName: "*"
