@@ -6,24 +6,21 @@ kubeScheduler:
 kubeProxy:
   enabled: false
 
-# etcd runs inside the k3s process rather than as a pod, so the chart's default
-# `component: etcd` selector matches nothing: the Service ships with no endpoints, the
-# scrape pool has no targets, and the chart's etcd rule group evaluates on an empty series
-# set forever. Naming the node IPs makes the chart render a static Endpoints object and
-# drop the selector.
+# etcd runs inside the k3s process rather than as a pod, so the chart's `component: etcd`
+# Service selector matches nothing and its ServiceMonitor scrapes an endpointless Service.
+# The chart can name static IPs instead (kubeEtcd.endpoints), but it renders them as an
+# Endpoints object, and ArgoCD excludes Endpoints and EndpointSlice by kind to keep from
+# watching control-plane churn -- so that object is never applied and the pool stays empty.
+# scrapeconfig-etcd.yaml addresses the three nodes directly instead.
 #
-# Depends on --etcd-expose-metrics=true from ansible/group_vars/k3s_cluster.yml. Without it
-# etcd binds 2381 on 127.0.0.1 only and all three endpoints refuse the connection.
+# `enabled` stays true because the chart gates its etcd alert rules on it. Only the Service
+# and ServiceMonitor go, and with them the permanently-empty scrape pool.
 kubeEtcd:
-  endpoints:
-    - 192.168.30.129
-    - 192.168.30.136
-    - 192.168.30.194
+  enabled: true
+  service:
+    enabled: false
   serviceMonitor:
-    # Chart default posts the Prometheus ServiceAccount token to this endpoint. Port 2381
-    # is plain HTTP and checks no credential, so the token buys nothing and would cross the
-    # VLAN in cleartext.
-    bearerTokenFile: ""
+    enabled: false
 
 kubelet:
   serviceMonitor:
@@ -164,6 +161,7 @@ prometheus:
     serviceMonitorSelectorNilUsesHelmValues: false
     podMonitorSelectorNilUsesHelmValues: false
     probeSelectorNilUsesHelmValues: false
+    scrapeConfigSelectorNilUsesHelmValues: false
     storageSpec:
       volumeClaimTemplate:
         spec:
