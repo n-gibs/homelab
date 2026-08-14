@@ -18,10 +18,11 @@ spec:
     - name: cilium
       rules:
         # Each agent probes every other node two ways, and this counts the ones failing.
-        # Baseline on 2026-08-14 was 2 on all three nodes, not 0: ICMP and pod-level HTTP
-        # probes pass, but host-level HTTP to another node's :4240 times out, so every node
-        # sees the other two as unreachable. That is a real degraded health mesh, so the
-        # threshold stays at the correct 0 rather than being raised to hide it.
+        # Baseline was 2 on all three nodes when this shipped, not 0 — UFW's default deny
+        # had no rule for :4240, so every host-level probe timed out while ICMP and
+        # pod-level probes passed and cilium-health read 1/3 reachable. Opening the port in
+        # ansible/roles/common/tasks/main.yml took it to 3/3 and the baseline to 0, which is
+        # what this threshold now measures against.
         - alert: CiliumUnreachableNodes
           expr: cilium_unreachable_nodes > 0
           for: 15m
