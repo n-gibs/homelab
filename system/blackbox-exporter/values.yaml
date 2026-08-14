@@ -3,9 +3,33 @@
 # that stopped resolving, or a certificate the gateway never reloaded. This probes the same
 # URL a browser would, from inside the cluster, through the real gateway and the real cert.
 #
-# Chart default config is left alone: its one http_2xx module already sets
-# follow_redirects (jellyfin and nextcloud both 302 to a login path) and prefers ip4.
 fullnameOverride: blackbox-exporter
+
+# This replaces the chart's default module map wholesale, so http_2xx is restated verbatim
+# rather than extended — widening it would stop the sixteen targets that really do answer
+# 200 from asserting it.
+#
+# http_2xx_auth exists for longhorn alone: its UI is behind basic auth and answers 401
+# unauthenticated, measured through this exporter before it was added. Accepting 401/403
+# still proves DNS, the gateway, the HTTPRoute and the served certificate all work; it just
+# stops short of claiming the app authenticated us, which no unauthenticated probe can.
+config:
+  modules:
+    http_2xx:
+      prober: http
+      timeout: 5s
+      http:
+        follow_redirects: true
+        preferred_ip_protocol: ip4
+        valid_http_versions: [HTTP/1.1, HTTP/2.0]
+    http_2xx_auth:
+      prober: http
+      timeout: 5s
+      http:
+        follow_redirects: true
+        preferred_ip_protocol: ip4
+        valid_http_versions: [HTTP/1.1, HTTP/2.0]
+        valid_status_codes: [200, 401, 403]
 
 replicas: 1
 
