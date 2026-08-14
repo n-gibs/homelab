@@ -6,6 +6,25 @@ kubeScheduler:
 kubeProxy:
   enabled: false
 
+# etcd runs inside the k3s process rather than as a pod, so the chart's default
+# `component: etcd` selector matches nothing: the Service ships with no endpoints, the
+# scrape pool has no targets, and the chart's etcd rule group evaluates on an empty series
+# set forever. Naming the node IPs makes the chart render a static Endpoints object and
+# drop the selector.
+#
+# Depends on --etcd-expose-metrics=true from ansible/group_vars/k3s_cluster.yml. Without it
+# etcd binds 2381 on 127.0.0.1 only and all three endpoints refuse the connection.
+kubeEtcd:
+  endpoints:
+    - 192.168.30.129
+    - 192.168.30.136
+    - 192.168.30.194
+  serviceMonitor:
+    # Chart default posts the Prometheus ServiceAccount token to this endpoint. Port 2381
+    # is plain HTTP and checks no credential, so the token buys nothing and would cross the
+    # VLAN in cleartext.
+    bearerTokenFile: ""
+
 kubelet:
   serviceMonitor:
     relabelings:
