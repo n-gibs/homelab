@@ -1,0 +1,77 @@
+---
+# Every user-facing request in the cluster passes through this proxy and none of it was
+# measured: no error rate, no backend health, no proxy liveness. Pod-level failures were
+# covered by the chart's default rules, but a proxy that is Running and answering 503 to
+# everything looked identical to a healthy one.
+#
+# Requires podmonitor.yaml.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: envoy-gateway
+  namespace: envoy-gateway
+  labels:
+    release: monitoring-system
+spec:
+  groups:
+    - name: envoy-gateway
+      rules:
+        # Ratio rather than a raw count, because absolute 5xx volume scales with traffic and
+        # would need retuning. The second clause is a volume floor: without it two errors on
+        # an idle listener read as 100% and page. It also keeps the admin, eg-ready-http and
+        # eg-stats-http listeners out of scope on their own, since none of them carry real
+        # traffic, so no listener needs naming here and a new one is covered automatically.
+        #
+        # 5% against a lifetime baseline of ~1.1% (890 5xx in 83k requests), most of which is
+        # 503s while a backend pod restarts.
+        - alert: Gateway5xxRateHigh
+          expr: |
+            (
+              sum by (envoy_http_conn_manager_prefix) (rate(envoy_http_downstream_rq_xx{envoy_response_code_class="5"}[5m]))
+              /
+              sum by (envoy_http_conn_manager_prefix) (rate(envoy_http_downstream_rq_xx[5m]))
+            ) > 0.05
+            and
+            sum by (envoy_http_conn_manager_prefix) (rate(envoy_http_downstream_rq_xx[5m])) > 0.2
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.envoy_http_conn_manager_prefix }} is serving over 5% 5xx"
+            description: >-
+              More than 5% of requests through the {{ $labels.envoy_http_conn_manager_prefix }}
+              listener have failed for 15m. Check GatewayNoHealthyUpstream first to see whether
+              one backend is responsible. A VPA Recreate that shrank a container's CPU limit
+              has caused this before, so check recent pod resizes on the backends too.
+
+        # One series per HTTPRoute backend, named httproute/<namespace>/<name>/rule/<n>, so the
+        # firing label points straight at the route. This is the alert that distinguishes "the
+        # gateway is broken" from "one app behind it is".
+        #
+        # Fires for an app deliberately scaled to zero. Nothing here is, and 15m rides out a
+        # rollout; if that changes, exclude it by envoy_cluster_name rather than loosening the
+        # threshold.
+        - alert: GatewayNoHealthyUpstream
+          expr: envoy_cluster_membership_healthy == 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: No healthy backend for {{ $labels.envoy_cluster_name }}
+            description: >-
+              Envoy has had no healthy endpoint for {{ $labels.envoy_cluster_name }} for 15m,
+              so every request to that hostname returns 503 while the gateway itself stays
+              healthy. Check the backing Service's endpoints and the pods behind it.
+
+        - alert: EnvoyMetricsMissing
+          expr: absent(envoy_server_live)
+          for: 15m
+          labels:
+            severity: critical
+          annotations:
+            summary: No Envoy data-plane metrics are being scraped
+            description: >-
+              envoy_server_live has had no series for 15m, so the error-rate and backend-health
+              rules above are evaluating on an empty series set. Either the proxy pod is gone,
+              which takes all ingress with it, or the PodMonitor stopped matching it. Check
+              `kubectl -n envoy-gateway get pods -l app.kubernetes.io/component=proxy`.
