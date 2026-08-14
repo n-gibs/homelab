@@ -1,13 +1,12 @@
 ---
-# Three rules, not more. Node-down is already covered by kube-state-metrics, and per-volume
+# Six rules, not more. Node-down is already covered by kube-state-metrics, and per-volume
 # IOPS is a dashboard question rather than an alert.
 #
-# Backup coverage comes for free and is deliberately not duplicated here: Longhorn renders
-# each RecurringJob as a Kubernetes CronJob in longhorn-system, so CronJobNotSucceeding,
-# CronJobOverdue and CronJobJobFailed in prometheusrule-backups.yaml already watch them.
-# BackupCronJobMissing's `.+-db-backup` regex does not match them on purpose -- a per-volume
-# expected count would need editing on every migration, and VolumeDegraded covers the same
-# ground from the other direction.
+# Backup coverage does NOT come for free from prometheusrule-backups.yaml. Longhorn renders
+# each RecurringJob as a Kubernetes CronJob in longhorn-system, but that Job reports
+# condition=complete even when the underlying Backup CR is Error and the backupstore is
+# empty -- observed twice during the migration. CronJobNotSucceeding/CronJobJobFailed watch
+# the Job, which looks healthy; only LonghornBackupFailed below watches the Backup CR itself.
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
@@ -68,3 +67,63 @@ spec:
               scheduling replicas below storageMinimalAvailablePercentage before it fills the
               disk, so this firing means either real growth or a claim sized far above its
               real usage -- check `kubectl get pvc -A | grep longhorn`.
+        # longhorn_backup_state is a numeric enum (opposite encoding from longhorn_volume_robustness
+        # above) -- every current backup reads 3 (Completed). Alerting on != 3 rather than a
+        # specific error value, since the Error enum value is unconfirmed and guessing it is
+        # exactly the mistake that almost shipped LonghornVolumeDegraded with == 2.
+        - alert: LonghornBackupFailed
+          expr: longhorn_backup_state != 3
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: Longhorn backup {{ $labels.backup }} for volume {{ $labels.volume }} is not Completed
+            description: >-
+              The RecurringJob's CronJob can report condition=complete while the Backup CR
+              itself is Error and the backupstore is empty -- observed twice during the
+              migration, which is why this doesn't rely on CronJobNotSucceeding /
+              CronJobJobFailed in prometheusrule-backups.yaml. Check
+              `kubectl -n longhorn-system get backups.longhorn.io` for the actual state. A
+              failed Backup CR persists until deleted or aged out by `retain: 7`, so this
+              alert stays firing until the failure is actually dealt with, not just retried.
+        # Every node reports two conditions == 0 permanently: multipathd (MultipathdIsRunning)
+        # and kernelmodulesloaded (KernelModulesNotLoaded) -- a blanket == 0 here would fire
+        # instantly and forever. multipathd running is a known Longhorn hazard (it can claim
+        # Longhorn's block devices) that is currently accepted rather than fixed on these
+        # nodes, so don't "helpfully" widen this selector without fixing that first.
+        - alert: LonghornNodeNotReady
+          expr: longhorn_node_status{condition=~"ready|allowScheduling"} == 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: Longhorn node {{ $labels.node }} is not {{ $labels.condition }}
+            description: >-
+              A Longhorn node going unschedulable is otherwise invisible until volumes on it
+              start degrading 30m later. Check
+              `kubectl -n longhorn-system get nodes.longhorn.io` for the node's condition
+              detail.
+        # Longhorn 1.11.3 (this cluster's version) lacks 1.12.0's fix for #13152: dataLocality
+        # =best-effort plus recurring jobs leaks Replica CRs when a node has insufficient local
+        # storage, and this cluster runs exactly that combination. Healthy baseline measured
+        # live: count(longhorn_replica_info)=16, count(longhorn_volume_actual_size_bytes)=8,
+        # i.e. exactly 2x -- longhorn_replica_info is per-replica (not one-hot, unlike
+        # longhorn_volume_robustness above), so counting it directly is valid. +2 headroom for
+        # a legitimate transient rebuild replica (one was observed during a locality
+        # migration); for: 2h so that headroom isn't itself the alert.
+        - alert: LonghornReplicaLeak
+          expr: >-
+            count(longhorn_replica_info) - 2 * count(longhorn_volume_actual_size_bytes) > 2
+          for: 2h
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $value }} more Longhorn replicas exist than the 2-per-volume baseline"
+            description: >-
+              Likely the known replica leak (longhorn#13152): dataLocality=best-effort plus a
+              recurring job leaves orphaned Replica CRs on nodes without enough local storage.
+              The fix is upgrading to Longhorn 1.12.1, NOT abandoning best-effort locality --
+              that setting is the fsync-tax mitigation and stays. Check
+              `kubectl -n longhorn-system get replicas.longhorn.io | wc -l` against
+              `kubectl -n longhorn-system get volumes.longhorn.io | wc -l` to confirm before
+              upgrading.
