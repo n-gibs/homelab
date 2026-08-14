@@ -1,0 +1,31 @@
+---
+# k3s serves etcd's metrics on 2381 of each node, unauthenticated plain HTTP, once
+# --etcd-expose-metrics=true is set (ansible/group_vars/k3s_cluster.yml). Without that flag
+# the port binds 127.0.0.1 only and all three targets refuse the connection.
+#
+# A ScrapeConfig rather than the chart's kubeEtcd Service: etcd is not a pod here, so there
+# is nothing for a Service to select, and the chart's static-IP path renders an Endpoints
+# object that ArgoCD excludes by kind. See the kubeEtcd block in values.yaml.
+#
+# `job` is set here rather than left as the operator's generated
+# `scrapeConfig/monitoring-system/kube-etcd`, so the chart's etcd dashboards and any
+# job-filtered rule keep working. `cluster` matches the relabeling every other scrape in
+# this stack applies.
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: ScrapeConfig
+metadata:
+  name: kube-etcd
+  namespace: monitoring-system
+  labels:
+    release: monitoring-system
+spec:
+  scheme: HTTP
+  metricsPath: /metrics
+  staticConfigs:
+    - labels:
+        job: kube-etcd
+        cluster: homelab
+      targets:
+        - 192.168.30.129:2381
+        - 192.168.30.136:2381
+        - 192.168.30.194:2381
