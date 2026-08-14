@@ -472,6 +472,25 @@
     src: 192.168.30.0/24
   become: true
 
+# Node-subnet source, not pod-subnet: Prometheus scrapes a node IP, which is outside the
+# cluster CIDR, so Cilium masquerades the pod source to the scraping node's own address.
+# Without these the default deny made every cross-node probe time out while ICMP and
+# pod-to-pod both passed — cilium-health read 1/3 reachable on all three nodes for as long
+# as anyone had looked, and the Cilium scrape only ever worked on whichever node Prometheus
+# happened to be running on.
+- name: Allow Cilium health and metrics ports from cluster node subnet
+  community.general.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+    src: 192.168.30.0/24
+  loop:
+    - "4240"      # cilium-health host probes
+    - "9962"      # cilium-agent metrics
+    - "9963"      # cilium-operator metrics
+    - "9965"      # hubble metrics
+  become: true
+
 - name: Enable UFW
   community.general.ufw:
     state: enabled
