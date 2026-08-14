@@ -189,10 +189,20 @@ prometheus:
     podMonitorSelectorNilUsesHelmValues: false
     probeSelectorNilUsesHelmValues: false
     scrapeConfigSelectorNilUsesHelmValues: false
+    # A TSDB is mmap-heavy, which is what NFS handles worst, and this volume was a 12TB USB
+    # HDD behind a single node -- the alerting path's own state on the least durable storage
+    # in the cluster. 10.1GB of blocks at 10d retention, so 20Gi stays roughly half full;
+    # longhorn expands in place if that changes.
+    #
+    # Changing this line alone does nothing. volumeClaimTemplates are immutable, so the
+    # operator recreates the StatefulSet, and the recreated one finds a PVC already existing
+    # under the expected name and reuses it -- Prometheus keeps running on the old class
+    # while everything reports Synced. Migrating means deleting the PVC deliberately, with
+    # the operator scaled to 0 so it does not race the recreate.
     storageSpec:
       volumeClaimTemplate:
         spec:
-          storageClassName: nfs
+          storageClassName: longhorn
           accessModes: ["ReadWriteOnce"]
           resources:
             requests:
