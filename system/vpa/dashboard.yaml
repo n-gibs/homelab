@@ -1,11 +1,16 @@
-# VPA dashboard, loaded by the Grafana sidecar (LABEL=grafana_dashboard, LABEL_VALUE=1,
-# NAMESPACE=ALL). Fed by the recommender and updater podMonitors enabled in
-# system/vpa/values.yaml — before those, nothing here was scraped.
+# VPA dashboard, fed by the recommender and updater podMonitors enabled in values.yaml.
+# Before those, nothing here was scraped.
+#
+# Lives in the vpa namespace rather than monitoring-system: the Grafana sidecar runs
+# LABEL=grafana_dashboard, LABEL_VALUE=1, NAMESPACE=ALL, so it is found either way, and
+# keeping it beside the podMonitor toggle that feeds it matches how envoy-gateway and
+# longhorn-system hold their own monitoring. monitoring-system is for subjects with no
+# directory of their own (cilium, etcd, argocd) or ones spanning several.
 #
 # The question this answers is whether InPlaceOrRecreate is resizing pods or quietly
 # falling back to eviction. The updater exposes no failure or eviction counter, so the
-# tell is panel 2: updatable pods staying above zero while the in-place rate stays flat
-# means every attempt is ending in a restart instead.
+# tell is the eligible-vs-resized panel: candidates staying above zero while the resize
+# rate stays flat means every attempt is ending in a restart instead.
 #
 # All queries use metric labels verified against the live 1.7.1 endpoints. The updater
 # buckets everything by vpa_size_log2, so sums must aggregate that label away.
@@ -13,7 +18,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: grafana-dashboard-vpa
-  namespace: monitoring-system
+  namespace: vpa
   labels:
     grafana_dashboard: "1"
 data:
