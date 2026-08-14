@@ -29,11 +29,11 @@ All 3 nodes are k3s server+worker (HA etcd control plane) and all 3 are normal s
 
 **Planned: move the 12TB drive to a dedicated NAS.** Today the 12TB USB disk hangs off worker-01,
 which makes that one node both the NFS server and the busiest workload host — a single point of
-failure for every `nfs` PVC. Moving it to a NAS separates storage from compute: the NFS server address stops being a node IP, worker-01
-becomes an ordinary (if large) media node, and `local-path` volumes get a genuinely independent
-second machine behind their backups rather than a second disk on the same box. Nothing in this repo
-assumes the move yet — `192.168.30.194` is still hardcoded as the NFS server in media app values
-and in `system/nfs-provisioner/`, so that's the surface to change when it happens.
+failure for every `nfs` PVC. Moving it to a NAS separates storage from compute: the NFS server
+address stops being a node IP and worker-01 becomes an ordinary (if large) media node. Nothing in
+this repo assumes the move yet — `192.168.30.194` is still hardcoded as the NFS server in media app
+values and in `system/nfs-provisioner/`, so that's the surface to change when it happens. This no
+longer bears on the arrs' config volumes — see below.
 
 Scheduling changes with it. Today 14 apps carry a hard `nodeSelector` on `homelab.io/media=true`,
 which pins them to worker-01 whether or not they need it. Once storage is off the node, only
@@ -42,11 +42,12 @@ cluster — and it should be a *preference* (`preferredDuringSchedulingIgnoredDu
 affinity), not a hard pin, so it can still start if that node is down. Everything else drops the
 selector and schedules freely.
 
-Two things to know before doing that. Most of those apps keep a `local-path` config PVC, which pins
-the pod to whichever node the volume was provisioned on regardless of the selector — removing the
-`nodeSelector` will not actually free them, so treat the two as separate moves. And Jellyfin has no
-`/dev/dri` passthrough configured today, so "strongest transcoder" currently means CPU only; wiring
-up QuickSync would make the worker-01 preference matter far more than it does now.
+Jellyfin's config PVC stays `local-path`, pinning it to whichever node it was provisioned on
+regardless of the selector — its pin is what gives it `/dev/dri` QuickSync access on worker-01, not
+an artifact of the storage layout, and it's the one PVC below that a NAS move doesn't change.
+Everything else that used to make this a two-move problem no longer applies: the arrs' config
+PVCs moved to Longhorn on 2026-08-13 (see [`system/longhorn-system/README.md`](system/longhorn-system/README.md)),
+so they're no longer pinned to a node at all.
 
 ---
 
@@ -84,7 +85,7 @@ Once `apps/` (wave 3) has synced and Sonarr, Radarr, Lidarr, and Prowlarr show h
 just wire-media
 ```
 
-This sets Sonarr/Radarr/Lidarr root folders and wires Prowlarr → Sonarr/Radarr/Lidarr as linked applications, via each app's REST API. It's a **one-time step**, not a recurring operational task — but the config it writes lives in each arr's `local-path` config PVC, so it does **not** survive losing the node that volume is on; re-run it after a restore. Safe to re-run any time; it checks before it writes.
+This sets Sonarr/Radarr/Lidarr root folders and wires Prowlarr → Sonarr/Radarr/Lidarr as linked applications, via each app's REST API. It's a **one-time step**, not a recurring operational task. The config it writes lives on each arr's Longhorn config volume (2 replicas), so it survives losing the node the pod was running on, and each arr's own backup covers it as a second layer; re-run it only after restoring from a backup with no config in it. Safe to re-run any time; it checks before it writes.
 
 Three remaining steps stay manual (`just wire-media` prints these as a reminder when it finishes):
 - **Jellyfin**: add TV (`/data/media/tv`), Movies (`/data/media/movies`), and Music (`/data/media/music`) libraries via `jellyfin.nik-homelab.dev` → Dashboard → Libraries.
@@ -115,8 +116,8 @@ Ubuntu Server 26.04 LTS — installed manually from USB.
 apps/           # user-facing applications (arr stack, jellyfin, immich, nextcloud, vaultwarden, etc.)
 platform/       # cluster platform services (sealed-secrets, tailscale, cloudnative-pg, renovate)
 system/         # low-level cluster infrastructure (cert-manager, coredns, envoy-gateway,
-                #   external-dns, infisical, infisical-operator, kube-system, metrics-server,
-                #   nfs-provisioner, vpa, monitoring-system, loki, alloy)
+                #   external-dns, infisical, infisical-operator, kube-system, longhorn-system,
+                #   metrics-server, nfs-provisioner, vpa, monitoring-system, loki, alloy)
 bootstrap/      # one-time helmfile bootstrap (Cilium, ArgoCD, root ApplicationSet)
 ansible/        # node provisioning (Ubuntu install, k3s setup) — see ansible/README.md
 config/         # manifests rendered from templates by `just build-config` (gitignored)
