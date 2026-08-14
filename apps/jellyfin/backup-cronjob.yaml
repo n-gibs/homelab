@@ -4,9 +4,9 @@
 # touches SQLite files, which is why this is a curl-equivalent and not a copy of
 # apps/cleanuparr/backup-cronjob.yaml.
 #
-# This is what makes the local-path config volume acceptable: archives land on the
-# NFS share (mounted into the pod at /config/data/data/backups, see values.yaml),
-# a different disk from the NVMe holding the database.
+# Longhorn's own daily backup of the config volume is crash-consistent; this is the
+# application-consistent one. Archives land on the NFS share (mounted into the pod at
+# /config/data/data/backups, see values.yaml), a different disk from the database.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
