@@ -1,0 +1,65 @@
+---
+# Cilium had no metrics at all, which given this cluster's history — two agents writing the
+# BPF LB maps at once, split-brain, a stale CNI conflist surviving a reboot — made it the
+# highest-value unscraped source after etcd. The one Cilium alert that existed was derived
+# from logs, and that delivery path is itself only now watched (system/loki/prometheusrule.yaml).
+#
+# Requires prometheus.enabled and the metricsService flags in bootstrap/values/cilium.yaml,
+# which is helmfile-managed: a chart bump alone will not reapply them, `just bootstrap` will.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: cilium
+  namespace: monitoring-system
+  labels:
+    release: monitoring-system
+spec:
+  groups:
+    - name: cilium
+      rules:
+        # Each agent probes every other node two ways, and this counts the ones failing.
+        # Baseline on 2026-08-14 was 2 on all three nodes, not 0: ICMP and pod-level HTTP
+        # probes pass, but host-level HTTP to another node's :4240 times out, so every node
+        # sees the other two as unreachable. That is a real degraded health mesh, so the
+        # threshold stays at the correct 0 rather than being raised to hide it.
+        - alert: CiliumUnreachableNodes
+          expr: cilium_unreachable_nodes > 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: Cilium on {{ $labels.node }} sees {{ $value }} unreachable nodes
+            description: >-
+              Node-to-node connectivity is degraded from {{ $labels.node }}'s view. Run
+              `cilium-health status --verbose` in that node's agent to see which probe fails:
+              ICMP-only failures point at the network, HTTP-only at the health server on
+              :4240, and both at the node being genuinely gone.
+
+        # 0 restarts over the three days before this shipped. >2 in an hour is a crashloop
+        # rather than the single restart a `just bootstrap` or a chart bump causes.
+        - alert: CiliumAgentRestarting
+          expr: >-
+            increase(kube_pod_container_status_restarts_total{namespace="kube-system",
+            container="cilium-agent"}[1h]) > 2
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: cilium-agent on {{ $labels.pod }} is restarting repeatedly
+            description: >-
+              A restarting agent leaves the node's BPF maps mid-write. k3s uses
+              KillMode=process, so a restart that does not fully reap the old agent is how
+              two agents end up on one node writing LB maps at once — check
+              CiliumAgentDuplicate alongside this.
+
+        - alert: CiliumMetricsMissing
+          expr: absent(cilium_unreachable_nodes)
+          for: 1h
+          labels:
+            severity: critical
+          annotations:
+            summary: Cilium is not being scraped
+            description: >-
+              cilium_unreachable_nodes has had no series for an hour, so the CNI is unwatched
+              again. The flags live in bootstrap/values/cilium.yaml, which ArgoCD does not
+              manage — a chart bump reverts them until `just bootstrap` runs.

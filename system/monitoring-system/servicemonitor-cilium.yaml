@@ -1,0 +1,69 @@
+---
+# Cilium is helmfile-managed in bootstrap/ and owns no stack directory, so its monitoring
+# lives here alongside argocd's for the same reason. The chart can render these itself, but
+# only behind a capabilities check for monitoring.coreos.com/v1 — which does not exist during
+# a fresh bootstrap, where Cilium goes in first and Prometheus arrives later as an ArgoCD app.
+# Enabling it there fails the Cilium release outright, so the headless metrics Services come
+# from the chart (prometheus.metricsService in bootstrap/values/cilium.yaml) and the monitors
+# that scrape them come from here, after the CRDs exist.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: cilium-agent
+  namespace: monitoring-system
+  labels:
+    release: monitoring-system
+spec:
+  namespaceSelector:
+    matchNames:
+      - kube-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cilium-agent
+  endpoints:
+    - port: metrics
+      interval: 30s
+      relabelings:
+        # The metrics Service is headless and selects the agent DaemonSet, so without this
+        # every node's series carries the same pod-ip instance and they overwrite each other.
+        - sourceLabels: [__meta_kubernetes_pod_node_name]
+          targetLabel: node
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: cilium-operator
+  namespace: monitoring-system
+  labels:
+    release: monitoring-system
+spec:
+  namespaceSelector:
+    matchNames:
+      - kube-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cilium-operator
+  endpoints:
+    - port: metrics
+      interval: 30s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: hubble-metrics
+  namespace: monitoring-system
+  labels:
+    release: monitoring-system
+spec:
+  namespaceSelector:
+    matchNames:
+      - kube-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hubble
+  endpoints:
+    - port: hubble-metrics
+      interval: 30s
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_node_name]
+          targetLabel: node
