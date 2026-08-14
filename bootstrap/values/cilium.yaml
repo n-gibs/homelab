@@ -40,8 +40,20 @@ l2podAnnouncements:
   enabled: true
   interfacePattern: "^(enp2s0|eno1)$"
 
+# metricsService rather than the chart's own serviceMonitor: that one is gated behind a
+# capabilities check for monitoring.coreos.com/v1, which does not exist yet at bootstrap —
+# Prometheus arrives later as an ArgoCD app — so enabling it here fails the Cilium release
+# and takes the CNI with it on a fresh cluster. The Services are plain kinds and always
+# apply; the ServiceMonitors that scrape them live in
+# system/monitoring-system/servicemonitor-cilium.yaml.
+prometheus:
+  enabled: true
+  metricsService: true
+
 operator:
   replicas: 1
+  prometheus:
+    metricsService: true
 
 socketLB:
   enabled: true
@@ -52,6 +64,14 @@ bpf:
 
 hubble:
   enabled: true
+  # drop and dns only. `flow`, `tcp` and `http` are the cardinality trap — they are
+  # per-flow and would dwarf the current ~493k head series. drop is bounded by namespace
+  # pairs at this context setting (~30 namespaces), and bare `dns` gives rcode/qtype
+  # without the `query` label, which would otherwise be one series per domain name.
+  metrics:
+    enabled:
+      - drop:sourceContext=namespace;destinationContext=namespace
+      - dns
   relay:
     enabled: true
     hostNetwork: true
