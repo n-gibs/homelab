@@ -1,0 +1,5 @@
+chartName: prometheus-blackbox-exporter
+chartRepo: https://prometheus-community.github.io/helm-charts
+chartVersion: 11.17.2
+# After monitoring-system (wave 0), which owns the Probe CRD these manifests need.
+syncWave: "1"
