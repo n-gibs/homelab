@@ -1,0 +1,78 @@
+---
+# external-dns publishes every public hostname in this cluster and was not scraped. Its
+# failure mode is quiet by construction: the process stays up and logs "All records are
+# already up to date" whether or not it can still reach Cloudflare, so a revoked API token
+# looks exactly like a healthy steady state until someone notices a name has stopped
+# resolving. The blackbox probes added in system/blackbox-exporter/ would eventually catch
+# the consequence; these catch the cause.
+#
+# Requires serviceMonitor.enabled in system/external-dns/values.yaml.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: external-dns
+  namespace: external-dns
+  labels:
+    release: monitoring-system
+spec:
+  groups:
+    - name: external-dns
+      rules:
+        # Registry errors are the Cloudflare side: token, rate limit, zone permissions.
+        # Baseline is 0 over the 34 days this has been running.
+        - alert: ExternalDNSRegistryErrors
+          expr: increase(external_dns_registry_errors_total[15m]) > 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: external-dns is failing to talk to the DNS provider
+            description: >-
+              Registry operations are erroring, so record changes are not reaching
+              Cloudflare while the pod stays Running. Usually the API token in the
+              cloudflare-api-token secret, which is sourced from Infisical. Existing records
+              keep resolving, so nothing breaks until the next HTTPRoute change.
+
+        # The other half, and the one no error counter covers: the reconcile loop stopping
+        # altogether. It runs about once a minute, so 15m of no sync is fifteen missed
+        # passes rather than a slow one.
+        - alert: ExternalDNSNotSyncing
+          expr: time() - external_dns_controller_last_sync_timestamp_seconds > 900
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: external-dns has not synced in 15 minutes
+            description: >-
+              The reconcile loop has stopped. New hostnames will not be published and
+              deleted ones will not be withdrawn, with no error counter moving to say so.
+              Check the external-dns pod logs and its connection to the apiserver.
+
+        # What actually matters to a user: desired records and published records disagreeing.
+        # Both read 17 at steady state. A real change makes them differ for one reconcile
+        # pass, which is why this waits 15m before believing it.
+        - alert: ExternalDNSRecordsOutOfSync
+          expr: sum(external_dns_source_records) != sum(external_dns_registry_records)
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: external-dns has not published all the records it found
+            description: >-
+              The cluster wants {{ $value }} more or fewer records than are registered. This
+              is the symptom the two rules above are the causes of, and it fires even when
+              neither does — a record rejected by the provider without an error, for
+              instance. Compare `external_dns_source_records` with
+              `external_dns_registry_records`.
+
+        - alert: ExternalDNSMetricsMissing
+          expr: absent(external_dns_registry_errors_total)
+          for: 1h
+          labels:
+            severity: critical
+          annotations:
+            summary: external-dns is not being scraped
+            description: >-
+              external_dns_registry_errors_total has had no series for an hour, so public
+              DNS publication is unwatched again. Check that serviceMonitor.enabled survived
+              a chart bump in system/external-dns/values.yaml.

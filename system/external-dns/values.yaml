@@ -1,3 +1,8 @@
+# Nothing watched the thing that publishes every public hostname in the cluster. See
+# prometheusrule.yaml.
+serviceMonitor:
+  enabled: true
+
 sources:
   - gateway-httproute
 
