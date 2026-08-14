@@ -184,13 +184,15 @@ Left open, deliberately:
 - The old NFS PV `pvc-9dbb49b1` is `Released` with `Retain`, holding 10.3GB at
   `worker-01:/mnt/storage/monitoring-system/prometheus-…-0`. It is the rollback for task 8;
   deleting it is irreversible.
-- Blackbox probes cover 5 of 16 hostnames. Extending is one line each in
-  `system/blackbox-exporter/probes.yaml`, worth doing once `EndpointDown` has been quiet
-  for a while.
-- The live UFW rules include `2379:2381`, `5001`, `51820/51821` and blanket allows for both
-  cluster CIDRs, none of which are in the `common` role. The `ufw` module only adds, so
-  provisioning will not remove them, but that file is not a complete description of the
-  nodes.
+  Gated to 2026-08-28.
+- ~~Blackbox probes cover 5 of 16 hostnames.~~ Closed 2026-08-14 (#63). All 17 are probed.
+  Each was measured through the exporter first: eleven answer 200, longhorn answers 401 and
+  got a second module accepting 200/401/403 rather than a standing critical `EndpointDown`.
+- ~~The live UFW rules include `2379:2381`, `5001`, `51820/51821` and blanket allows for both
+  cluster CIDRs, none of which are in the `common` role.~~ Closed 2026-08-14 (#64). etcd
+  codified and narrowed to the node subnet, the pod-CIDR blanket kept with its reasoning
+  written down; the service-CIDR blanket, `5001` and `51820/51821` had nothing behind them
+  and were deleted from the nodes as well as from the role.
 Closed without action:
 
 - Grafana ships `adminPassword: changeme` with `auth.anonymous.org_role: Admin`. Accepted
