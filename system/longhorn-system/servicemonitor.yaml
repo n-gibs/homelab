@@ -1,18 +1,16 @@
 ---
-# Longhorn's manager exposes metrics on the longhorn-backend Service. Lives here rather than
-# in longhorn-system for the same reason as argocd-servicemonitor.yaml: monitors are kept
-# with the monitoring stack, selected by namespace.
+# Longhorn's manager exposes metrics on the longhorn-backend Service.
+#
+# No namespaceSelector: this now lives in the namespace it selects, so the default of
+# own-namespace-only is exactly right.
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: longhorn
-  namespace: monitoring-system
+  namespace: longhorn-system
   labels:
     release: monitoring-system
 spec:
-  namespaceSelector:
-    matchNames:
-      - longhorn-system
   selector:
     matchLabels:
       app: longhorn-manager

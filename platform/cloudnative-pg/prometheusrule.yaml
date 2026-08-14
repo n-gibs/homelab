@@ -3,13 +3,13 @@
 # durability comes from streaming replication rather than the volume -- a cluster that
 # drops to one replica still serves normally while having no surviving copy of the data.
 #
-# Requires podmonitor-cnpg.yaml. Aggregations are `by (namespace)` because this repo runs
+# Requires podmonitor.yaml. Aggregations are `by (namespace)` because this repo runs
 # one cluster per namespace; switch to `by (cnpg_io_cluster)` if that changes.
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
   name: cnpg
-  namespace: monitoring-system
+  namespace: cloudnative-pg
   labels:
     release: monitoring-system
 spec:
@@ -127,5 +127,5 @@ spec:
             summary: No CloudNativePG metrics are being reported
             description: >-
               cnpg_collector_up has had no series for an hour, so every CNPG alert is
-              silent across all four clusters. Check podmonitor-cnpg.yaml, Prometheus
+              silent across all four clusters. Check podmonitor.yaml, Prometheus
               PodMonitor discovery, and the operator's cnpg-default-monitoring ConfigMap.
