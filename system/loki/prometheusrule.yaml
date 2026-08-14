@@ -1,0 +1,58 @@
+---
+# The cluster's only log-based alert (rule-cilium-split-brain.yaml) is evaluated by Loki's own
+# ruler, not by Prometheus. Nothing watched the ruler, so a ruler that stopped evaluating would
+# have taken that alert with it silently — the alert would simply never fire again.
+#
+# Requires monitoring.serviceMonitor.enabled in system/loki/values.yaml.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: loki
+  namespace: loki
+  labels:
+    release: monitoring-system
+spec:
+  groups:
+    - name: loki
+      rules:
+        # Evaluation is the thing that can stop while Loki stays up and healthy: a bad rule
+        # file, a sidecar that stopped syncing /rules, a ruler that lost its ring. The group
+        # interval is 60s, so 10m of no evaluation is ten missed passes, not a slow one.
+        - alert: LokiRulerNotEvaluating
+          expr: time() - loki_prometheus_rule_group_last_evaluation_timestamp_seconds > 600
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: Loki ruler group {{ $labels.rule_group }} has not evaluated in 10 minutes
+            description: >-
+              The Loki ruler stopped evaluating {{ $labels.rule_group }}, so every log-based
+              alert in it is silently off. Check the loki-sc-rules sidecar wrote the ConfigMap
+              under /rules/fake, then the loki container logs for rule parse errors.
+
+        # Separate from the above: a group that evaluates but throws keeps its timestamp fresh,
+        # so the staleness check above cannot see it. Baseline is 0 failures.
+        - alert: LokiRuleEvaluationFailing
+          expr: increase(loki_prometheus_rule_evaluation_failures_total[15m]) > 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: Loki ruler group {{ $labels.rule_group }} is failing evaluation
+            description: >-
+              Rule evaluation in {{ $labels.rule_group }} is erroring, so its alerts are not
+              being decided. Usually a LogQL expression that no longer parses or queries a
+              stream that has aged out of the 168h retention.
+
+        - alert: LokiMetricsMissing
+          expr: absent(loki_build_info)
+          for: 1h
+          labels:
+            severity: critical
+          annotations:
+            summary: Loki is not being scraped
+            description: >-
+              loki_build_info has had no series for an hour, so LokiRulerNotEvaluating cannot
+              fire and the log-alert path is unwatched again. Check that
+              monitoring.serviceMonitor.enabled survived a chart bump in
+              system/loki/values.yaml, and that the loki StatefulSet is up.

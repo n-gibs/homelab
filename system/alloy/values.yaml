@@ -2,6 +2,11 @@ controller:
   type: deployment
   replicas: 1
 
+# Alloy is the only log shipper; unscraped, a stopped pipeline is invisible. See
+# prometheusrule.yaml.
+serviceMonitor:
+  enabled: true
+
 alloy:
   # No cpu limit: VPA preserves the request:limit ratio, so its 23m target turned this
   # 1 core into a 230m ceiling that alloy ran flat against (2026-08-12).
