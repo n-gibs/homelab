@@ -72,6 +72,11 @@ controllers:
           # every transfer.
           RCLONE_CONFIG_SEEDBOX_SHELL_TYPE: none
           RCLONE_CONFIG_SEEDBOX_DISABLE_HASHCHECK: "true"
+          # Without a pinned key rclone accepts any host key, and since this remote
+          # authenticates with a password an on-path server would collect it. Key
+          # scanned 2026-08-14, SHA256:xbLXJ4/A3uDY1Bt8GJdqVz+BTOKEtRG/+qAKEKwtNDg.
+          # Re-scan and update here if seedit4.me ever rebuilds the box.
+          RCLONE_CONFIG_SEEDBOX_HOST_KEYS: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKhXY6Oz2zccYqk6M55deQ7Z/T81DQNead+joQEwljiE"
         envFrom:
           - secretRef:
               name: rclone-seedbox-sftp
