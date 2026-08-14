@@ -34,3 +34,37 @@ spec:
   resources:
     requests:
       storage: 20Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jellyfin-config
+  namespace: jellyfin
+  # No sync-wave annotation. The longhorn class binds Immediate rather than
+  # WaitForFirstConsumer, so unlike the local-path PVC above this does not sit Pending
+  # waiting for a consumer -- but a PVC still has no reason to own a wave.
+spec:
+  accessModes:
+    - ReadWriteOnce
+  # longhorn, not local-path: /config/data/data/jellyfin.db is SQLite, and SQLite needs a
+  # real block device with a real filesystem -- which Longhorn provides and NFS does not.
+  # Two replicas, so worker-01's NVMe dying degrades this volume instead of destroying it.
+  #
+  # Unlike the arrs, this does not unpin the pod: nodeSelector homelab.io/media=true
+  # matches worker-01 alone, and the container requests gpu.intel.com/i915 for QuickSync.
+  # The gain here is replication, not mobility.
+  #
+  # Durability still does not come from the volume. Longhorn's daily backup is
+  # crash-consistent; jellyfin-db-backup calling Jellyfin's own /Backup/Create nightly is
+  # the application-consistent copy, and it lands on the NFS share, a different disk.
+  #
+  # Recovery if a node dies: nothing to do, the replica rebuilds. If the volume is
+  # faulted, start the pod with `--restore-archive /config/data/data/backups/<newest>.zip`
+  # (or Dashboard -> Backups -> Restore).
+  #
+  # 3Gi against 889M today, and longhorn expands in place, so this isn't sized once like
+  # the 20Gi local-path PVC above.
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 3Gi
