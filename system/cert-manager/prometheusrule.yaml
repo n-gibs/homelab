@@ -9,7 +9,7 @@ apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
   name: cert-manager
-  namespace: monitoring-system
+  namespace: cert-manager
   labels:
     release: monitoring-system
 spec:
