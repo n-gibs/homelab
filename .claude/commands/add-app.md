@@ -59,7 +59,9 @@ Never use `Ingress`. Always use `HTTPRoute` (Gateway API). If the chart only sup
 
 ## Step 3 — Create the directory and files
 
-Create `<stack>/<appname>/` with these files:
+Create `<stack>/<appname>/` with these files. Anything else specific to this app belongs here
+too, including its PVC manifest and its monitoring (Step 4) — one directory holds everything
+ArgoCD should prune if the app goes away.
 
 ### `app.yaml` (chart source — Renovate parses this)
 
@@ -215,7 +217,56 @@ spec:
           memory: 2Gi
 ```
 
-## Step 4 — Add any secrets to Infisical
+## Step 4 — Decide what to monitor (required)
+
+Not optional, and not "add alerts later". Answer one question before the app ships: **how would
+I find out this app is broken?** Write the answer down, even when the answer is "nothing worth
+watching" — an explicit note beats an implicit gap. This step exists because fifteen etcd alert
+rules sat with no data behind them for 33 days and looked identical to healthy the whole time
+(`docs/audits/2026-08-14-monitoring-audit.md`).
+
+**What you already get for free.** The kube-prometheus-stack default rules cover crashlooping,
+not-Ready, OOMKills, unschedulable pods, and PVCs filling up. Never re-implement those. The gap
+they leave is the one that matters: **a pod that is Running while the app inside it is broken.**
+
+Work down this list and stop at the first rung that answers the question:
+
+1. **The app or chart exposes Prometheus metrics** — check
+   `helm show values <repo>/<chart> | grep -iE "metrics|servicemonitor|podmonitor"`, and confirm
+   the metrics actually exist by reading the endpoint rather than trusting the values file. Enable
+   the chart's own ServiceMonitor if it has one; otherwise write
+   `<stack>/<appname>/servicemonitor.yaml`. Alerts go in
+   `<stack>/<appname>/prometheusrule.yaml`.
+2. **No metrics, but it serves HTTP** — a reachability alert. `apps/nextcloud/prometheusrule.yaml`
+   is the current pattern. A shared blackbox-exporter is planned (task 9 in the audit) and will
+   cover this class with a `Probe` per hostname.
+3. **It holds state you would miss** — the rules in
+   `system/monitoring-system/prometheusrule-backups.yaml` watch backup **CronJobs**. An app using
+   its own built-in backup feature has no CronJob, so nothing watches it. Say so in a comment if
+   that is the case here.
+4. **Genuinely nothing observable beyond pod state** — record that in the app's `values.yaml` or
+   directory README so the next person knows it was considered, not forgotten.
+
+Rules that must hold whatever you write:
+
+- **Monitoring for one app lives in that app's directory.** ArgoCD then prunes the rules with the
+  app. A rule left behind in `system/monitoring-system/` becomes an `absent()` guard firing about
+  a metric nobody will ever produce again, and an orphaned ServiceMonitor becomes a permanently
+  empty scrape pool that trips `ScrapePoolEmpty`. Only genuinely cross-cutting rules (nodes,
+  CronJobs across namespaces, alert escalation, scrape coverage) belong in `monitoring-system/`.
+- **Watch the sync wave when colocating.** `monitoring-system` is wave 0 within `system`, so any
+  app at wave 1+ is safe. An app at wave 0 races the Prometheus Operator CRDs on a fresh
+  bootstrap; keep its rules central or accept a transient failed sync that self-heals.
+- **Every rule gets an `absent()` guard** for the metric family it reads, named
+  `<Thing>MetricsMissing`. A rule whose metric stopped existing cannot fire and looks exactly like
+  a healthy one. Follow `system/cert-manager/prometheusrule.yaml`.
+- **Measure thresholds, don't pick round numbers.** Query the live baseline first and put it in
+  the comment, so the next person can tell a tuned threshold from a guessed one.
+- **Verify before merging:** `promtool check rules` (pipe `spec.groups` into the Prometheus pod's
+  promtool via `/dev/stdin`), `kubectl apply --dry-run=server`, then run the expression against
+  live Prometheus so you know whether it fires the moment it lands.
+
+## Step 5 — Add any secrets to Infisical
 
 Secrets come from Infisical, not `secrets/registry.tsv` — that registry is down to the two
 bootstrap rows Infisical can't hold for itself, and adding an app is not a registry change.
@@ -234,11 +285,11 @@ No `just seal`, no plaintext in `secrets/.secrets`, no `.secrets.example` entry.
 
 If this app is part of the arr stack (Sonarr, Radarr, Lidarr, etc.) and needs a root folder set or to be linked into Prowlarr as an application, add it to the `wire-media` recipe in `Justfile`: an `ensure_root_folder` call (root folder path) and/or an `ensure_prowlarr_app` call (implementation name, config contract, base URL, sync categories) — follow the existing Sonarr/Radarr calls in that recipe as the pattern. This is a manual, one-time step per app (see `secrets/README.md` and the `wire-media` recipe itself for context) — it won't run automatically just because the app directory exists.
 
-## Step 5 — Verify ArgoCD will pick it up
+## Step 6 — Verify ArgoCD will pick it up
 
 The root ApplicationSet in `bootstrap/root/values.yaml` auto-discovers directories in `system/`, `platform/`, and `apps/`. No registration needed — ArgoCD syncs automatically when merged to `main`.
 
-## Step 6 — Commit and watch
+## Step 7 — Commit and watch
 
 ```bash
 git add <stack>/<appname>/
@@ -258,6 +309,11 @@ Watch sync: `kubectl get application -n argocd` or check ArgoCD UI at `argocd.ni
 - [ ] `vpa.yaml` present
 - [ ] Storage decided per volume: CNPG + `local-path` only if Postgres is justified (2+ instances, real concurrency/scale need), `longhorn` for SQLite config otherwise, `nfs` for shared bulk data
 - [ ] App-level backup to `/data/backups/<app>/` exists regardless of storage class — app's built-in backup if it has one, CronJob only if not
+- [ ] "How would I know this app is broken?" answered, and the answer written down — in the app's own directory if it produced manifests, in a comment if the answer was "nothing beyond pod state"
+- [ ] Any ServiceMonitor / PodMonitor / PrometheusRule for this app lives in the app's directory, not in `system/monitoring-system/`
+- [ ] Each alert that reads a metric has a matching `<Thing>MetricsMissing` `absent()` guard
+- [ ] Thresholds measured against the live baseline, with that baseline in the comment
+- [ ] Rules pass `promtool check rules` and a server-side dry-run, and do not fire the moment they land
 - [ ] nodeSelector `homelab.io/media: "true"` if accessing `/data` on NFS (no toleration — worker-01 is untainted)
 - [ ] Secrets created in Infisical at `/<appname>/<secret-name>` and an `infisical-secret.yaml` committed
 - [ ] If arr-stack app: added to `wire-media` recipe in `Justfile` (root folder and/or Prowlarr application link)
