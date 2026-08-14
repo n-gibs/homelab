@@ -62,9 +62,12 @@ spec:
   # faulted, start the pod with `--restore-archive /config/data/data/backups/<newest>.zip`
   # (or Dashboard -> Backups -> Restore).
   #
-  # 3Gi against 889M today, and longhorn expands in place, so this isn't sized once like
-  # the 20Gi local-path PVC above.
+  # 5Gi against 889M today. Not headroom for growth -- Jellyfin 10.11's
+  # StorageHelper.TestDataDirectorySize aborts startup unless /config/data/data has 2GiB
+  # free, and it counts free space, not total. A 3Gi volume left exactly 2.0G free and
+  # the server threw InvalidOperationException on every boot while s6 kept the container
+  # reporting Running. Floor is therefore 889M + 2GiB + filesystem overhead.
   storageClassName: longhorn
   resources:
     requests:
-      storage: 3Gi
+      storage: 5Gi
