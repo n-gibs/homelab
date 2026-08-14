@@ -6,6 +6,10 @@ k3s_version: "v1.36.3+k3s1"
 token: "{{ vault_k3s_token }}"  # store in ansible-vault or pass via -e
 api_endpoint: "192.168.30.129"
 
+# These land in the k3s systemd unit via INSTALL_K3S_EXEC, not in config.yaml. The
+# k3s_server role only restarts k3s when config.yaml changes, so a flag added here reaches
+# the unit file and then sits there unapplied until someone restarts k3s by hand. Roll the
+# restart one server at a time; two at once loses etcd quorum.
 common_server_flags: >-
   --disable traefik
   --disable servicelb
@@ -14,6 +18,7 @@ common_server_flags: >-
   --disable-network-policy
   --write-kubeconfig-mode=644
   --resolv-conf /run/systemd/resolve/resolv.conf
+  --etcd-expose-metrics=true
 
 extra_server_args: "--node-taint node-role.kubernetes.io/control-plane=:NoSchedule {{ common_server_flags }}"
 
