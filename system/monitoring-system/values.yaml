@@ -95,6 +95,14 @@ kube-state-metrics:
       - apiGroups: ["secrets.infisical.com"]
         resources: ["infisicalstaticsecrets"]
         verbs: ["list", "watch"]
+      - apiGroups: ["k3s.cattle.io"]
+        resources: ["etcdsnapshotfiles"]
+        verbs: ["list", "watch"]
+  # Editing anything under customResourceState needs
+  # `kubectl -n monitoring-system rollout restart deploy/monitoring-system-kube-state-metrics`.
+  # It arrives as a ConfigMap that kube-state-metrics only reads at startup, and the chart
+  # puts no checksum annotation on the Deployment, so ArgoCD syncs the new config to a pod
+  # that never rereads it. The metric just never appears.
   customResourceState:
     enabled: true
     config:
@@ -119,6 +127,25 @@ kube-state-metrics:
                     # three are prose and would fail timestamp parsing.
                     path: [status, conditions, "[type=secrets.infisical.com/LastSuccessfulReconcileAt]"]
                     valueFrom: [message]
+
+          # k3s records every etcd snapshot it takes as an ETCDSnapshotFile, so the age of
+          # the newest one is the age of the cluster's restore point. Nothing else reports
+          # it: these are local files on each node, not a CronJob, so the backup rules in
+          # prometheusrule-backups.yaml cannot see them.
+          - groupVersionKind:
+              group: k3s.cattle.io
+              version: v1
+              kind: ETCDSnapshotFile
+            labelsFromPath:
+              name: [metadata, name]
+              node: [spec, nodeName]
+            metrics:
+              - name: k3s_etcd_snapshot_creation_timestamp_seconds
+                help: Unix time at which this etcd snapshot was taken
+                each:
+                  type: Gauge
+                  gauge:
+                    path: [status, creationTime]
 
 prometheus-node-exporter:
   # The chart ships resources: {}, which left all three pods BestEffort.
