@@ -1,10 +1,14 @@
 recommender:
   enabled: true
+  podMonitor:
+    enabled: true
 
 updater:
   enabled: true
   extraArgs:
     min-replicas: 1
+  podMonitor:
+    enabled: true
 
 admissionController:
   enabled: true
