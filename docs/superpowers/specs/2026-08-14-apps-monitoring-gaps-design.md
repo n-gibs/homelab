@@ -62,25 +62,38 @@ before a single immich metric has been scraped is guessing at failure modes.
 
 #### Step 0 — measure gluetun's failure behaviour first (blocking)
 
-The rest of this section assumes gluetun's health server returns a non-2xx status when the
-tunnel is down. **That is unverified.** Before writing any manifest, from a pod in the
-cluster:
+Measured directly against the qbittorrent Service on 2026-08-14, breaking the tunnel with
+`kubectl exec ... -c gluetun -- ip link set tun0 down` and polling continuously through three
+separate break/recover cycles:
 
-```
-curl -sv http://qbittorrent.qbittorrent.svc.cluster.local:9999/
-```
+- **Healthy:** `200 OK`, `Content-Length: 0` — body is always empty.
+- **Unhealthy (tunnel down, gluetun mid-restart):** also `200 OK` with an empty body. In all
+  three trials, sub-second-interval polling never once observed a non-2xx status or any body
+  content, including during the window gluetun's own logs confirm the tunnel was down and it
+  was actively restarting the VPN process.
+- **Self-heal timing:** gluetun's healthcheck doesn't react instantly — wireguard write errors
+  start immediately, but the periodic health loop only detects the failure and restarts the
+  VPN ~27–31s later (observed in two trials), reconnecting within ~1–2s of that. The `:9999`
+  health server is not gated on this internal state at all; it reported 200 continuously
+  before, during, and after the outage.
 
-healthy, then again with the tunnel deliberately broken, and record both status codes.
+This breaks both branches the design assumed. Non-2xx-when-unhealthy is false (confirmed
+above), and the fallback — a body-matching module keyed on the healthy body string — has
+nothing to key on, since the body is identical (empty) in both states. A regex module built
+from an empty healthy-body string is a no-op match: it would pass unconditionally and add no
+detection value over `http_2xx`.
 
-- **Non-2xx when unhealthy** — proceed as designed below.
-- **200 with an unhealthy body** — `http_2xx` is decorative. Switch the module to one with
-  a `fail_if_body_matches_regexp`, which means a new module in
-  `system/blackbox-exporter/values.yaml`, not just a new Probe.
-
-Also record how fast gluetun's own health loop cycles. It restarts the VPN process on
-failure, so `for: 5m` may only ever fire for outages it has already given up on; if the
-self-heal cycle is short, drop to `for: 2m` so the alert describes a tunnel that is actually
-stuck rather than one mid-recovery.
+**Decisions:**
+- **Module:** stays `http_2xx`. Do not add a `http_2xx_body` module — there is no body
+  content that differs between healthy and unhealthy to match against. This probe is
+  effectively a liveness check on the health server process, not a discriminator of tunnel
+  state; it will not catch the failure mode tested here (a transient break gluetun self-heals
+  within ~30s). It would only fire for an outage gluetun has already given up retrying —
+  crash-looped, credentials revoked, provider down — which is a narrower guarantee than the
+  original design assumed, but is the only one this endpoint can honestly provide.
+- **`for:` duration:** `5m`. Observed self-heal (27–31s) is well under the 5m floor set by
+  the qBittorrent Deployment being single-replica, so the floor governs regardless of
+  self-heal speed.
 
 #### The probe
 
