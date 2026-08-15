@@ -14,10 +14,12 @@
 # panels using this cluster's actual labels (cnpg_io_cluster, cnpg_io_instanceRole, namespace —
 # confirmed live off cnpg_collector_up and cnpg_backends_total) is the smaller, more honest fix.
 #
-# cnpg_collector_last_available_backup_timestamp reads 0 (unix epoch) on all four clusters —
-# no CNPG backup has ever completed. Panel 4 is worded and thresholded like
-# dashboard-backups.yaml panel 5 for the same reason: a bare "hours since backup" number would
-# otherwise render ~496,000 and read as a broken query instead of the real gap it is.
+# No CNPG Cluster here has a `.spec.backup` stanza and there are zero Backup/ScheduledBackup
+# CRs, so cnpg_collector_last_available_backup_timestamp reads 0 (unix epoch) on all four
+# clusters permanently — that is CNPG-native backup never having been configured, by design,
+# not four backups that failed. The actual backup path is the app-level pg_dump CronJobs (see
+# apps/*/pg-backup.yaml and system/monitoring-system/dashboard-backups.yaml panel 5), which is
+# why panel 4 below points at that dashboard instead of rendering this metric.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -30,7 +32,7 @@ data:
     {
       "title": "Homelab — CloudNativePG",
       "uid": "homelab-cnpg",
-      "tags": ["homelab", "cloudnative-pg"],
+      "tags": ["homelab", "database"],
       "timezone": "browser",
       "schemaVersion": 39,
       "refresh": "1m",
@@ -158,34 +160,12 @@ data:
         },
         {
           "id": 4,
-          "type": "stat",
-          "title": "Hours since last successful backup",
-          "description": "No CNPG cluster has ever completed a backup — this reads ~496,000h (unix epoch) on all four rather than a small number. That is the real gap this panel exists to surface, not a broken query.",
+          "type": "text",
+          "title": "Backup path",
           "gridPos": { "h": 6, "w": 12, "x": 0, "y": 14 },
-          "datasource": { "type": "prometheus", "uid": "${datasource}" },
-          "targets": [
-            {
-              "refId": "A",
-              "datasource": { "type": "prometheus", "uid": "${datasource}" },
-              "expr": "(time() - max by (cnpg_io_cluster) (cnpg_collector_last_available_backup_timestamp)) / 3600",
-              "legendFormat": "{{cnpg_io_cluster}}"
-            }
-          ],
-          "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
-          "fieldConfig": {
-            "defaults": {
-              "unit": "h",
-              "decimals": 1,
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  { "color": "green", "value": null },
-                  { "color": "yellow", "value": 24 },
-                  { "color": "red", "value": 26 }
-                ]
-              }
-            },
-            "overrides": []
+          "options": {
+            "mode": "markdown",
+            "content": "**CNPG-native backup is not configured** — no Cluster here has a `.spec.backup` stanza, so there is nothing for this dashboard to show. Backups run as app-level `pg_dump` CronJobs instead (`apps/*/pg-backup.yaml`), by design (see this dashboard's header comment). For backup age and alerting, see the [Homelab — Backups](/d/homelab-backups) dashboard, panel \"Oldest DB backup (CNPG-backed apps)\"."
           }
         },
         {
