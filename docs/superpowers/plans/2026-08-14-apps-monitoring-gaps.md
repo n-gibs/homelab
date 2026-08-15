@@ -217,7 +217,7 @@ Expected: `ok`. A `PrometheusRule` with invalid PromQL parses as YAML but is rej
 
 - [ ] **Step 6: Capture the pre-merge target count**
 
-Run **PROMQ** with query `count(probe_success)`. Record the number. It should be 14 (13 `apps` + 1 `apps-auth`). This is the number Step 8 checks against.
+Run **PROMQ** with query `count(probe_success)`. Record the number. It should be 17 (16 in the `apps` Probe + 1 in `apps-auth`). This is the number Step 8 checks against.
 
 - [ ] **Step 7: Commit and merge**
 
@@ -251,7 +251,7 @@ Then, with **PROMQ**:
 | Query | Expected |
 |---|---|
 | `probe_success{probe_class="vpn"}` | one series, value `1` |
-| `count(probe_success{probe_class!="vpn"})` | the number from Step 6 — **this is the check that matters** |
+| `count(probe_success{probe_class!="vpn"})` | the number from Step 6, expected 17 — **this is the check that matters** |
 | `ALERTS{alertname="VPNTunnelDown"}` | empty |
 
 If the second query returns fewer series than Step 6 recorded, the selector has silently dropped endpoint coverage. Fix forward immediately.

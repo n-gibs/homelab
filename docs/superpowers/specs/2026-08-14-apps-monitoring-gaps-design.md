@@ -15,7 +15,7 @@ mostly fine, and the audit's job was to separate the parts of it that aren't.
 - `system/monitoring-system/values.yaml` sets no `defaultRules` key, so kube-prometheus-stack's
   defaults are live for every namespace: `KubePodCrashLooping`, `KubePodNotReady`,
   `KubeDeploymentReplicasMismatch`, `KubePersistentVolumeFillingUp`.
-- `system/blackbox-exporter/probes.yaml` probes all 13 user-facing hostnames end to end —
+- `system/blackbox-exporter/probes.yaml` probes all 17 user-facing hostnames end to end —
   DNS, gateway, HTTPRoute, served certificate, app — and alerts `EndpointDown` at 5m.
 - `system/monitoring-system/dashboard-media-stack.yaml` covers 13 media namespaces.
 - `dashboard-backups.yaml`, `dashboard-cronjobs.yaml`, and `prometheusrule-backups.yaml`
@@ -135,14 +135,14 @@ is confirmed live in the cluster — `main` reflects applied state.
   severity, so no route matches and nothing notifies; `amtool` runs in the Alertmanager pod,
   not the Prometheus pod, which has no shell.
 - **`EndpointDown` narrowing:** confirm in the Prometheus expression browser that
-  `probe_success{probe_class!="vpn"}` still returns all 13 pre-existing targets. This is the
+  `probe_success{probe_class!="vpn"}` still returns all 17 pre-existing targets. This is the
   step most likely to silently delete alerting coverage.
 - **Immich:** both chart-created ServiceMonitors show Up targets, and the head-series delta
   is recorded.
 
 ## Risks
 
-- Narrowing `EndpointDown` is a change to a working critical alert covering 13 endpoints, to
+- Narrowing `EndpointDown` is a change to a working critical alert covering 17 endpoints, to
   accommodate one new target. If the label selector is wrong, coverage disappears silently.
   This is why it has its own verification step rather than being folded into the probe's.
 - The qBittorrent pod is a single replica, so the probe fails during every restart and image
