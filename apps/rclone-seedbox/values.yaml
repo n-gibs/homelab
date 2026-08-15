@@ -56,12 +56,6 @@ controllers:
           # Size alone is a sound comparison here: a completed torrent's size is fixed,
           # and unlike --ignore-existing a truncated copy still gets repaired.
           - --size-only
-          # Multi-thread copy allocates --multi-thread-chunk-size (64Mi) per stream per
-          # transfer: 4 transfers x 4 streams x 64Mi is exactly the 1Gi limit below, which
-          # is what OOMKilled a 38 GiB backlog of 720p mkvs on 2026-08-15. Streams=1 turns
-          # multi-thread off, leaving 4 x --buffer-size (16Mi) = 64Mi. No throughput lost:
-          # the seedbox link caps at ~58 MiB/s aggregate regardless of streams.
-          - --multi-thread-streams=1
           - --transfers=4
           - --checkers=4
           - --stats=1m
@@ -88,13 +82,20 @@ controllers:
               name: rclone-seedbox-sftp
         resources:
           requests:
-            cpu: 50m
-            memory: 256Mi
+            cpu: 200m
+            memory: 512Mi
           limits:
-            cpu: 1
-            # Peak memory is concurrency x buffer size, not file size — see the
-            # --multi-thread-streams note above. Lower concurrency before raising this.
-            memory: 1Gi
+            # Peak memory is concurrency x buffer size, not file size: rclone allocates
+            # --multi-thread-chunk-size (64Mi) per stream per transfer, so the defaults of
+            # 4 transfers x 4 streams sit at exactly 1Gi and OOMKilled the job three times
+            # on 2026-08-15. 2Gi keeps multi-thread copy on — it is what makes a single
+            # large file fast on a high-latency link — with headroom over that 1Gi peak.
+            # Anything that raises --transfers or --multi-thread-streams raises the peak
+            # by 64Mi per added stream, so re-check this number before touching those.
+            memory: 2Gi
+            # SFTP throughput is bounded by cipher work at ~58 MiB/s, and 16 concurrent
+            # streams spread that across cores. worker-01 has 12.
+            cpu: 4
 
 persistence:
   data:
