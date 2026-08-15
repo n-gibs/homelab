@@ -55,10 +55,9 @@ controllers:
           VPN_TYPE: wireguard
           TZ: America/Los_Angeles
           FIREWALL_OUTBOUND_SUBNETS: "10.0.0.0/8,192.168.0.0/16"
-          # 9999 is gluetun's health server, exposed so Cleanuparr's Queue Cleaner can
-          # gate on "is the tunnel up" rather than "is the internet up". A dead Mullvad
-          # tunnel stalls every torrent at once, which Queue Cleaner would otherwise
-          # read as a queue full of stalled downloads and strike them all.
+          # 9999 is gluetun's health server, consumed by Cleanuparr's connectivity check.
+          # The endpoint answers "is gluetun's health server up", not "is the tunnel up" --
+          # measured 2026-08-14 returning 200 with an empty body throughout a confirmed outage.
           FIREWALL_INPUT_PORTS: "8080,6881,9999"
           SERVER_COUNTRIES: "USA"
           WIREGUARD_ALLOWED_IPS: "0.0.0.0/0"
@@ -90,8 +89,8 @@ service:
     ports:
       http:
         port: 8080
-      # gluetun's health server. Consumed by Cleanuparr's connectivity check at
-      # http://qbittorrent.qbittorrent.svc.cluster.local:9999 -- not routed publicly.
+      # gluetun's health server, answering "is gluetun up" not "is the tunnel up" --
+      # not routed publicly. Measured 2026-08-14: returned 200 unconditionally through an outage.
       health:
         port: 9999
 
