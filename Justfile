@@ -21,8 +21,10 @@ ping-host host:
     ansible -i {{inventory}} {{host}} -m ping
 
 # Run full provisioning playbook
+# --forks=1: k3s.orchestration >=1.2.2 restarts k3s on every run; in parallel that
+# takes all three servers down at once and loses etcd quorum.
 provision:
-    ansible-playbook -i {{inventory}} {{playbook}} --vault-password-file {{vault_pass}}
+    ansible-playbook -i {{inventory}} {{playbook}} --vault-password-file {{vault_pass}} --forks=1
 
 # Run only the common role (base hardening)
 provision-common:
