@@ -1,0 +1,218 @@
+# CloudNativePG dashboard, loaded by the Grafana sidecar (LABEL=grafana_dashboard, LABEL_VALUE=1,
+# NAMESPACE=ALL). Hand-written, not vendored: upstream publishes one at
+# https://github.com/cloudnative-pg/grafana-dashboards/blob/main/charts/cluster/grafana-dashboard.json
+# (checked 2026-08-14) but it is 66 panels / 253KB and its template variables assume a metric
+# set we don't have — `operatorNamespace` is derived from
+# controller_runtime_webhook_requests_total{webhook="/mutate-postgresql-cnpg-io-v1-cluster"},
+# which requires scraping the CNPG operator's own controller-runtime metrics; our
+# podmonitor.yaml only scrapes instance pods (`cnpg.io/podRole: instance`), so that series
+# doesn't exist here and every panel gated behind it would come up empty. Its per-panel label
+# scheme is also inconsistent across CNPG's own metric set — collector-level metrics
+# (cnpg_collector_up) carry a native `cluster` label, but pg_stat-derived ones
+# (cnpg_backends_total, cnpg_pg_replication_lag) don't, relying instead on a pod-name regex
+# variable. That's a redesign per panel, not a datasource-uid rewrite, so six hand-written
+# panels using this cluster's actual labels (cnpg_io_cluster, cnpg_io_instanceRole, namespace —
+# confirmed live off cnpg_collector_up and cnpg_backends_total) is the smaller, more honest fix.
+#
+# cnpg_collector_last_available_backup_timestamp reads 0 (unix epoch) on all four clusters —
+# no CNPG backup has ever completed. Panel 4 is worded and thresholded like
+# dashboard-backups.yaml panel 5 for the same reason: a bare "hours since backup" number would
+# otherwise render ~496,000 and read as a broken query instead of the real gap it is.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-cnpg
+  namespace: cloudnative-pg
+  labels:
+    grafana_dashboard: "1"
+data:
+  homelab-cnpg.json: |
+    {
+      "title": "Homelab — CloudNativePG",
+      "uid": "homelab-cnpg",
+      "tags": ["homelab", "cloudnative-pg"],
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "refresh": "1m",
+      "time": { "from": "now-24h", "to": "now" },
+      "templating": {
+        "list": [
+          {
+            "name": "datasource",
+            "label": "Data source",
+            "type": "datasource",
+            "query": "prometheus",
+            "hide": 0,
+            "current": {}
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Instances by role",
+          "description": "Primary vs replica count per cluster. A cluster missing a primary row has no writable instance.",
+          "gridPos": { "h": 6, "w": 12, "x": 0, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "count by (cnpg_io_cluster, cnpg_io_instanceRole) (cnpg_backends_total)",
+              "legendFormat": "{{cnpg_io_cluster}} {{cnpg_io_instanceRole}}"
+            }
+          ],
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "value_and_name",
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+          },
+          "fieldConfig": {
+            "defaults": { "unit": "short", "color": { "mode": "palette-classic" } },
+            "overrides": []
+          }
+        },
+        {
+          "id": 5,
+          "type": "stat",
+          "title": "Manual switchover required",
+          "description": "CNPG sets this when it cannot pick a replica to promote automatically. Any cluster showing 1 needs a manual `cnpg promote`.",
+          "gridPos": { "h": 6, "w": 12, "x": 12, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "sum(cnpg_collector_manual_switchover_required)"
+            }
+          ],
+          "options": {
+            "colorMode": "background",
+            "graphMode": "none",
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "decimals": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "red", "value": 1 }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 2,
+          "type": "timeseries",
+          "title": "Replication lag",
+          "description": "Max lag per cluster across its replicas.",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "max by (cnpg_io_cluster) (cnpg_pg_replication_lag)",
+              "legendFormat": "{{cnpg_io_cluster}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" }
+            },
+            "overrides": []
+          },
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+        },
+        {
+          "id": 3,
+          "type": "timeseries",
+          "title": "Active backends",
+          "description": "Backend count per cluster, summed across roles. Includes the metrics exporter's own connection.",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "sum by (cnpg_io_cluster) (cnpg_backends_total)",
+              "legendFormat": "{{cnpg_io_cluster}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" }
+            },
+            "overrides": []
+          },
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "Hours since last successful backup",
+          "description": "No CNPG cluster has ever completed a backup — this reads ~496,000h (unix epoch) on all four rather than a small number. That is the real gap this panel exists to surface, not a broken query.",
+          "gridPos": { "h": 6, "w": 12, "x": 0, "y": 14 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "(time() - max by (cnpg_io_cluster) (cnpg_collector_last_available_backup_timestamp)) / 3600",
+              "legendFormat": "{{cnpg_io_cluster}}"
+            }
+          ],
+          "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "h",
+              "decimals": 1,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 24 },
+                  { "color": "red", "value": 26 }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 6,
+          "type": "timeseries",
+          "title": "Cache hit ratio",
+          "description": "Share of reads served from shared_buffers rather than disk, per cluster.",
+          "gridPos": { "h": 6, "w": 12, "x": 12, "y": 14 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": { "type": "prometheus", "uid": "${datasource}" },
+              "expr": "sum by (cnpg_io_cluster) (rate(cnpg_cache_hits[5m])) / (sum by (cnpg_io_cluster) (rate(cnpg_cache_hits[5m])) + sum by (cnpg_io_cluster) (rate(cnpg_cache_miss[5m])))",
+              "legendFormat": "{{cnpg_io_cluster}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "min": 0,
+              "max": 1,
+              "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" }
+            },
+            "overrides": []
+          },
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+        }
+      ]
+    }
