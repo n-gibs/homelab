@@ -210,6 +210,17 @@ prometheus:
 
 grafana:
   enabled: true
+  # RWO + RollingUpdate deadlocks: the new pod waits on a volume the old pod still holds.
+  deploymentStrategy:
+    type: Recreate
+  # Chart default is emptyDir, so starred dashboards and anything created in the UI live in a
+  # SQLite DB that dies with the pod. Longhorn, not NFS — SQLite over NFS locks up.
+  persistence:
+    enabled: true
+    type: pvc
+    storageClassName: longhorn
+    accessModes: ["ReadWriteOnce"]
+    size: 5Gi
   service:
     annotations:
       gethomepage.dev/enabled: "true"
