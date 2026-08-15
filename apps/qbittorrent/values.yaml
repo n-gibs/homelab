@@ -55,10 +55,9 @@ controllers:
           VPN_TYPE: wireguard
           TZ: America/Los_Angeles
           FIREWALL_OUTBOUND_SUBNETS: "10.0.0.0/8,192.168.0.0/16"
-          # 9999 is gluetun's health server. The endpoint reports that the health server is
-          # answering, not that the Mullvad tunnel is up -- measured 2026-08-14 returning 200
-          # with an empty body throughout a confirmed outage. Nothing should gate tunnel-dependent
-          # behaviour on it.
+          # 9999 is gluetun's health server, consumed by Cleanuparr's connectivity check.
+          # The endpoint answers "is gluetun's health server up", not "is the tunnel up" --
+          # measured 2026-08-14 returning 200 with an empty body throughout a confirmed outage.
           FIREWALL_INPUT_PORTS: "8080,6881,9999"
           SERVER_COUNTRIES: "USA"
           WIREGUARD_ALLOWED_IPS: "0.0.0.0/0"
@@ -90,8 +89,8 @@ service:
     ports:
       http:
         port: 8080
-      # gluetun's health server. Reports only that the health server is answering, not
-      # tunnel state -- measured 2026-08-14 returning 200 unconditionally through an outage.
+      # gluetun's health server, answering "is gluetun up" not "is the tunnel up" --
+      # not routed publicly. Measured 2026-08-14: returned 200 unconditionally through an outage.
       health:
         port: 9999
 
