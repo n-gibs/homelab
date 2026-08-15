@@ -1,3 +1,11 @@
+# KubeJobFailed duplicates CronJobJobFailed in prometheusrule-backups.yaml, which carries
+# the runbook text and the recency bound. Both read kube_job_failed, so a single failure
+# notified twice and escalated twice. Upstream has no recency bound, so keeping it would
+# reintroduce the behaviour the bound exists to remove.
+defaultRules:
+  disabled:
+    KubeJobFailed: true
+
 # k3s doesn't expose these endpoints
 kubeControllerManager:
   enabled: false
