@@ -27,8 +27,11 @@ controllers:
                 key: password
 
 immich:
+  # true makes the chart create the api and microservices ServiceMonitors itself -- there is
+  # no hand-written one to keep in sync. Watch prometheus_tsdb_head_series after changing
+  # this: the telemetry includes per-endpoint histograms.
   metrics:
-    enabled: false
+    enabled: true
   persistence:
     library:
       existingClaim: immich-library
