@@ -89,8 +89,17 @@ spec:
         # kube_job_failed only exists once a Job carries the Failed condition, so this is empty
         # in the healthy state rather than a series of zeros. Matches the condition explicitly
         # because the metric also emits condition="false".
+        #
+        # The recency bound is what lets this resolve. kube_job_failed tracks the Job object's
+        # existence, not whether anything is still broken, so failedJobsHistoryLimit keeps it
+        # firing until someone deletes the Job by hand — well past the 2h escalation, long
+        # after the fix shipped. A still-broken job keeps alerting regardless: every run
+        # creates a new Job with a fresh start_time.
         - alert: CronJobJobFailed
-          expr: kube_job_failed{condition="true"} == 1
+          expr: >-
+            (kube_job_failed{condition="true"} == 1)
+            and on(namespace, job_name)
+            (time() - kube_job_status_start_time < 3600)
           for: 5m
           labels:
             severity: warning
