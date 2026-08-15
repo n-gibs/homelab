@@ -1,11 +1,13 @@
 # Backups overview, loaded by the Grafana sidecar (LABEL=grafana_dashboard, LABEL_VALUE=1,
 # NAMESPACE=ALL). Companion to prometheusrule-backups.yaml but a distinct question: that
 # file is what should wake you up; this answers "did last night's backups actually run" in
-# one place, spanning the CronJob-based db dumps, Longhorn volume snapshots, and CNPG.
+# one place, spanning the CronJob-based db dumps and Longhorn volume snapshots.
 #
-# Deliberately not a merge into dashboard-cronjobs.yaml: that dashboard's panels are keyed off
-# kube_cronjob_status_last_successful_time and a point-in-time kube_job_failed count, neither
-# of which Longhorn or CNPG ever populate. Panels 4 and 5 here have no equivalent there at all.
+# Deliberately not a merge into dashboard-cronjobs.yaml: panel 4 (Longhorn) has no equivalent
+# there at all — that dashboard has nothing keyed on longhorn_backup_state. Panel 5 does read
+# the same kube_cronjob_status_last_successful_time dashboard-cronjobs.yaml uses, but reduced
+# to a single worst-case number across the CNPG-backed apps' CronJobs rather than a per-job
+# view — a one-stat "is anything stale" check that a per-job table can't give you at a glance.
 #
 # Panel 1's own description covers why it borrows CronJobNotSucceeding's 24h/26h window instead
 # of CronJobOverdue's — keep that window in sync here if the rule's `> 26 * 3600` changes.
