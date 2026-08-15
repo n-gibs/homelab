@@ -93,6 +93,17 @@ api and microservices ServiceMonitors. No hand-written ServiceMonitor, no new al
 number, and Prometheus retains 10d, so it can also be re-derived from a range query if the
 comparison slips.
 
+**Verified after the merge, 2026-08-15T18:16Z.** Both targets are up (`endpoint=metrics-api`
+on :8081 and `endpoint=metrics-ms` on :8082, job label `server`). Immich contributes **2540
+series**, against a head of ~423k: about 0.6%, comfortably inside the 20Gi volume's headroom,
+so no telemetry scoping is needed. Head-series alone is too noisy to read this off: it moved
+between 420805 and 423964 within four minutes of the deploy, so the direct
+`count({namespace="immich",endpoint=~"metrics-.*"})` is the figure that answers the question.
+
+**Correction to this spec's earlier claim.** Chart 0.13.1 creates **one** ServiceMonitor,
+`immich-server`, carrying two endpoints. Not two ServiceMonitors, as written above and in the
+plan. The substance was right (api and microservices are both scraped); the count was wrong.
+
 **Measure the cardinality cost.** Prometheus holds 10.1GB of blocks in a 20Gi Longhorn volume
 at 10d retention — headroom, but not unbounded, and immich's telemetry includes per-endpoint
 histograms. Record `prometheus_tsdb_head_series` immediately before the flip and again an
