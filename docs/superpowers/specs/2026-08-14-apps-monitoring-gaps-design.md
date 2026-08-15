@@ -88,6 +88,11 @@ so the fix here is to correct the claim at the source and record what was measur
 Flip `immich.metrics.enabled` to `true` in `apps/immich/values.yaml`. The chart creates the
 api and microservices ServiceMonitors. No hand-written ServiceMonitor, no new alert.
 
+**Baseline, measured 2026-08-15T02:52:31Z, before the flip deployed:**
+`prometheus_tsdb_head_series` = **423452**. The after-measurement compares against this
+number, and Prometheus retains 10d, so it can also be re-derived from a range query if the
+comparison slips.
+
 **Measure the cardinality cost.** Prometheus holds 10.1GB of blocks in a 20Gi Longhorn volume
 at 10d retention — headroom, but not unbounded, and immich's telemetry includes per-endpoint
 histograms. Record `prometheus_tsdb_head_series` immediately before the flip and again an
