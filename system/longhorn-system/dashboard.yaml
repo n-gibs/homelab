@@ -53,6 +53,7 @@ data:
               "datasource": { "type": "prometheus", "uid": "${datasource}" },
               "expr": "count by (state) (longhorn_volume_robustness == 1)",
               "legendFormat": "{{state}}",
+              "instant": true,
               "refId": "A"
             }
           ],
@@ -84,6 +85,7 @@ data:
               "datasource": { "type": "prometheus", "uid": "${datasource}" },
               "expr": "count by (image) (longhorn_engine_info)",
               "legendFormat": "{{image}}",
+              "instant": true,
               "refId": "A"
             }
           ],
