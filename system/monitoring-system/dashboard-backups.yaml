@@ -7,23 +7,15 @@
 # kube_cronjob_status_last_successful_time and a point-in-time kube_job_failed count, neither
 # of which Longhorn or CNPG ever populate. Panels 4 and 5 here have no equivalent there at all.
 #
-# Thresholds on panels 1 and 5 both borrow CronJobNotSucceeding's window (26h danger, 24h
-# warning) — keep them in sync if that rule's `> 26 * 3600` changes.
+# Panel 1's own description covers why it borrows CronJobNotSucceeding's 24h/26h window instead
+# of CronJobOverdue's — keep that window in sync here if the rule's `> 26 * 3600` changes.
 #
-# Neither panel colors the metric that alert actually keys on. Panel 1 colors time since
-# kube_cronjob_status_last_schedule_time; CronJobNotSucceeding fires on last_successful_time.
-# The rule that does key on a "last schedule" style metric is CronJobOverdue, off
-# next_schedule_time with a 1h/1h window — but that window is wrong for this panel: the daily
-# db-backup jobs sit at ~19-21h since their last schedule for most of the day by design (they
-# run once every 24h), so a 1h threshold would paint them red almost permanently. 24h/26h is
-# the only window in this file that colors a "how many hours since a scheduled run" number
-# sanely across both the daily and the */5-/10 jobs sharing this table.
-#
-# Panel 5 borrows the same window for a different reason: prometheusrule-backups.yaml has no
-# CNPG-specific rule at all, so nothing alerts if a CNPG backup goes stale, and 24h/26h is the
-# only staleness window on offer. cnpg_collector_last_available_backup_timestamp reads 0 (unix
-# epoch) on every cluster right now, meaning no CNPG backup has ever completed — real state
-# this dashboard surfaces that the rule file is silent on.
+# Panel 5 tracks the pg_dump CronJobs, not CNPG's own backup machinery: no CNPG Cluster here
+# has a `.spec.backup` stanza, so cnpg_collector_last_available_backup_timestamp stays 0
+# forever by design, not by failure — see platform/cloudnative-pg/dashboard.yaml's header for
+# why. The real backup path for CNPG-backed apps is the same `*-db-backup` CronJobs panel 1
+# already lists, so panel 5 borrows CronJobNotSucceeding's 26h threshold directly since that's
+# the alert actually keying on this metric.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -130,7 +122,7 @@ data:
           "id": 3,
           "type": "table",
           "title": "Failing jobs by name",
-          "description": "Currently-failed Jobs, by name. Empty is the healthy state — kube_job_status_failed only exists once a Job carries the Failed condition, so there is no zero-series to display.",
+          "description": "Currently-failed Jobs, by name. Empty is the healthy state — kube_job_status_failed reports 0 for every Job, so the `> 0` filter is what empties the table, not an absent series.",
           "gridPos": { "h": 9, "w": 12, "x": 0, "y": 9 },
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
           "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
@@ -185,8 +177,8 @@ data:
         {
           "id": 5,
           "type": "stat",
-          "title": "Hours since last CNPG backup",
-          "description": "Oldest last-available-backup timestamp across all CNPG clusters. Colored on the same 24h/26h window as CronJobNotSucceeding for lack of a CNPG-specific rule — see the header comment. A value in the hundreds of thousands means no CNPG backup has ever completed.",
+          "title": "Oldest DB backup (CNPG-backed apps)",
+          "description": "Hours since the last successful run of the *-db-backup CronJob, oldest across the pg_dump-backed apps (immich, nextcloud, infisical, vaultwarden) — the actual backup path for their CNPG clusters, which have no native backup configured (see platform/cloudnative-pg/dashboard.yaml). Thresholds match CronJobNotSucceeding (26h) in prometheusrule-backups.yaml, the alert that keys on this same metric.",
           "gridPos": { "h": 4, "w": 6, "x": 18, "y": 5 },
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
           "fieldConfig": {
@@ -209,7 +201,7 @@ data:
             {
               "refId": "A",
               "datasource": { "type": "prometheus", "uid": "${datasource}" },
-              "expr": "(time() - max(cnpg_collector_last_available_backup_timestamp)) / 3600"
+              "expr": "max((time() - kube_cronjob_status_last_successful_time{cronjob=~\"(immich|nextcloud|infisical|vaultwarden)-db-backup\"}) / 3600)"
             }
           ]
         }
