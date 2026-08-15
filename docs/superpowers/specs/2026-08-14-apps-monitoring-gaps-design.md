@@ -5,10 +5,10 @@ Status: approved, not implemented
 
 ## Problem
 
-An audit of `apps/` found that generic pod health and reachability are well covered, but
-three specific "the pod is Running and the app is broken" signals are missing. Of the 17
-app directories, exactly one (`nextcloud`) carries an app-level `PrometheusRule`, and three
-stateful apps appear on no dashboard beyond their rows in the blackbox probe dashboard.
+An audit of `apps/` found generic pod health and reachability well covered, and two
+"the pod is Running and the app is broken" signals missing. Of the 17 app directories,
+exactly one (`nextcloud`) carries an app-level `PrometheusRule` — but that asymmetry is
+mostly fine, and the audit's job was to separate the parts of it that aren't.
 
 ### What already covers apps, and must not be rebuilt
 
@@ -23,7 +23,7 @@ stateful apps appear on no dashboard beyond their rows in the blackbox probe das
 - `platform/cloudnative-pg/dashboard.yaml` covers the Postgres behind nextcloud, vaultwarden
   and immich.
 
-### The three gaps in scope
+### The two gaps in scope
 
 1. **The gluetun tunnel is unmonitored.** Its health server already listens on
    `0.0.0.0:9999` and is already a named port on the `qbittorrent` Service, because
@@ -33,22 +33,56 @@ stateful apps appear on no dashboard beyond their rows in the blackbox probe das
 2. **Immich exports no metrics.** `apps/immich/values.yaml` has `immich.metrics.enabled: false`.
    Chart 0.13.1 creates the ServiceMonitors itself when that is true — verified with
    `helm show values oci://ghcr.io/immich-app/immich-charts/immich --version 0.13.1`.
-3. **Nextcloud, vaultwarden and immich are on no dashboard.** The media dashboard's `$media`
-   constant lists 13 namespaces and deliberately excludes these three.
 
 ### Out of scope, by decision
 
-Exporter sidecars for the arrs and qBittorrent (`exportarr`, `qbittorrent-exporter`) and a
-Jellyfin metrics plugin were considered and rejected for now: 6–7 new containers on a
-three-node cluster where worker-00 is already the density hotspot. Revisit when an arr
-incident actually goes undetected. Per-app `PrometheusRule`s for nextcloud/vaultwarden/immich
-beyond what exists are also out of scope — the default rules cover pod health, blackbox
-covers reachability, and writing immich alerts before a single immich metric has been scraped
-is guessing at failure modes.
+**Exporter sidecars** for the arrs and qBittorrent (`exportarr`, `qbittorrent-exporter`) and
+a Jellyfin metrics plugin: 6–7 new containers on a three-node cluster where worker-00 is
+already the density hotspot. Revisit when an arr incident actually goes undetected.
+
+**A dashboard for nextcloud / vaultwarden / immich.** This was in an earlier draft and was
+cut on its own merits. Postgres panels belong to `platform/cloudnative-pg/dashboard.yaml`
+already. Storage panels don't survive contact with the actual volumes: `nextcloud-data`,
+`immich-library` and `vaultwarden-data` are all NFS-backed, so `kubelet_volume_stats_*`
+reports the whole 12TB filesystem for each — the same trap `dashboard-media-stack.yaml`
+documents — and of the two `local-path` claims left, `vaultwarden-data-local` is the dormant
+rollback volume from the Postgres migration (`apps/vaultwarden/values.yaml:78` mounts
+`vaultwarden-data`, not it), leaving `nextcloud-html` as the single real series. What
+remained after those cuts was restarts, CPU, memory and log rate — which kube-prometheus-stack's
+shipped per-namespace dashboards already provide. Build it when the want for it has come up
+twice, not before.
+
+**Per-app `PrometheusRule`s** for nextcloud / vaultwarden / immich beyond what exists.
+Default rules cover pod health, blackbox covers reachability, and writing immich alerts
+before a single immich metric has been scraped is guessing at failure modes.
 
 ## Design
 
 ### 1. VPN tunnel probe
+
+#### Step 0 — measure gluetun's failure behaviour first (blocking)
+
+The rest of this section assumes gluetun's health server returns a non-2xx status when the
+tunnel is down. **That is unverified.** Before writing any manifest, from a pod in the
+cluster:
+
+```
+curl -sv http://qbittorrent.qbittorrent.svc.cluster.local:9999/
+```
+
+healthy, then again with the tunnel deliberately broken, and record both status codes.
+
+- **Non-2xx when unhealthy** — proceed as designed below.
+- **200 with an unhealthy body** — `http_2xx` is decorative. Switch the module to one with
+  a `fail_if_body_matches_regexp`, which means a new module in
+  `system/blackbox-exporter/values.yaml`, not just a new Probe.
+
+Also record how fast gluetun's own health loop cycles. It restarts the VPN process on
+failure, so `for: 5m` may only ever fire for outages it has already given up on; if the
+self-heal cycle is short, drop to `for: 2m` so the alert describes a tunnel that is actually
+stuck rather than one mid-recovery.
+
+#### The probe
 
 Add a third `Probe` to `system/blackbox-exporter/probes.yaml`, named `vpn`, module `http_2xx`,
 targeting `http://qbittorrent.qbittorrent.svc.cluster.local:9999`.
@@ -67,66 +101,35 @@ by default. Give the new target a `probe_class: vpn` label via
 - `EndpointDown` becomes `probe_success{probe_class!="vpn"} == 0`. Existing targets carry no
   `probe_class` label at all, and PromQL's `!=` matches the empty label, so their behaviour
   is unchanged.
-- New `VPNTunnelDown`: `probe_success{probe_class="vpn"} == 0`, `for: 5m`, `severity: warning`.
+- New `VPNTunnelDown`: `probe_success{probe_class="vpn"} == 0`, `for:` per step 0,
+  `severity: warning`.
 
 Warning, not critical: Mullvad server rotation flaps the tunnel, and the consequence is
-stalled downloads, not a user-facing outage. 5m is five consecutive failures at the file's
-60s interval, matching the reasoning already documented for `EndpointDown`.
+stalled downloads, not a user-facing outage. Note also what this alert is and isn't —
+Cleanuparr already *gates* on this endpoint, so nothing here changes cluster behaviour. The
+value is being told, rather than finding out from a queue that stopped moving.
 
 ### 2. Immich metrics
 
 Flip `immich.metrics.enabled` to `true` in `apps/immich/values.yaml`. The chart creates the
 api and microservices ServiceMonitors. No hand-written ServiceMonitor, no new alert.
 
-### 3. Dashboard for the non-media stateful apps
-
-One new `system/monitoring-system/dashboard-apps.yaml` — a ConfigMap in `monitoring-system`
-labelled `grafana_dashboard: "1"`, following `dashboard-media-stack.yaml` exactly, including
-its documented caveat that no `FOLDER_ANNOTATION` is set on the sidecar so a `grafana_folder`
-annotation would be silently ignored.
-
-One dashboard, not three: nextcloud, vaultwarden and immich share a shape — user-facing,
-stateful, CNPG behind them — and three near-identical dashboards would be three places to
-edit. A hidden `$apps` constant holds the namespace list, the way `$media` does, so the list
-lives in one place and every panel derives from it.
-
-Panels: replicas unavailable; container restarts 24h; restarts by app; CPU by app; memory by
-app; log lines/sec by app; error+warn lines/sec by app; recent errors. These are the
-media-stack panels re-scoped, which is the point — they come from signals that already exist
-(cAdvisor, kube-state-metrics, Loki) and need nothing added to any app.
-
-**No Postgres panels.** `platform/cloudnative-pg/dashboard.yaml` already covers all three
-databases and duplicating it would create two panels to keep in sync.
-
-**Storage panels need care, or must be omitted.** The same NFS trap the media dashboard
-documents applies here, and worse, because the storage is mixed:
-
-| Claim | Backing |
-|---|---|
-| `nextcloud-data` | NFS (static PV, `storageClassName: ""`) |
-| `immich-library` | NFS (static PV, `storageClassName: ""`) |
-| `vaultwarden-data` | `nfs` |
-| `nextcloud-html` | `local-path` |
-| `vaultwarden-data-local` | `local-path` |
-
-`kubelet_volume_stats_*` on the NFS-backed claims reports the whole 12TB filesystem, so
-those three would each show an identical, meaningless number. A used-% panel is therefore
-restricted to the `local-path` claims, and a panel comment states why the others are absent.
-Bulk NFS capacity is already on the media dashboard's library panels.
-
-Immich job-queue and ML panels are deliberately deferred to a follow-up: they can only be
-authored honestly against metric names observed after step 2 is live.
+**Measure the cardinality cost.** Prometheus holds 10.1GB of blocks in a 20Gi Longhorn volume
+at 10d retention — headroom, but not unbounded, and immich's telemetry includes per-endpoint
+histograms. Record `prometheus_tsdb_head_series` immediately before the flip and again an
+hour after. If the increase is a meaningful fraction of the existing head, scope immich's
+telemetry down rather than absorbing it silently; the volume expands in place if the answer
+is that the data is worth the space.
 
 ## Sequencing
 
-Steps 1 and 3 are independent. Step 3's optional immich-specific panels depend on step 2, so
-step 2 lands before step 3 regardless.
-
-Each step is its own commit, and nothing merges to `main` until it is confirmed live in the
-cluster — `main` reflects applied state.
+The two items are independent and each is its own commit. Nothing merges to `main` until it
+is confirmed live in the cluster — `main` reflects applied state.
 
 ## Verification
 
+- **Step 0 measurement** is recorded in the commit message, not just acted on. The next
+  person to touch the module choice needs the status codes.
 - **Probe:** the `vpn` target appears Up in Prometheus targets before the alert is written.
   Trip-test `VPNTunnelDown` by temporarily inverting its expression under an invented
   severity, so no route matches and nothing notifies; `amtool` runs in the Alertmanager pod,
@@ -134,15 +137,18 @@ cluster — `main` reflects applied state.
 - **`EndpointDown` narrowing:** confirm in the Prometheus expression browser that
   `probe_success{probe_class!="vpn"}` still returns all 13 pre-existing targets. This is the
   step most likely to silently delete alerting coverage.
-- **Immich:** both chart-created ServiceMonitors show Up targets before step 3 begins.
-- **Dashboard:** JSON parsed with `json.load` before commit; after sync, every panel renders
-  a value rather than "No data".
+- **Immich:** both chart-created ServiceMonitors show Up targets, and the head-series delta
+  is recorded.
 
 ## Risks
 
 - Narrowing `EndpointDown` is a change to a working critical alert covering 13 endpoints, to
   accommodate one new target. If the label selector is wrong, coverage disappears silently.
   This is why it has its own verification step rather than being folded into the probe's.
+- The qBittorrent pod is a single replica, so the probe fails during every restart and image
+  pull. `for:` has to be long enough to swallow a normal restart, which is the same knob
+  step 0 is tuning from the other direction — pick the value that satisfies both, and if
+  they conflict, favour the longer one and accept slower detection.
 - `HEALTH_SERVER_ADDRESS` and the `health` Service port exist for Cleanuparr. Prometheus
   becomes a second consumer of an endpoint another app depends on; the probe is read-only at
   60s, so the risk is negligible, but the coupling should be noted in the values comment so
