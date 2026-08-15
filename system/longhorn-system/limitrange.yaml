@@ -1,0 +1,26 @@
+# The namespace runs ~1.4Gi, nearly all of it instance-manager pods, but declares only
+# 384Mi of requests -- the 3 longhorn-managers at 128Mi each. Everything else (instance
+# managers, CSI sidecars) ships requestless, so the scheduler sees that memory as free and
+# parks pods on nodes that are already full. Same requestless-density trap as worker-00.
+#
+# The chart exposes a resources knob for longhornManager only, and Longhorn has
+# guaranteed-instance-manager-cpu but no memory equivalent, so a namespace-wide default is
+# the only lever that reaches the instance managers.
+#
+# defaultRequest only, never a default limit: a memory limit on an instance manager turns
+# reclaimable page cache into an OOMKill of a live volume replica.
+#
+# 128Mi is a compromise -- one value covers both a ~250Mi instance manager (still under, but
+# now visible) and a ~20Mi CSI sidecar (over-reserved). It matches the longhornManager
+# request so the namespace is internally consistent. Applies on pod recreation, not to
+# already-running pods.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: longhorn-default-mem-request
+  namespace: longhorn-system
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
