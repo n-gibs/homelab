@@ -58,69 +58,30 @@ before a single immich metric has been scraped is guessing at failure modes.
 
 ## Design
 
-### 1. VPN tunnel probe
+### 1. VPN tunnel probe — ABANDONED 2026-08-14, after measurement
 
-#### Step 0 — measure gluetun's failure behaviour first (blocking)
+Step 0 measured gluetun's health server instead of assuming it, and the premise did not
+survive. `http://qbittorrent.qbittorrent.svc.cluster.local:9999` returns **200 with an empty
+body unconditionally** — including under sub-second polling through a confirmed tunnel outage
+(gluetun's own log showed wireguard write errors and a VPN restart at the time). Both branches
+this spec anticipated were wrong: the status never goes non-2xx, and there is no body to match
+on. A probe against it would assert only that the health server process answers, which it does
+whether or not the tunnel exists. Self-heal, separately measured, is ~27-31s.
 
-Measured directly against the qbittorrent Service on 2026-08-14, breaking the tunnel with
-`kubectl exec ... -c gluetun -- ip link set tun0 down` and polling continuously through three
-separate break/recover cycles:
+gluetun's control server is live on `:8000` and does carry the real signal — `/v1/publicip/ip`,
+`/v1/vpn/status` — but answers 401, so using it means configuring gluetun auth, opening the
+port in `FIREWALL_INPUT_PORTS`, and adding a Service port: changes to a working VPN pod, for a
+gap whose whole appeal was that it needed no new components. Not worth it on this evidence.
+Revisit if a tunnel outage ever goes unnoticed and costs something.
 
-- **Healthy:** `200 OK`, `Content-Length: 0` — body is always empty.
-- **Unhealthy (tunnel down, gluetun mid-restart):** also `200 OK` with an empty body. In all
-  three trials, sub-second-interval polling never once observed a non-2xx status or any body
-  content, including during the window gluetun's own logs confirm the tunnel was down and it
-  was actively restarting the VPN process.
-- **Self-heal timing:** gluetun's healthcheck doesn't react instantly — wireguard write errors
-  start immediately, but the periodic health loop only detects the failure and restarts the
-  VPN ~27–31s later (observed in two trials), reconnecting within ~1–2s of that. The `:9999`
-  health server is not gated on this internal state at all; it reported 200 continuously
-  before, during, and after the outage.
-
-This breaks both branches the design assumed. Non-2xx-when-unhealthy is false (confirmed
-above), and the fallback — a body-matching module keyed on the healthy body string — has
-nothing to key on, since the body is identical (empty) in both states. A regex module built
-from an empty healthy-body string is a no-op match: it would pass unconditionally and add no
-detection value over `http_2xx`.
-
-**Decisions:**
-- **Module:** stays `http_2xx`. Do not add a `http_2xx_body` module — there is no body
-  content that differs between healthy and unhealthy to match against. This probe is
-  effectively a liveness check on the health server process, not a discriminator of tunnel
-  state; it will not catch the failure mode tested here (a transient break gluetun self-heals
-  within ~30s). It would only fire for an outage gluetun has already given up retrying —
-  crash-looped, credentials revoked, provider down — which is a narrower guarantee than the
-  original design assumed, but is the only one this endpoint can honestly provide.
-- **`for:` duration:** `5m`. Observed self-heal (27–31s) is well under the 5m floor set by
-  the qBittorrent Deployment being single-replica, so the floor governs regardless of
-  self-heal speed.
-
-#### The probe
-
-Add a third `Probe` to `system/blackbox-exporter/probes.yaml`, named `vpn`, module `http_2xx`,
-targeting `http://qbittorrent.qbittorrent.svc.cluster.local:9999`.
-
-This is a deliberate exception to that file's stated "public hostnames, not Services" rule.
-That rule exists so probes test the whole browser path rather than re-testing pod readiness.
-Here there is no route to gluetun and no browser path to test: the fact under measurement is
-whether the tunnel is up, which is not a fact any other signal in the cluster carries. The
-comment in the file must say this, or the next reader will "fix" it.
-
-**The existing `EndpointDown` alert must be narrowed at the same time.** It is
-`probe_success == 0` with no target selector, so a new probe target inherits a critical alert
-by default. Give the new target a `probe_class: vpn` label via
-`targets.staticConfig.labels`, then:
-
-- `EndpointDown` becomes `probe_success{probe_class!="vpn"} == 0`. Existing targets carry no
-  `probe_class` label at all, and PromQL's `!=` matches the empty label, so their behaviour
-  is unchanged.
-- New `VPNTunnelDown`: `probe_success{probe_class="vpn"} == 0`, `for:` per step 0,
-  `severity: warning`.
-
-Warning, not critical: Mullvad server rotation flaps the tunnel, and the consequence is
-stalled downloads, not a user-facing outage. Note also what this alert is and isn't —
-Cleanuparr already *gates* on this endpoint, so nothing here changes cluster behaviour. The
-value is being told, rather than finding out from a queue that stopped moving.
+**What ships instead.** The measurement exposed a live defect in existing config.
+`apps/qbittorrent/values.yaml` states that the `health` port exists so Cleanuparr's Queue
+Cleaner can gate on "is the tunnel up" rather than "is the internet up", and that a dead
+tunnel would otherwise read as a queue full of stalled downloads to be struck. That gate
+cannot trip: the endpoint answers 200 during exactly the outage it is supposed to catch. The
+comment is the dangerous part — it is the reason someone would configure Cleanuparr to trust
+this endpoint. Cleanuparr's connectivity check is UI state and does not appear in this repo,
+so the fix here is to correct the claim at the source and record what was measured.
 
 ### 2. Immich metrics
 
