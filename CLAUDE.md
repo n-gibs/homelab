@@ -72,7 +72,9 @@ chartVersion: 5.0.1
 
 **`values.yaml`** — Helm values using bjw-s `app-template` v5 schema.
 
-**`vpa.yaml`** — VerticalPodAutoscaler (all apps get VPA):
+**`vpa.yaml`** — VerticalPodAutoscaler (all apps get VPA, except where demand is
+bimodal — see `apps/jellyfin/values.yaml`, which is static because VPA sizes a
+transcode against the idle it just observed):
 ```yaml
 apiVersion: autoscaling.k8s.io/v1
 kind: VerticalPodAutoscaler
