@@ -104,8 +104,12 @@ persistence:
   #
   # The whole tree is derived data -- images re-render from /config/data/metadata,
   # which stays on longhorn -- so losing it on restart costs a lazy rebuild, nothing more.
+  # 16Gi holds ~7 concurrent transcodes: SegmentKeepSeconds is 720, so a stream keeps
+  # 12 minutes of segments, ~2.1Gi at the 8.77Mi segments measured on a 4K remux.
+  # Overshoot on purpose -- exceeding sizeLimit evicts the pod mid-stream, while the
+  # cost of the extra headroom is disk worker-01 has (359G free).
   cache:
     type: emptyDir
-    sizeLimit: 50Gi
+    sizeLimit: 16Gi
     globalMounts:
       - path: /config/cache
