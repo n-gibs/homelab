@@ -25,7 +25,7 @@ controllers:
         # renovate: datasource=docker depName=lscr.io/linuxserver/qbittorrent versioning=regex:^(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)_v[\d.]+-ls(?<build>\d+)$
         image:
           repository: lscr.io/linuxserver/qbittorrent
-          tag: 5.2.3_v2.0.14-ls471
+          tag: 5.2.3_v2.0.14-ls472
         env:
           PUID: "1000"
           PGID: "1000"
