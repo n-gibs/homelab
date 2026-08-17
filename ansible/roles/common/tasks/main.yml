@@ -126,6 +126,9 @@
       # intel_gpu_top: shows Video/VideoEnhance engine occupancy, the only way to tell a
       # QSV transcode from a software one that merely opened the device.
       - intel-gpu-tools
+      # nvme-cli: reads the APST power-state table that kernel_cmdline_extra is tuned
+      # against on worker-02. smartctl does not expose it.
+      - nvme-cli
     state: present
   become: true
 
@@ -382,6 +385,28 @@
     - { name: fs.inotify.max_user_instances, value: "1024" }
     - { name: fs.inotify.max_user_watches, value: "524288" }
   become: true
+
+# Hand edits to this file are how worker-02 ended up booting parameters no one could see.
+# Reset it everywhere; the exceptions live in kernel_cmdline_extra.
+- name: Reset the stock kernel command line
+  ansible.builtin.lineinfile:
+    path: /etc/default/grub
+    regexp: '^GRUB_CMDLINE_LINUX_DEFAULT='
+    line: 'GRUB_CMDLINE_LINUX_DEFAULT=""'
+  become: true
+  notify: Update grub
+
+# Appends, like kdump-tools.cfg: grub.d is sourced after /etc/default/grub, so assigning
+# would drop crashkernel=. Always written, so emptying the list reverts a node.
+- name: Manage per-host kernel parameters
+  ansible.builtin.copy:
+    dest: /etc/default/grub.d/99-kernel-cmdline.cfg
+    content: |
+      # Managed by Ansible (roles/common). Set kernel_cmdline_extra in host_vars.
+      GRUB_CMDLINE_LINUX_DEFAULT="$GRUB_CMDLINE_LINUX_DEFAULT {{ kernel_cmdline_extra | join(' ') }}"
+    mode: "0644"
+  become: true
+  notify: Update grub
 
 - name: Configure unattended-upgrades
   ansible.builtin.copy:

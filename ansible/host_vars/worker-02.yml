@@ -1,3 +1,10 @@
 ---
 # G6: k3s server + worker (schedulable — no control-plane taint)
 extra_server_args: "{{ common_server_flags }}"
+
+# The WD PC SN740 here stops answering shortly after boot if it picks its own power state.
+# 5000us is a max exit latency: it leaves ps3 (2500us, 0.0150W) and blocks ps4 and ps5,
+# whose combined extra saving is 0.010W. Read the table with `nvme id-ctrl -H /dev/nvme0`.
+# Falls back to 0, which disables APST outright, if the dropout returns.
+kernel_cmdline_extra:
+  - nvme_core.default_ps_max_latency_us=5000
