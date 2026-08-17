@@ -1,0 +1,3 @@
+---
+# Appended to GRUB_CMDLINE_LINUX_DEFAULT. Set per host; see host_vars/worker-02.yml.
+kernel_cmdline_extra: []
