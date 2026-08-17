@@ -62,6 +62,16 @@ spec:
   # faulted, start the pod with `--restore-archive /config/data/data/backups/<newest>.zip`
   # (or Dashboard -> Backups -> Restore).
   #
+  # /config/network.xml is UI state and lives only here -- a restore brings it back, a
+  # volume rebuilt from empty does not. Two values must be re-entered under
+  # Dashboard -> Networking or every client is misclassified as LAN, silently:
+  #   KnownProxies        = 10.42.0.0/16      (empty => XFF ignored entirely, so every
+  #                                            session is attributed to the Envoy pod)
+  #   LocalNetworkSubnets = 192.168.10.0/24,192.168.30.0/24
+  # Empty LocalNetworkSubnets falls back to all of RFC1918, which swallows the pod CIDR
+  # and makes Tailscale clients look local. Restart required; confirm with the
+  # "Defined LAN subnets" line in the startup log.
+  #
   # 5Gi against 889M today. Not headroom for growth -- Jellyfin 10.11's
   # StorageHelper.TestDataDirectorySize aborts startup unless /config/data/data has 2GiB
   # free, and it counts free space, not total. A 3Gi volume left exactly 2.0G free and
