@@ -13,10 +13,25 @@ spec:
   # data-plane proxy is free to schedule on any node. With externalTrafficPolicy
   # Local, the announcer and the proxy pod must be co-located or traffic to
   # 192.168.30.200 is blackholed. Use Cluster so the announcing node forwards to
-  # the proxy wherever it runs (via the VXLAN overlay). Trade-off: client source
-  # IP is SNAT'd — not needed for this LAN homelab.
+  # the proxy wherever it runs (via the VXLAN overlay).
+  #
+  # The Cluster trade-off is that cross-node forwarding SNATs the client to the
+  # forwarding node's cilium_host address. Jellyfin now classifies remote vs LAN
+  # sessions off X-Forwarded-For, so that SNAT would silently make every client
+  # look local again — no error, just an inert bitrate limit. Pinning the proxy to
+  # the announcer keeps the forward node-local, so no SNAT happens and the real
+  # client IP reaches Envoy: downstream_remote_address is 192.168.10.105 for a LAN
+  # client, not a 10.42.x.y router address.
+  #
+  # This costs no availability. worker-01 already holds the L2 announce lease
+  # alone, so if it is down nothing answers ARP for 192.168.30.200 and ingress is
+  # gone regardless of where the proxy runs.
   provider:
     type: Kubernetes
     kubernetes:
       envoyService:
         externalTrafficPolicy: Cluster
+      envoyDeployment:
+        pod:
+          nodeSelector:
+            homelab.io/media: "true"
