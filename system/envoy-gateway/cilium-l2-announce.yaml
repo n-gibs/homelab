@@ -3,9 +3,13 @@ kind: CiliumL2AnnouncementPolicy
 metadata:
   name: homelab
 spec:
+  # Two nodes carry homelab.io/ingress, so the VIP has somewhere to fail over to. Not
+  # homelab.io/media — that would also make worker-02 a scheduling target for apps whose
+  # data is on worker-01's disk. Must stay identical to the proxy's nodeSelector in
+  # envoyproxy.yaml; see there for why.
   nodeSelector:
     matchLabels:
-      homelab.io/media: "true"
+      homelab.io/ingress: "true"
   interfaces:
     - ^enp2s0$
     - ^eno1$

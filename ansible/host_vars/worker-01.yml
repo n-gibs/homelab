@@ -6,4 +6,11 @@
 # but a taint only repels — the nodeSelector is what attracts media. All the taint did was
 # penalise the highest-RAM node in the cluster (22.6G vs 14.9G on worker-02) hard enough
 # that nothing generic ever landed here, while worker-02 filled to 58% memory requested.
-extra_server_args: "{{ common_server_flags }} --node-label homelab.io/media=true"
+# --node-label is applied by kubelet at registration only: adding one here does NOT label
+# an existing node on a k3s restart. `kubectl label node` it once by hand; this keeps it
+# true after a rebuild. homelab.io/ingress is the L2 announcer candidate set, worker-02
+# carries it too — see system/envoy-gateway/envoyproxy.yaml.
+extra_server_args: >-
+  {{ common_server_flags }}
+  --node-label homelab.io/media=true
+  --node-label homelab.io/ingress=true

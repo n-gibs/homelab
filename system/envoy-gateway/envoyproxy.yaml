@@ -4,34 +4,41 @@ metadata:
   name: homelab
   namespace: envoy-gateway-system
   annotations:
-    # Apply before the Gateway/GatewayClass (default wave 0) so the proxy Service
-    # is created WITH externalTrafficPolicy Cluster from the start, not defaulted
-    # to Local and left un-reconciled. See gateway.yaml for the failure mode.
+    # Apply before the Gateway/GatewayClass so the Service is created with this
+    # externalTrafficPolicy rather than defaulted and left un-reconciled — see gateway.yaml.
     argocd.argoproj.io/sync-wave: "-1"
 spec:
-  # The Cilium L2 policy announces the gateway IP only from worker-01, but the
-  # data-plane proxy is free to schedule on any node. With externalTrafficPolicy
-  # Local, the announcer and the proxy pod must be co-located or traffic to
-  # 192.168.30.200 is blackholed. Use Cluster so the announcing node forwards to
-  # the proxy wherever it runs (via the VXLAN overlay).
+  # Client IP survives only while the forward stays node-local: Cilium SNATs to the
+  # forwarding node's cilium_host address when it crosses a node, and that is still
+  # RFC1918, so Jellyfin reads every remote session as LAN and its bitrate limit goes
+  # inert. Silently — ingress keeps working.
   #
-  # The Cluster trade-off is that cross-node forwarding SNATs the client to the
-  # forwarding node's cilium_host address. Jellyfin now classifies remote vs LAN
-  # sessions off X-Forwarded-For, so that SNAT would silently make every client
-  # look local again — no error, just an inert bitrate limit. Pinning the proxy to
-  # the announcer keeps the forward node-local, so no SNAT happens and the real
-  # client IP reaches Envoy: downstream_remote_address is 192.168.10.105 for a LAN
-  # client, not a 10.42.x.y router address.
-  #
-  # This costs no availability. worker-01 already holds the L2 announce lease
-  # alone, so if it is down nothing answers ARP for 192.168.30.200 and ingress is
-  # gone regardless of where the proxy runs.
+  # Local guarantees node-local backends. Cluster does not: it hashes across all of them,
+  # so a second replica would cross nodes for some connections.
   provider:
     type: Kubernetes
     kubernetes:
       envoyService:
-        externalTrafficPolicy: Cluster
+        externalTrafficPolicy: Local
       envoyDeployment:
+        replicas: 2
+        # A DoNotSchedule spread with replicas == nodes leaves a surge pod nowhere to
+        # land, so the 25% default would deadlock a rolling update.
+        strategy:
+          type: RollingUpdate
+          rollingUpdate:
+            maxSurge: 0
+            maxUnavailable: 1
         pod:
           nodeSelector:
-            homelab.io/media: "true"
+            homelab.io/ingress: "true"
+          # Load-bearing: under Local, a node announcing the VIP without a local proxy is
+          # a blackhole. One replica per candidate node rules that out.
+          topologySpreadConstraints:
+            - topologyKey: kubernetes.io/hostname
+              maxSkew: 1
+              whenUnsatisfiable: DoNotSchedule
+              labelSelector:
+                matchLabels:
+                  gateway.envoyproxy.io/owning-gateway-name: homelab
+                  gateway.envoyproxy.io/owning-gateway-namespace: envoy-gateway-system
