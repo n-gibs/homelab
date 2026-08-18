@@ -1,11 +1,8 @@
 ---
-# Two Probes, split by module rather than by app: everything answering a real 200 shares
-# one, longhorn gets its own because it needs a module that tolerates 401.
-#
-# Public hostnames, not Services. All of them resolve to 192.168.30.200, the gateway's address,
-# so the probe traverses DNS, the gateway, the HTTPRoute and the served certificate — the
-# whole path a browser takes. A Service-level probe would skip every one of those and only
-# retest what pod readiness already covers.
+# Public hostnames, not Services: they resolve to the gateway, so the probe traverses DNS,
+# the HTTPRoute and the served certificate. A Service-level probe would skip all of that and
+# only retest what pod readiness covers. Split by module because longhorn needs one that
+# tolerates 401.
 apiVersion: monitoring.coreos.com/v1
 kind: Probe
 metadata:
@@ -26,11 +23,9 @@ spec:
         - https://jellyfin.nik-homelab.dev
         - https://nextcloud.nik-homelab.dev
         - https://immich.nik-homelab.dev
-        # Each measured through this exporter before being added: all return 200, five
-        # of them (lidarr, navidrome, prowlarr, radarr, sonarr) only after a redirect the
-        # module follows. A hostname dropped from an HTTPRoute does not fail DNS — the
-        # wildcard record still resolves it to the gateway, which 404s — so it surfaces
-        # here as EndpointDown, not as a name that stopped resolving.
+        # A hostname dropped from an HTTPRoute does not fail DNS: the wildcard record still
+        # resolves it to the gateway, which 404s. So it surfaces here as EndpointDown rather
+        # than as a name that stopped resolving.
         - https://argocd.nik-homelab.dev
         - https://bazarr.nik-homelab.dev
         - https://cleanuparr.nik-homelab.dev
@@ -61,3 +56,22 @@ spec:
         # 401 unauthenticated, measured. On http_2xx this would be probe_success 0 and a
         # standing critical EndpointDown; see values.yaml for what the auth module still proves.
         - https://longhorn.nik-homelab.dev
+---
+# An address, not a DNS name: the failure under test is the host being gone, so resolving a
+# name for it would add a dependency the check does not need.
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: nfs-server
+  namespace: blackbox-exporter
+  labels:
+    release: monitoring-system
+spec:
+  interval: 60s
+  module: tcp_connect
+  prober:
+    url: blackbox-exporter.blackbox-exporter.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        - 192.168.30.194:2049

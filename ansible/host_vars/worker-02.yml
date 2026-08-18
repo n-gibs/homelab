@@ -1,11 +1,15 @@
 ---
 # G6: k3s server + worker (schedulable — no control-plane taint)
-extra_server_args: "{{ common_server_flags }}"
+# Failover announcer for the gateway VIP; the Envoy proxy keeps a replica here to match.
+# Deliberately NOT homelab.io/media — media apps belong on worker-01's local disk.
+# --node-label only applies at kubelet registration, so label an existing node by hand.
+extra_server_args: >-
+  {{ common_server_flags }}
+  --node-label homelab.io/ingress=true
 
-# The WD PC SN740 here stops answering shortly after boot if it picks its own power state.
-# 0 disables APST outright — the value this drive has actually run on. 5000us (leave ps3,
-# block ps4/ps5) was tried on 2026-08-17 and is untested: the node needed a physical M.2
-# reseat before it would POST again, so that boot never reached the kernel. The saving at
-# stake is 0.010W; the heat this was chasing is the ACPI _CST C3 ceiling, not the drive.
+# The WD PC SN740 stops answering shortly after boot if it picks its own power state, so
+# APST is disabled outright rather than capped. 5000us was tried on 2026-08-17 and never
+# reached the kernel, so it stays untested; the 0.010W at stake is not worth another
+# no-POST. The heat this was chasing is the ACPI _CST C3 ceiling, not the drive.
 kernel_cmdline_extra:
   - nvme_core.default_ps_max_latency_us=0

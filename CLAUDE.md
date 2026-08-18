@@ -5,8 +5,8 @@
 | Node | Hardware | CPU | RAM | Storage | Role |
 |------|----------|-----|-----|---------|------|
 | worker-00 | HP ProDesk Mini G4 | i3-8100T (8th gen, 4C/4T) | 16GB | 128GB NVMe | k3s server + worker (schedulable) |
-| worker-01 | HP ProDesk Mini G9 | i5-12500T (12th gen, 6C/12T) | 24GB | 512GB NVMe + 12TB USB HDD | k3s server + worker, NFS server, media workloads (`homelab.io/media=true` label, no taint) |
-| worker-02 | HP ProDesk Mini G6 | i5-10500T (10th gen, 6C/12T) | 16GB | 256GB NVMe | k3s server + worker (schedulable) |
+| worker-01 | HP ProDesk Mini G9 | i5-12500T (12th gen, 6C/12T) | 24GB | 512GB NVMe + 12TB USB HDD | k3s server + worker, NFS server, media workloads (`homelab.io/media=true`), preferred ingress announcer (`homelab.io/ingress=true`), no taint |
+| worker-02 | HP ProDesk Mini G6 | i5-10500T (10th gen, 6C/12T) | 16GB | 256GB NVMe | k3s server + worker (schedulable), failover ingress announcer (`homelab.io/ingress=true`) |
 
 worker-01 is the largest node on every axis; worker-00 is the smallest (4 cores, no HT) and hits
 scheduling pressure first.
@@ -185,6 +185,21 @@ apps and feel free to drop it when touching one for another reason.
 - Allowed IPs: `0.0.0.0/0` only — no IPv6 (prevents IPv6 route failure in Cilium)
 - qBittorrent bound to `tun0` interface: Tools → Options → Advanced → Network interface
 - NFS permissions: initContainer chmods `/data/downloads` and `/data/media` on every pod start
+
+## Ingress placement — `homelab.io/ingress`
+
+`homelab.io/ingress=true` (worker-01 + worker-02) is the candidate set for both the
+`CiliumL2AnnouncementPolicy` that answers ARP for `192.168.30.200` and the Envoy data-plane
+proxy, which runs one replica per labelled node. The two selectors must stay identical:
+client IP preservation is a placement property, and `externalTrafficPolicy: Local` plus a
+node-local proxy is what keeps the forward from crossing a node and being SNATed.
+
+It is a **separate label from `homelab.io/media`** on purpose — don't widen media to a
+second node, those apps need worker-01's local disk.
+
+Labels come from `--node-label` in `ansible/host_vars/`, which kubelet applies **at
+registration only**, so it won't label an existing node on a k3s restart. `kubectl label
+node <n> homelab.io/ingress=true` once by hand; Ansible keeps it true through a rebuild.
 
 ## Networking (in-cluster)
 
