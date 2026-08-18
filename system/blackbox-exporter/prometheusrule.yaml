@@ -16,8 +16,10 @@ spec:
         # 5m is five consecutive failed probes at the 60s interval, which rules out a single
         # gateway reload or a rolling restart. probe_success is one-hot per target, so this
         # fires per hostname and names the one that is down.
+        # Scoped to the https targets: probe_success is shared with the NFS probe below,
+        # and this rule's advice is misleading for a dead file server.
         - alert: EndpointDown
-          expr: probe_success == 0
+          expr: probe_success{instance=~"https://.*"} == 0
           for: 5m
           labels:
             severity: critical
@@ -48,6 +50,21 @@ spec:
               CertExpiringSoon is quiet, cert-manager has renewed and the gateway is still
               serving the old certificate — restart the Envoy proxy pods. If both are
               firing, the renewal itself is failing.
+
+        # 3m, under EndpointDown's 5m, so it beats the app-level cascade it explains.
+        - alert: NFSServerUnreachable
+          expr: probe_success{instance="192.168.30.194:2049"} == 0
+          for: 3m
+          labels:
+            severity: critical
+          annotations:
+            summary: worker-01 is not answering on the NFS port
+            description: >-
+              nfsd on 192.168.30.194:2049 has refused a TCP handshake for three minutes, so
+              /mnt/storage is gone: the media library, every `nfs` PVC, all five
+              *-db-backup destinations and the Longhorn backup target. App alerts will
+              follow — this is their cause. Check the node, then `systemctl status
+              nfs-server`. Longhorn volumes are unaffected.
 
         - alert: BlackboxMetricsMissing
           expr: absent(probe_success)

@@ -61,3 +61,22 @@ spec:
         # 401 unauthenticated, measured. On http_2xx this would be probe_success 0 and a
         # standing critical EndpointDown; see values.yaml for what the auth module still proves.
         - https://longhorn.nik-homelab.dev
+---
+# An address, not a DNS name: the failure under test is the host being gone, so resolving a
+# name for it would add a dependency the check does not need.
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: nfs-server
+  namespace: blackbox-exporter
+  labels:
+    release: monitoring-system
+spec:
+  interval: 60s
+  module: tcp_connect
+  prober:
+    url: blackbox-exporter.blackbox-exporter.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        - 192.168.30.194:2049
