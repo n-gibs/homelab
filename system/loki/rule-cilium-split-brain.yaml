@@ -1,15 +1,8 @@
 ---
-# Detects two cilium-agent processes on one node — the dangling-BPF-backend condition that
-# caused a node-wide DNS loss and took 27 ArgoCD apps with it.
-#
-# A log rule, not a PrometheusRule: the condition is invisible to Kubernetes (the DaemonSet
-# only knows the agent it created) and Cilium's Prometheus endpoint is off here. The only
-# reliable fingerprint is the losing agent failing to bind a port the survivor holds, and
-# nothing else on a node binds 4244 or 4240.
-#
-# Consumed by the loki-sc-rules sidecar, which copies any ConfigMap labelled `loki_rule`
-# into the ruler's rule directory. The annotation puts it in the per-tenant subdirectory
-# the local store requires — `fake`, because auth_enabled is false. See values.yaml.
+# Detects two cilium-agent processes on one node. A log rule, not a PrometheusRule: the condition
+# is invisible to Kubernetes, since the DaemonSet only knows the agent it created, and the only
+# reliable fingerprint is the losing agent failing to bind a port the survivor holds. The
+# annotation puts it in the tenant subdirectory the local store requires — see values.yaml.
 apiVersion: v1
 kind: ConfigMap
 metadata:

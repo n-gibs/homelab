@@ -3,19 +3,16 @@ controllers:
   main:
     type: cronjob
     pod:
-      # Copy as uid/gid 1000, the PUID/PGID every *arr runs under. rclone defaults to
-      # root, and with fs.protected_hardlinks=1 (kernel default) a user cannot hardlink
-      # a root-owned file it can't write — so Sonarr silently fell back to a full copy
-      # of every seedbox import, defeating the whole point of the shared /data mount.
-      # Local qBittorrent grabs hardlink fine precisely because it also runs as 1000.
+      # Copy as uid/gid 1000, the PUID/PGID every *arr runs under. rclone defaults to root, and
+      # with fs.protected_hardlinks=1 a user cannot hardlink a root-owned file it can't write —
+      # so an arr silently falls back to a full copy of every seedbox import, defeating the
+      # shared /data mount. Local qBittorrent hardlinks fine because it also runs as 1000.
       securityContext:
         runAsUser: 1000
         runAsGroup: 1000
-      # worker-01 is the NFS server itself (192.168.30.194:/mnt/storage). Running
-      # anywhere else means every copied byte crosses the LAN a second time as an
-      # NFS write. No toleration: worker-01's taint was removed 2026-07-31, and no
-      # availability is lost by pinning — if worker-01 is down there is no NFS
-      # export to write to anyway.
+      # worker-01 is the NFS server itself, so running anywhere else means every copied byte
+      # crosses the LAN a second time as an NFS write. Pinning costs no availability: if
+      # worker-01 is down there is no export to write to either.
       nodeSelector:
         homelab.io/media: "true"
     cronjob:
@@ -37,24 +34,17 @@ controllers:
           - copy
           - seedbox:/home/seedit4me/torrents/qbittorrent
           - /data/downloads/seedbox
-          # One category per arr, because an arr claims every torrent in its client's
-          # category — all three sharing `media` meant Lidarr's queue filled with
-          # Sonarr's TV grabs, stuck at importBlocked forever. Copying the parent means
-          # naming what to take: `temp` is qBittorrent's in-progress scratch dir and
-          # `ratio` is manual seeding, neither of which any arr imports. With any
-          # --include present rclone excludes everything else, so this list is the
-          # whole contract.
+          # One category per arr, because an arr claims every torrent in its client's category
+          # and a shared one leaves queues stuck at importBlocked. Copying the parent means
+          # naming what to take: `temp` is qBittorrent's scratch dir and `ratio` is manual
+          # seeding. With any --include present rclone excludes all else, so this is the contract.
           - --include=/music/**
           - --include=/tv/**
           - --include=/movies/**
-          # ProFTPD's shell-less SFTP forces disable_hashcheck, so rclone falls back to
-          # comparing size + modtime — and the destination ends up stamped with the copy
-          # time rather than the source mtime, so nothing ever matches and every run
-          # re-transfers the whole payload (930 MiB per 15 min, measured 2026-08-04).
-          # Worse, each re-copy renames a new .partial into place, so the file gets a new
-          # inode under any *arr mid-import and the hardlink is orphaned.
-          # Size alone is a sound comparison here: a completed torrent's size is fixed,
-          # and unlike --ignore-existing a truncated copy still gets repaired.
+          # ProFTPD's shell-less SFTP forces disable_hashcheck, so rclone compares size+modtime —
+          # and the destination gets stamped with the copy time, so nothing ever matches, every
+          # run re-transfers everything, and each re-copy renames a new inode into place and
+          # orphans an arr's hardlink. Size alone is sound: a completed torrent's size is fixed.
           - --size-only
           - --transfers=4
           - --checkers=4
@@ -85,13 +75,10 @@ controllers:
             cpu: 200m
             memory: 512Mi
           limits:
-            # Peak memory is concurrency x buffer size, not file size: rclone allocates
-            # --multi-thread-chunk-size (64Mi) per stream per transfer, so the defaults of
-            # 4 transfers x 4 streams sit at exactly 1Gi and OOMKilled the job three times
-            # on 2026-08-15. 2Gi keeps multi-thread copy on — it is what makes a single
-            # large file fast on a high-latency link — with headroom over that 1Gi peak.
-            # Anything that raises --transfers or --multi-thread-streams raises the peak
-            # by 64Mi per added stream, so re-check this number before touching those.
+            # Peak memory is concurrency x buffer, not file size: rclone allocates
+            # --multi-thread-chunk-size per stream per transfer, and the defaults land exactly on
+            # 1Gi. This keeps multi-thread copy on with headroom above that; anything raising
+            # --transfers or --multi-thread-streams raises the peak, so re-check it first.
             memory: 2Gi
             # SFTP throughput is bounded by cipher work at ~58 MiB/s, and 16 concurrent
             # streams spread that across cores. worker-01 has 12.

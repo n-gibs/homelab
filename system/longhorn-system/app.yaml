@@ -1,10 +1,5 @@
-# The 1.11.3-vs-1.12.0 split is closed: 1.12.1 backports the expansion fixes this cluster
-# depends on (#13412 pvc resize after iscsid restart, #13368, #13384) and carries #13152, the
-# Replica CR leak on best-effort locality plus recurring jobs that 1.11.3 lacks.
-#
-# 1.12.1 turns networkPolicies.restrictInternalTraffic on by default, which Cilium enforces.
-# k3s + Cilium is a combination Longhorn validated for it; if instance-manager gRPC starts
-# failing, that value is the first thing to set false.
+# networkPolicies.restrictInternalTraffic defaults on from 1.12.1, and Cilium enforces it. If
+# instance-manager gRPC starts failing after a bump, that value is the first thing to set false.
 chartName: longhorn
 chartRepo: https://charts.longhorn.io
 chartVersion: 1.12.1

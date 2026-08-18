@@ -3,33 +3,11 @@ kind: PersistentVolumeClaim
 metadata:
   name: radarr-config-local
   namespace: radarr
-  # NO sync-wave annotation -- do not add one. local-path is WaitForFirstConsumer,
-  # so this stays Pending (= unhealthy to ArgoCD) until its consumer is scheduled.
-  # An earlier wave deadlocks the sync forever. Same reasoning as
-  # apps/nextcloud/html-pvc.yaml.
+  # No sync-wave annotation -- see the local-path note in CLAUDE.md. Superseded by
+  # radarr-config below; scheduled for deletion.
 spec:
   accessModes:
     - ReadWriteOnce
-  # local-path, same exception as apps/sonarr/config-pvc.yaml -- read that one for
-  # the full argument.
-  #
-  # Radarr had only 4 "database is locked" errors in the week Sonarr logged 996,
-  # so this move is not fixing an active fault. It is here so all four *arr apps
-  # sit on the same class: the SQLite-over-NFS hazard is the same, Radarr just has
-  # not tripped it yet, and a config that is one bad night away from the Sonarr
-  # failure is not worth leaving on a spinning USB disk for symmetry with nothing.
-  #
-  # Durability trade is the same as Sonarr's: worker-01 is itself the NFS server,
-  # so nfs bought a second disk on one node, not a second node. Radarr's scheduled
-  # backup writes to /data/backups/radarr on that USB disk -- the separate failure
-  # domain.
-  #
-  # Recovery if worker-01's NVMe dies: delete this PVC, let it recreate empty,
-  # then restore the newest zip from /data/backups/radarr/scheduled/ via
-  # System -> Backup -> Restore. Movie library and downloads are untouched.
-  #
-  # 10Gi against a ~110M config is headroom -- local-path cannot be expanded in
-  # place, so this is sized once.
   storageClassName: local-path
   resources:
     requests:
@@ -40,27 +18,11 @@ kind: PersistentVolumeClaim
 metadata:
   name: radarr-config
   namespace: radarr
-  # No sync-wave annotation. The longhorn class binds Immediate rather than
-  # WaitForFirstConsumer, so unlike the local-path PVC above this does not sit Pending
-  # waiting for a consumer -- but a PVC still has no reason to own a wave.
 spec:
   accessModes:
     - ReadWriteOnce
-  # longhorn, not local-path: /config is SQLite, and SQLite needs a real block device
-  # with a real filesystem -- which Longhorn provides and NFS does not. Two replicas,
-  # one of them local to whichever node the pod runs on (best-effort locality), so
-  # losing a node degrades this volume instead of taking it offline.
-  #
-  # Durability still does not come from the volume. Radarr's own System -> Backup
-  # writing to /data/backups/radarr/scheduled/ is the application-consistent copy --
-  # it knows how to quiesce its own database, so no CronJob is needed here.
-  #
-  # Recovery if a node dies: nothing to do, the replica rebuilds. If the volume is
-  # faulted, restore the newest zip from /data/backups/radarr/scheduled/ via
-  # System -> Backup -> Restore.
-  #
-  # 2Gi against 112M today is headroom, and longhorn expands in place, so this isn't
-  # sized once like the local-path PVC above.
+  # /config is SQLite -- longhorn per the CLAUDE.md storage rule.
+  # Backup: Radarr's own System -> Backup, writing to /data/backups/radarr/scheduled/.
   storageClassName: longhorn
   resources:
     requests:

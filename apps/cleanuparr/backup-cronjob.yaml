@@ -1,14 +1,7 @@
-# Cleanuparr, unlike the arrs, has no built-in scheduled backup -- there is no
-# System -> Backup in its UI -- so this job is what makes the local-path config
-# volume acceptable. It writes to the NFS share, a different disk from the NVMe
-# that local-path uses.
-#
-# Not a `cp`: SQLite in WAL mode spreads committed state across .db, .db-wal and
-# .db-shm, so copying a live database can produce a torn, unrestorable file. This
-# uses SQLite's online backup API via Python's stdlib sqlite3 module, which is why
-# the image is python:3.13-alpine -- no sqlite3 CLI needed, no apk add at runtime,
-# and an official image Renovate already knows how to track. (The linuxserver arr
-# images do not ship the sqlite3 binary, so there was nothing to reuse.)
+# Cleanuparr has no built-in scheduled backup, unlike the arrs, so this job is its app-level
+# backup path. Not a `cp`: SQLite in WAL mode spreads committed state across .db/-wal/-shm, so
+# copying a live database can produce a torn, unrestorable file. This uses SQLite's online backup
+# API from Python's stdlib, hence a python image -- no sqlite3 CLI, and Renovate tracks it.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -54,11 +47,9 @@ spec:
                   staging = "/tmp/cleanuparr-backup"
                   stamp = time.strftime("%Y%m%d-%H%M%S")
 
-                  # Everything except logs and the live database files. The
-                  # DataProtection keys and cleanuparr.json live under /config with
-                  # names that are not documented, so copy by exclusion rather than
-                  # guessing filenames -- the .db files are replaced below by
-                  # consistent snapshots.
+                  # Copy by exclusion rather than by filename: the DataProtection keys and
+                  # cleanuparr.json live under /config with undocumented names. The .db files
+                  # are replaced below by consistent snapshots.
                   shutil.rmtree(staging, ignore_errors=True)
                   shutil.copytree(
                       CONFIG,
@@ -78,10 +69,9 @@ spec:
                       )
                   for db in dbs:
                       target = os.path.join(staging, os.path.basename(db))
-                      # Read-only source: a backup job must never mutate what it is
-                      # backing up. If WAL recovery were needed this open fails and
-                      # the job fails loudly, which is the safe direction. mode=ro
-                      # is what enforces that -- not the mount, which has to stay
+                      # Read-only source: a backup job must never mutate what it is backing up,
+                      # and if WAL recovery were needed this open fails loudly, which is the safe
+                      # direction. mode=ro enforces that -- not the mount, which has to stay
                       # writable so SQLite can create the -shm file (see below).
                       src = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
                       dst = sqlite3.connect(target)
@@ -96,15 +86,10 @@ spec:
 
                   os.makedirs(DEST, exist_ok=True)
                   archive = os.path.join(DEST, f"cleanuparr-{stamp}.tar.gz")
-                  # Write under a temp name in DEST (same filesystem, so the
-                  # rename below is atomic) and only rename onto the real name
-                  # once the archive is complete. Writing straight to `archive`
-                  # would leave a truncated file at the exact name a good
-                  # backup would have if the pod dies mid-write -- and that is
-                  # the name the restore path reaches for. The ".tmp" suffix
-                  # also keeps it out of the "cleanuparr-*.tar.gz" prune glob
-                  # below, so a leftover temp file from a crash is never
-                  # pruned as -- or counted as -- a real archive.
+                  # Temp name on the same filesystem, so the rename below is atomic: writing
+                  # straight to `archive` would leave a truncated file at exactly the name the
+                  # restore path reaches for. The ".tmp" suffix also keeps a crashed run's
+                  # leftover out of the prune glob, so it is never counted as a real archive.
                   tmp_archive = archive + ".tmp"
                   with tarfile.open(tmp_archive, "w:gz") as tar:
                       tar.add(staging, arcname="config")
@@ -123,14 +108,10 @@ spec:
                           kept += 1
                   print(f"retained: {kept} archives")
               volumeMounts:
-                # Not readOnly. Opening a WAL-mode database -- even with mode=ro --
-                # requires a -shm file, and SQLite must create it when one does not
-                # already exist. cleanuparr.db and events.db are held open by the
-                # app so their -shm is always there; users.db is idle and clean, so
-                # it has none, and on a read-only mount the backup died on it with
-                # "unable to open database file" after snapshotting the other two.
-                # mode=ro on the connection is what keeps this job from mutating
-                # the database itself.
+                # Not readOnly. Opening a WAL-mode database, even with mode=ro, requires a -shm
+                # file, and SQLite must create it when none exists -- an idle database has none,
+                # so a read-only mount fails with "unable to open database file". mode=ro on the
+                # connection is what keeps this job from mutating the database.
                 - name: config
                   mountPath: /config
                 - name: data
@@ -143,11 +124,9 @@ spec:
                   cpu: 500m
                   memory: 512Mi
           volumes:
-            # ReadWriteOnce is a per-NODE constraint, not per-pod, so this pod may
-            # mount the volume while Cleanuparr has it. The local-path PV carries
-            # node affinity, which forces the scheduler to put this pod on the same
-            # node -- so that is guaranteed rather than lucky. (ReadWriteOncePod
-            # would forbid it; that is not the access mode in use.)
+            # ReadWriteOnce is a per-NODE constraint, not per-pod, so this pod may mount the
+            # volume while Cleanuparr has it. (ReadWriteOncePod would forbid it; that is not
+            # the access mode in use.)
             - name: config
               persistentVolumeClaim:
                 claimName: cleanuparr-config-local

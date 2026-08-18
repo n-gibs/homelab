@@ -1,12 +1,8 @@
 ---
-# Both Envoy Gateway pods already serve Prometheus metrics on 19001 and carry
-# prometheus.io/scrape annotations, which nothing in this cluster reads. Only the scrape was
-# missing, so neither the EnvoyProxy nor the Gateway needs touching -- deliberately, given
-# that a parametersRef change here once took the whole data plane out.
-#
-# No namespaceSelector: these land in the envoy-gateway namespace alongside the pods they
-# select. The EnvoyProxy and Gateway CRs live in envoy-gateway-system, but the workloads the
-# controller creates from them run here.
+# Only the scrape was missing — both pods already serve metrics on 19001 — so neither the
+# EnvoyProxy nor the Gateway is touched here, deliberately: a parametersRef change once took the
+# whole data plane out. No namespaceSelector, because the controller runs these workloads in
+# this namespace even though the EnvoyProxy and Gateway CRs live in envoy-gateway-system.
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:

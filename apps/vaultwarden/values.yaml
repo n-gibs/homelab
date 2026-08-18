@@ -22,11 +22,10 @@ controllers:
           SIGNUPS_ALLOWED: "false"
           INVITATIONS_ALLOWED: "true"
           INVITATION_ORG_NAME: "Homelab"
-          # SMTP not configured — invites added manually via /admin (no email sent).
-          # CloudNativePG generates this secret and its `uri` key is already in exactly
-          # the shape Vaultwarden wants: postgresql://app:<password>@<rw-service>:5432/app.
-          # Nothing to commit, nothing to seal, and no rotation to wire up -- which is why
-          # this one credential does not come from Infisical like ADMIN_TOKEN does.
+          # SMTP not configured — invites added manually via /admin, no email sent.
+          # CloudNativePG generates this secret and its `uri` key is already in the shape
+          # Vaultwarden wants, so there is nothing to commit and no rotation to wire up. That
+          # is why this one credential does not come from Infisical like ADMIN_TOKEN does.
           DATABASE_URL:
             valueFrom:
               secretKeyRef:

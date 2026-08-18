@@ -3,30 +3,11 @@ kind: PersistentVolumeClaim
 metadata:
   name: lidarr-config-local
   namespace: lidarr
-  # NO sync-wave annotation -- do not add one. local-path is WaitForFirstConsumer,
-  # so this stays Pending (= unhealthy to ArgoCD) until its consumer is scheduled.
-  # An earlier wave deadlocks the sync forever. Same reasoning as
-  # apps/nextcloud/html-pvc.yaml.
+  # No sync-wave annotation -- see the local-path note in CLAUDE.md. Superseded by
+  # lidarr-config below; scheduled for deletion.
 spec:
   accessModes:
     - ReadWriteOnce
-  # local-path, same exception as apps/sonarr/config-pvc.yaml -- read that one for
-  # the full argument. Short version: the config is a SQLite database, SQLite over
-  # NFS does not work reliably, and Lidarr logged 564 "database is locked" errors
-  # in a week.
-  #
-  # The durability trade is smaller than it looks: worker-01 is itself the NFS
-  # server, so the nfs class was never buying this volume a second *node*, only a
-  # second disk on the same node (sda, a 10.9T spinning USB drive) versus the
-  # internal NVMe local-path uses. Lidarr's scheduled backup writes to
-  # /data/backups/lidarr on that USB disk, which is the different failure domain.
-  #
-  # Recovery if worker-01's NVMe dies: delete this PVC, let it recreate empty,
-  # then restore the newest zip from /data/backups/lidarr/scheduled/ via
-  # System -> Backup -> Restore. Music library and downloads are untouched.
-  #
-  # 10Gi against a ~240M config is headroom -- local-path cannot be expanded in
-  # place, so this is sized once.
   storageClassName: local-path
   resources:
     requests:
@@ -37,28 +18,13 @@ kind: PersistentVolumeClaim
 metadata:
   name: lidarr-config
   namespace: lidarr
-  # No sync-wave annotation. The longhorn class binds Immediate rather than
-  # WaitForFirstConsumer, so unlike the local-path PVC above this does not sit Pending
-  # waiting for a consumer -- but a PVC still has no reason to own a wave.
 spec:
   accessModes:
     - ReadWriteOnce
-  # longhorn, not local-path: /config is SQLite, and SQLite needs a real block device with a
-  # real filesystem -- which Longhorn provides and NFS does not. Two replicas, one of them
-  # local to whichever node the pod runs on (best-effort locality), so losing a node
-  # degrades this volume instead of taking it offline.
-  #
-  # Durability still does not come from the volume. Lidarr's own scheduled backup is the
-  # application-consistent copy -- it knows how to quiesce its own database, so no CronJob
-  # is needed here (unlike Cleanuparr, which has no backup feature of its own).
-  #
-  # Recovery if a node dies: nothing to do, the replica rebuilds. If the volume is faulted,
-  # restore the newest zip from /data/backups/lidarr/scheduled/ via System -> Backup -> Restore.
-  #
-  # 2Gi against 396M today (MediaCover 281M, logs 60M, lidarr.db 34M, Backups 18M, logs.db
-  # 4.8M) is 19% used -- the tightest of the eight migrated volumes, but longhorn expands in
-  # place, so this isn't sized once like the local-path PVC above. MediaCover and logs both
-  # grow with library size, so this is the one volume of the eight most likely to need it.
+  # /config is SQLite -- longhorn per the CLAUDE.md storage rule.
+  # Backup: Lidarr's own System -> Backup, writing to /data/backups/lidarr/scheduled/.
+  # Tightest of the migrated volumes: MediaCover and logs grow with the library, so
+  # this is the one most likely to need an expand.
   storageClassName: longhorn
   resources:
     requests:

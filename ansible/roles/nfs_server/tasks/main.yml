@@ -44,12 +44,10 @@
   become: true
   notify: Re-export NFS shares
 
-# Longhorn's backup target gets its own export, scoped to just this directory (not the
-# whole share). It must match the parent /mnt/storage export's no_root_squash, not
-# contradict it: this directory is nested inside that export, and an NFSv4 client can
-# resolve through the parent, so a client writes as root regardless of what this export
-# says. all_squash here just left the backupstore with a mix of root- and nobody-owned
-# directories, and a root-owned drwx------ blocks a squashed client's mkdir.
+# Nested inside the parent /mnt/storage export, so it must agree with that export's
+# no_root_squash rather than contradict it: an NFSv4 client resolves through the parent and
+# writes as root regardless. Disagreeing leaves the backupstore half-owned by nobody, where a
+# root-owned drwx------ then blocks a squashed client's mkdir.
 - name: Configure NFS export for Longhorn backups
   ansible.builtin.blockinfile:
     path: /etc/exports

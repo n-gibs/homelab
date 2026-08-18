@@ -2,12 +2,10 @@
 collections:
   - name: kubernetes.core
     version: ">=2.4.0"
-  # The .git suffix below is load-bearing for Renovate, not cosmetic: its
-  # ansible-galaxy manager only treats `source` as the package URL when it ends
-  # in .git (or starts with git@). Without it the URL was filed as a registry
-  # the git-tags datasource rejects, and the collection name was used as the
-  # clone URL instead, so this dep silently never updated. Keep comments out of
-  # the block itself - the manager parses line by line and drops the rest.
+  # The .git suffix below is load-bearing: Renovate's ansible-galaxy manager only treats
+  # `source` as the package URL when it ends in .git, and without it this dep silently
+  # never updated. Keep comments out of the block itself — the manager parses line by
+  # line and drops the rest.
   - name: k3s.orchestration
     source: https://github.com/k3s-io/k3s-ansible.git
     type: git

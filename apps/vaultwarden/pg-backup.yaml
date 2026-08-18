@@ -11,16 +11,10 @@ spec:
     requests:
       storage: 5Gi
 ---
-# Two halves, one job. pg_dump covers the vault; the tar covers rsa_key.pem, config.json,
-# attachments/ and sends/, which now live only on the nfs /data volume. Losing
-# rsa_key.pem invalidates every session token, so a database-only backup would not be a
-# backup of this app.
-#
-# The tar runs against a live /data with Vaultwarden serving, which is safe ONLY because
-# every file under it is write-once: rsa_key.pem is never rewritten, and attachments and
-# sends are created and deleted but not edited in place. There is no torn-read risk of the
-# kind that forced the old SQLite job to use the online backup API. Do not copy this to an
-# app that mutates files in place.
+# Two halves, one job: pg_dump covers the vault, the tar covers rsa_key.pem, config.json,
+# attachments/ and sends/, which live only on the nfs /data volume. Losing rsa_key.pem
+# invalidates every session token, so a database-only backup would not back up this app.
+# The tar runs against a live /data, safe ONLY because every file under it is write-once.
 apiVersion: batch/v1
 kind: CronJob
 metadata:

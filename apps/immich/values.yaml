@@ -82,12 +82,10 @@ server:
         # just "server". Without this the card shows a permanent orange dot even
         # though the widget itself is fine; status and widget are separate lookups.
         gethomepage.dev/app: "server"
-        # version 2 because the widget's v1 API shape only covers Immich < 1.118; we run
-        # v3.x. The {{HOMEPAGE_VAR_}} placeholder resolves in annotations too (discovered
-        # services go through substituteEnvironmentVars), so the key stays a sealed secret
-        # on Homepage's side. It must be a quoted literal: bjw-s runs annotation values
-        # through Helm's tpl, which would otherwise fail the render with
-        # `function "HOMEPAGE_VAR_IMMICH_API_KEY" not defined`.
+        # version 2 because the widget's v1 API shape only covers old Immich releases. The
+        # {{HOMEPAGE_VAR_}} placeholder resolves in annotations too, so the key stays a secret on
+        # Homepage's side — but it must be a quoted literal, since bjw-s runs annotation values
+        # through Helm's tpl and would otherwise fail the render on an undefined function.
         gethomepage.dev/widget.type: "immich"
         gethomepage.dev/widget.url: "http://immich-server.immich.svc.cluster.local:2283"
         gethomepage.dev/widget.key: '{{ "{{HOMEPAGE_VAR_IMMICH_API_KEY}}" }}'

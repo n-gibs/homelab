@@ -1,12 +1,7 @@
-# Jellyfin 10.11 has a backup engine (Dashboard -> Backups, POST /Backup/Create) but
-# no scheduled task for it -- the task list has no Backup entry -- so this job is
-# only the trigger. Jellyfin does its own consistent database export; nothing here
-# touches SQLite files, which is why this is a curl-equivalent and not a copy of
-# apps/cleanuparr/backup-cronjob.yaml.
-#
-# Longhorn's own daily backup of the config volume is crash-consistent; this is the
-# application-consistent one. Archives land on the NFS share (mounted into the pod at
-# /config/data/data/backups, see values.yaml), a different disk from the database.
+# Jellyfin has a backup engine but no scheduled task for it, so this job is only the trigger --
+# Jellyfin does its own consistent database export and nothing here touches SQLite files, which
+# is why this is a curl and not a copy of apps/cleanuparr/backup-cronjob.yaml. Longhorn's own
+# backup is crash-consistent; this is the application-consistent one, landing on the NFS share.
 apiVersion: batch/v1
 kind: CronJob
 metadata:

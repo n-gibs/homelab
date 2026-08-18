@@ -1,11 +1,7 @@
-# Longhorn chart 1.12.1 ships a longhorn-manager NetworkPolicy admitting only Longhorn's own
-# components, which blackholed every Prometheus scrape and left all six alerts in
-# prometheusrule.yaml evaluating against no data — inactive and healthy-looking.
-#
-# The chart's networkPolicies.enabled flag does not gate those templates: 1.12.1 renders all
-# six policies whether it is true or false, so this cannot be fixed in values.yaml. Policies
-# are additive, so this grants Prometheus the one port it needs and leaves the chart's
-# isolation intact across future bumps.
+# The chart's own longhorn-manager NetworkPolicy admits only Longhorn components, which
+# blackholes every Prometheus scrape and leaves the alerts evaluating against no data. Its
+# networkPolicies.enabled flag does not gate those templates, so values.yaml cannot fix it.
+# Policies are additive: this grants the one port Prometheus needs and leaves isolation intact.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

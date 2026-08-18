@@ -26,13 +26,9 @@ loki:
     enabled: true
 
   # Enables the ruler so log-only conditions can alert — see rule-cilium-split-brain.yaml.
-  #
   # storage.type must be local to read rule files off disk, and the local store expects
-  # <directory>/<tenant>, where the tenant is literally `fake` because auth_enabled is
-  # false. /rules is where the chart's loki-sc-rules sidecar already writes, so point the
-  # ruler there rather than the default /var/loki/rules.
-  # alertmanager_url reuses the kube-prometheus-stack Alertmanager, so these alerts inherit
-  # the existing ntfy routing and inhibitions. enable_alertmanager_v2 already defaults true.
+  # <directory>/<tenant>, where the tenant is literally `fake` because auth_enabled is false.
+  # /rules is where the chart's loki-sc-rules sidecar already writes, hence not the default.
   rulerConfig:
     wal:
       dir: /var/loki/ruler-wal

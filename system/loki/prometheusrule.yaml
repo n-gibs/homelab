@@ -1,8 +1,6 @@
 ---
-# The cluster's only log-based alert (rule-cilium-split-brain.yaml) is evaluated by Loki's own
-# ruler, not by Prometheus. Nothing watched the ruler, so a ruler that stopped evaluating would
-# have taken that alert with it silently — the alert would simply never fire again.
-#
+# rule-cilium-split-brain.yaml is evaluated by Loki's own ruler, not Prometheus, so a ruler that
+# stops evaluating takes that alert with it silently — it would simply never fire again.
 # Requires monitoring.serviceMonitor.enabled in system/loki/values.yaml.
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule

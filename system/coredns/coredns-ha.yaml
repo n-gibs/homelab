@@ -1,21 +1,8 @@
 ---
-# Additive CoreDNS replicas + a disruption budget for the kube-dns service.
-#
-# A SECOND deployment rather than scaling kube-system/coredns, because k3s owns that as a
-# k3s.cattle.io Addon, not a HelmChart — there is no HelmChartConfig to override, and
-# anything ArgoCD wrote there would fight the k3s deploy controller on every re-apply.
-#
-# These pods carry k8s-app=kube-dns, so the existing kube-dns Service picks them up with
-# no Service change, and the spread constraint below counts k3s's pod too. Config is not
-# duplicated — we mount k3s's own ConfigMap, including the NodeHosts file it keeps current.
-#
-# ponytail: the Deployment selector deliberately overlaps k3s's broader `k8s-app=kube-dns`.
-# Safe (a pod with a controllerRef is never claimed by another ReplicaSet) but it means
-# `kubectl get deploy coredns` reports 1/1 while three pods serve DNS. If that ambiguity
-# ever bites: k3s --disable=coredns and own the addon wholesale, NodeHosts upkeep included.
-#
-# Rollback: delete this file and let ArgoCD prune, or scale to 0. k3s's own replica is
-# untouched throughout and keeps serving DNS either way.
+# A SECOND deployment rather than scaling kube-system/coredns: k3s owns that as a k3s.cattle.io
+# Addon, so anything ArgoCD wrote there would fight the k3s deploy controller. These pods carry
+# k8s-app=kube-dns and mount k3s's own ConfigMap, so neither Service nor config is duplicated.
+# ponytail: the selector overlaps k3s's, so `kubectl get deploy coredns` reports 1/1 of three.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
