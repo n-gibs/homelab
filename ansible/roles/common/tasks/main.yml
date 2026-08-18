@@ -149,7 +149,7 @@
 
 # Restart=always, not on-failure: a SIGTERM is a clean exit. An explicit `systemctl stop`
 # still wins, because systemd never restarts a deliberate stop.
-# ponytail: chrony only. Clock skew on an etcd node is the one that hurts.
+# Applied to chrony alone: clock skew on an etcd node is the one that hurts.
 - name: Make chrony survive an unexpected termination
   ansible.builtin.copy:
     dest: /etc/systemd/system/chrony.service.d/override.conf

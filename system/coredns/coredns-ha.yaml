@@ -2,7 +2,7 @@
 # A SECOND deployment rather than scaling kube-system/coredns: k3s owns that as a k3s.cattle.io
 # Addon, so anything ArgoCD wrote there would fight the k3s deploy controller. These pods carry
 # k8s-app=kube-dns and mount k3s's own ConfigMap, so neither Service nor config is duplicated.
-# ponytail: the selector overlaps k3s's, so `kubectl get deploy coredns` reports 1/1 of three.
+# The selector overlaps k3s's, so `kubectl get deploy coredns` reports 1/1 of three.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
