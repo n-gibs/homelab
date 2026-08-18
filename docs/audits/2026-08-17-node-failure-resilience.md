@@ -118,7 +118,15 @@ What shipped instead:
 
 **Cost forever:** one extra Envoy pod (100m CPU / 512Mi requested), one more label to remember,
 and a single-replica window during proxy upgrades — which is what this ran on permanently until
-now. Media placement is unchanged.
+now. Media placement is unchanged. One residual risk comes with it, recorded as accepted below:
+a proxy restart on the node holding the L2 lease drops ingress until that pod returns, because
+Cilium never moves the lease off an un-ready node.
+
+**Why not a third candidate node?** Because L2 announcement is not `externalTrafficPolicy`-aware,
+candidates must equal replicas, so labelling worker-00 means a third Envoy — on the node already
+at 102 % of allocatable CPU limits — to buy survival of a *two*-node loss, which is past etcd
+quorum anyway. The honest gain would be avoiding `maxSurge: 0`, worth seconds per upgrade. Two
+nodes is the right size.
 
 ### 2. Every backup in the cluster lands on worker-01
 
@@ -243,6 +251,22 @@ since the CronJob already has to exist.
   app-level backups, which is the correct layer; the arrs, Jellyfin, Nextcloud, Immich,
   Infisical and Vaultwarden all have their own backup path, and `cleanuparr` has the CronJob
   it needs because it has no built-in one.
+- **A proxy pod restart on the announcing node briefly drops ingress.** Cilium's L2
+  announcement is not `externalTrafficPolicy`-aware — its own docs list `Local` under
+  Limitations, because "L2 announcements are not currently aware of this setting and will
+  announce the service IP on all nodes". Finding #1's fix defuses the documented case (a node
+  announcing with no local backend) by guaranteeing one replica per candidate node, but not
+  this variant: if the pod on the node holding the lease goes un-ready, that node keeps
+  announcing and Cilium does not move the lease, so traffic drops until the pod returns.
+  `maxUnavailable: 1` makes that reachable during a chart upgrade.
+
+  Accepted because it is not a regression. Today's single pinned replica has the same
+  exposure — any proxy restart drops ingress, with nowhere else to go — and the alternative
+  that survives a pod restart (`Cluster` with two replicas) hashes across both backends, so
+  roughly half of all connections would be SNATed and the client IP silently wrong in normal
+  operation. Seconds of downtime on a rare upgrade is the cheaper of the two, and node
+  failure now recovers on its own where it previously did not.
+
 - **coredns-ha loses a replica to `Pending` during a one-node outage.** `replicas: 2` with
   `maxSkew: 1 / DoNotSchedule` means the third kube-dns endpoint cannot be replaced while a node
   is down. DNS still serves from two pods on two nodes, and `CoreDNSRedundancyLost` covers the

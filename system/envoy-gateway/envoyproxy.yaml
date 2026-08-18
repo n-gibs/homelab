@@ -19,8 +19,10 @@ spec:
         externalTrafficPolicy: Local
       envoyDeployment:
         replicas: 2
-        # A DoNotSchedule spread with replicas == nodes leaves a surge pod nowhere to
-        # land, so the 25% default would deadlock a rolling update.
+        # A DoNotSchedule spread with replicas == nodes leaves a surge pod nowhere to land,
+        # so the 25% default would deadlock a rolling update. Cost of taking one down
+        # instead: Cilium never moves the L2 lease off an un-ready node, so an upgrade that
+        # hits the announcer drops ingress until its pod is back. See docs/audits.
         strategy:
           type: RollingUpdate
           rollingUpdate:
