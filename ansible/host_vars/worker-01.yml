@@ -1,9 +1,12 @@
 ---
-# G9: k3s server + worker (schedulable, no control-plane taint). The label is what attracts
-# media workloads via `nodeSelector: homelab.io/media: "true"`.
-#
-# Deliberately NO `--node-taint`. It used to carry homelab.io/media=true:PreferNoSchedule,
-# but a taint only repels — the nodeSelector is what attracts media. All the taint did was
-# penalise the highest-RAM node in the cluster (22.6G vs 14.9G on worker-02) hard enough
-# that nothing generic ever landed here, while worker-02 filled to 58% memory requested.
-extra_server_args: "{{ common_server_flags }} --node-label homelab.io/media=true"
+# G9: k3s server + worker, no control-plane taint. homelab.io/media attracts media
+# workloads; homelab.io/ingress is the L2 announcer set worker-02 shares (see
+# system/envoy-gateway/envoyproxy.yaml). Deliberately no --node-taint: a taint only
+# repels, and it just left the highest-RAM node idle.
+
+# --node-label applies at kubelet registration only, so this does not label an existing
+# node on a k3s restart. Label it once by hand.
+extra_server_args: >-
+  {{ common_server_flags }}
+  --node-label homelab.io/media=true
+  --node-label homelab.io/ingress=true
