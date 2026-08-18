@@ -1,22 +1,8 @@
 ---
-# Guards the seven CronJobs — three Postgres dumps (immich, nextcloud, infisical), Cleanuparr's
-# SQLite backup, the seedbox rclone copy, nextcloud's internal cron, and recyclarr. Nothing watched these before: a CronJob that stops
-# running produces no logs, no failed pod, and no alert, so the first sign of a broken backup
-# would have been needing one.
-#
-# Deliberately generic — every rule below matches all CronJobs, so an app added later is
-# covered without editing this file. The one exception is BackupCronJobMissing, which has to
-# name what it expects to exist, because you cannot detect the absence of something generically.
-#
-# Two distinct failure modes, because one rule cannot see both:
-#   - "runs but never succeeds" → CronJobNotSucceeding, off last_successful_time.
-#   - "stopped being scheduled at all" → CronJobOverdue, off next_schedule_time. A wedged
-#     CronJob controller leaves last_successful_time frozen but also stops advancing
-#     next_schedule_time, and the latter goes stale within minutes rather than a day.
-#
-# What none of these catch: a dump that runs, succeeds, and writes a truncated or empty file.
-# Only the size trend on the CronJobs dashboard shows that. A Loki rule on the "wrote N bytes"
-# line could alert on it, but any threshold would be a guess until there is more history.
+# Rules are deliberately generic so a CronJob added later is covered without editing this file;
+# BackupCronJobMissing is the exception, since absence cannot be detected generically. Two rules
+# because one cannot see both failure modes: CronJobNotSucceeding reads last_successful_time,
+# CronJobOverdue reads next_schedule_time, which goes stale fast when the controller wedges.
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
@@ -86,15 +72,10 @@ spec:
               anyway. Resume with
               `kubectl -n {{ $labels.namespace }} patch cronjob {{ $labels.cronjob }} -p '{"spec":{"suspend":false}}'`.
 
-        # kube_job_failed only exists once a Job carries the Failed condition, so this is empty
-        # in the healthy state rather than a series of zeros. Matches the condition explicitly
-        # because the metric also emits condition="false".
-        #
-        # The recency bound is what lets this resolve. kube_job_failed tracks the Job object's
-        # existence, not whether anything is still broken, so failedJobsHistoryLimit keeps it
-        # firing until someone deletes the Job by hand — well past the 2h escalation, long
-        # after the fix shipped. A still-broken job keeps alerting regardless: every run
-        # creates a new Job with a fresh start_time.
+        # kube_job_failed appears only once a Job carries the Failed condition, and the metric
+        # also emits condition="false" — hence the explicit match. The recency bound is what
+        # lets this resolve: failedJobsHistoryLimit keeps the failed Job long after the fix,
+        # while a still-broken job re-alerts anyway because each run creates a new Job.
         - alert: CronJobJobFailed
           expr: >-
             (kube_job_failed{condition="true"} == 1)

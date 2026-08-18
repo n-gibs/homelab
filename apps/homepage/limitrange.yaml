@@ -9,18 +9,8 @@ spec:
       defaultRequest:
         cpu: 50m
         memory: 128Mi
-      # No default CPU limit on purpose, unlike every other app's LimitRange.
-      #
-      # Homepage is one single-threaded Node process fanning out ~15 widget fetches per page
-      # load: it wants most of a core for a second, then nothing. Any CPU limit turns that
-      # burst into a stall — it sat 93% throttled with 15s+ page loads, tripping Envoy's
-      # route timeout, whose plain-text body the customapi widgets then tried to JSON.parse.
-      #
-      # Raising the default would not fix it: VPA preserves the request:limit ratio, so it
-      # keeps dividing whatever ceiling is here (a 15m request against a 10x ratio gave
-      # 150m). Removing it leaves nothing to scale.
-      #
-      # The memory limit stays — an unbounded Node heap is a real risk, and memory is not a
-      # burst-and-idle resource here.
+      # No default cpu limit on purpose (see CLAUDE.md), and here raising it is no fix
+      # either: homepage is one Node process bursting ~15 widget fetches per page load,
+      # so any ceiling stalls the burst until Envoy's route timeout fires.
       default:
         memory: 512Mi

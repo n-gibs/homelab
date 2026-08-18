@@ -315,15 +315,10 @@ wire-seedbox:
       echo "$id"
     }
 
-    # THE CLIENT MUST STAY UNTAGGED. A tag on a download client is a WHITELIST, not a
-    # route: the client becomes eligible only for releases from indexers carrying the
-    # same tag. Prowlarr never propagates tags, so every *arr indexer has tags: [], and
-    # a tagged Seedbox client is filtered out of the candidate list BEFORE the
-    # downloadClientId pin is honoured. Sonarr then reports the pin as
-    #   "Indexer specified download client does not exist for TorrentLeech (Prowlarr)"
-    # and the grab fails outright. Verified live 2026-08-04.
-    # priority 50 (vs qBittorrent's 1) keeps unpinned indexers on the local client:
-    # priority only decides when nothing is pinned, so it cannot fight the pin.
+    # THE CLIENT MUST STAY UNTAGGED. A tag on a download client is a whitelist, not a
+    # route, and Prowlarr never propagates tags, so a tagged client is filtered out
+    # before the downloadClientId pin is honoured and the grab fails. priority 50 keeps
+    # unpinned indexers on the local client; priority cannot fight the pin.
     ensure_download_client() {
       local url="$1" api_key="$2" api_ver="$3" label="$4" category_field="$5"
       local existing fixed id
@@ -389,15 +384,10 @@ wire-seedbox:
       echo "$label remote path mapping: created"
     }
 
-    # Interactive search fans out to every indexer that has it enabled. The public
-    # Cloudflare-fronted ones each take 55-68s through the single FlareSolverr, and
-    # they serialize — which blew past Envoy's route timeout and surfaced in the UI as
-    # "Unable to load results". TorrentLeech and IPTorrents answer in ~2s.
-    # *** PROWLARR HAS NO PER-INDEXER enableInteractiveSearch. *** PUTting that field
-    # onto an indexer returns 200 and is silently dropped — it is not in
-    # IndexerResource. The flag lives on the App Sync Profile that appProfileId points
-    # at, and Prowlarr pushes it down to the *arr by itself (no forced
-    # ApplicationIndexerSync needed). Verified live 2026-08-04.
+    # Interactive search fans out to every enabled indexer, and the Cloudflare-fronted
+    # ones serialize through the single FlareSolverr past Envoy's route timeout.
+    # *** PROWLARR HAS NO PER-INDEXER enableInteractiveSearch. *** PUT returns 200 and
+    # drops it; the flag lives on the App Sync Profile appProfileId points at.
     ensure_search_profiles() {
       local std pid idx id name
       std=$(curl -sf -H "X-Api-Key: $PROWLARR_API_KEY" "$PROWLARR/api/v1/appprofile" \
@@ -437,13 +427,9 @@ wire-seedbox:
     }
 
     # Pin the Seedbox client per indexer, because TAG-BASED ROUTING DOES NOT WORK.
-    # Prowlarr tags do NOT propagate into the *arr — verified live: after a forced
-    # ApplicationIndexerSync every Prowlarr-synced indexer still had tags: [] in
-    # Radarr/Sonarr/Lidarr. Prowlarr tags only scope which indexers sync to which
-    # application. A download client that carries a tag is therefore eligible for
-    # NOTHING, and every grab silently falls through to the local gluetun client.
-    # `downloadClientId` on the indexer is the mechanism that actually routes, and
-    # it was confirmed to survive a Prowlarr full sync.
+    # Prowlarr tags only scope which indexers sync to which application; they never
+    # propagate, so a tagged client is eligible for nothing and every grab falls through
+    # to the local gluetun client. `downloadClientId` is what actually routes.
     pin_indexer_client() {
       local url="$1" api_key="$2" api_ver="$3" label="$4" cid idx id name
       cid=$(curl -sf -H "X-Api-Key: $api_key" "$url/api/$api_ver/downloadClient" \

@@ -63,11 +63,9 @@ route:
 
 persistence:
   config:
-    # longhorn, not local-path -- /config is SQLite and needs a real block device.
-    # Unlike local-path this volume is replicated, so the pod isn't pinned to one
-    # node. Lidarr's own scheduled backup to /data/backups/lidarr/scheduled/ is the
-    # application-consistent copy that supplies durability. See config-pvc.yaml for
-    # the rationale, the backup, and the recovery path.
+    # longhorn, not local-path -- /config is SQLite and needs a real block device, and this
+    # volume is replicated so the pod isn't pinned to one node. Lidarr's own scheduled backup is
+    # the application-consistent copy that supplies durability; see config-pvc.yaml.
     existingClaim: lidarr-config
     globalMounts:
       - path: /config

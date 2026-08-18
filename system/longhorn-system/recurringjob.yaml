@@ -1,15 +1,8 @@
 ---
-# Daily at 04:30 -- after the 03:30/03:45 database dumps and the apps' own backups, so each
-# Longhorn backup captures fresh archives from inside the volumes.
-#
-# A `backup` job takes a snapshot on its way, so there is no separate snapshot schedule.
-# That is deliberate: Longhorn snapshots live on the volume's own replicas, which makes a
-# snapshot-only schedule the one form of protection a node failure takes with it.
-#
-# This does not replace the apps' own backups. Longhorn's are crash-consistent; the arrs'
-# System -> Backup quiesces its own database and produces an archive its restore flow
-# accepts. Both stay. For navidrome and nextcloud-html this is the *only* backup, which is
-# why it is in scope now rather than deferred to the NAS.
+# Scheduled after the database dumps and the apps' own backups, so each Longhorn backup captures
+# fresh archives from inside the volumes. No separate snapshot schedule: a `backup` job snapshots
+# on its way, and snapshots live on the volume's own replicas — the one form of protection a node
+# failure takes with it. These are crash-consistent, so the apps' own backups still stand.
 apiVersion: longhorn.io/v1beta2
 kind: RecurringJob
 metadata:

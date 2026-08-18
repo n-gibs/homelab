@@ -1,11 +1,7 @@
 ---
-# external-dns publishes every public hostname in this cluster and was not scraped. Its
-# failure mode is quiet by construction: the process stays up and logs "All records are
-# already up to date" whether or not it can still reach Cloudflare, so a revoked API token
-# looks exactly like a healthy steady state until someone notices a name has stopped
-# resolving. The blackbox probes added in system/blackbox-exporter/ would eventually catch
-# the consequence; these catch the cause.
-#
+# external-dns fails quietly by construction: it stays up and logs "All records are already up to
+# date" whether or not it can still reach Cloudflare, so a revoked API token looks exactly like a
+# healthy steady state. The blackbox probes catch the consequence; these catch the cause.
 # Requires serviceMonitor.enabled in system/external-dns/values.yaml.
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule

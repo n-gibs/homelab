@@ -3,33 +3,11 @@ kind: PersistentVolumeClaim
 metadata:
   name: jellyfin-config-local
   namespace: jellyfin
-  # NO sync-wave annotation -- do not add one. local-path is WaitForFirstConsumer,
-  # so this stays Pending (= unhealthy to ArgoCD) until its consumer is scheduled.
-  # An earlier wave deadlocks the sync forever. Same reasoning as
-  # apps/sonarr/config-pvc.yaml.
+  # No sync-wave annotation -- see the local-path note in CLAUDE.md. Superseded by
+  # jellyfin-config below; scheduled for deletion.
 spec:
   accessModes:
     - ReadWriteOnce
-  # local-path, for the same reason as the arrs: /config/data/data/jellyfin.db is
-  # SQLite, and SQLite over NFS does not work. On 2026-08-10 evening, playback
-  # sessions produced "SQLite Error 5: 'database is locked'" on
-  # POST /Sessions/Playing/Progress, and every stalled request came back as
-  # "Unexpected end of request content" -- the client hanging up while the write
-  # waited on a lock it could not get over NFS.
-  #
-  # The "local-path does not survive node failure" objection is weak here:
-  # worker-01 is itself the NFS server, so the nfs class was never giving this
-  # volume a second node, only a second disk (the 10.9T USB spinner) on the same
-  # node. Durability comes instead from jellyfin-db-backup, which calls Jellyfin's
-  # own /Backup/Create and lands the archive on that USB disk.
-  #
-  # Recovery if worker-01's NVMe dies: delete this PVC, let it recreate empty, and
-  # start the pod with `--restore-archive /config/data/data/backups/<newest>.zip`
-  # (or Dashboard -> Backups -> Restore). Media library and metadata images are
-  # rebuilt by a library scan; only the database matters.
-  #
-  # 20Gi against a ~900M config is headroom for MediaCover/metadata growth --
-  # local-path cannot be expanded in place, so this is sized once.
   storageClassName: local-path
   resources:
     requests:
@@ -40,43 +18,21 @@ kind: PersistentVolumeClaim
 metadata:
   name: jellyfin-config
   namespace: jellyfin
-  # No sync-wave annotation. The longhorn class binds Immediate rather than
-  # WaitForFirstConsumer, so unlike the local-path PVC above this does not sit Pending
-  # waiting for a consumer -- but a PVC still has no reason to own a wave.
 spec:
   accessModes:
     - ReadWriteOnce
-  # longhorn, not local-path: /config/data/data/jellyfin.db is SQLite, and SQLite needs a
-  # real block device with a real filesystem -- which Longhorn provides and NFS does not.
-  # Two replicas, so worker-01's NVMe dying degrades this volume instead of destroying it.
-  #
-  # Unlike the arrs, this does not unpin the pod: nodeSelector homelab.io/media=true
-  # matches worker-01 alone, and the container requests gpu.intel.com/i915 for QuickSync.
-  # The gain here is replication, not mobility.
-  #
-  # Durability still does not come from the volume. Longhorn's daily backup is
-  # crash-consistent; jellyfin-db-backup calling Jellyfin's own /Backup/Create nightly is
-  # the application-consistent copy, and it lands on the NFS share, a different disk.
-  #
-  # Recovery if a node dies: nothing to do, the replica rebuilds. If the volume is
-  # faulted, start the pod with `--restore-archive /config/data/data/backups/<newest>.zip`
-  # (or Dashboard -> Backups -> Restore).
-  #
-  # /config/network.xml is UI state and lives only here -- a restore brings it back, a
-  # volume rebuilt from empty does not. Two values must be re-entered under
-  # Dashboard -> Networking or every client is misclassified as LAN, silently:
-  #   KnownProxies        = 10.42.0.0/16      (empty => XFF ignored entirely, so every
-  #                                            session is attributed to the Envoy pod)
-  #   LocalNetworkSubnets = 192.168.10.0/24,192.168.30.0/24
-  # Empty LocalNetworkSubnets falls back to all of RFC1918, which swallows the pod CIDR
-  # and makes Tailscale clients look local. Restart required; confirm with the
-  # "Defined LAN subnets" line in the startup log.
-  #
-  # 5Gi against 889M today. Not headroom for growth -- Jellyfin 10.11's
-  # StorageHelper.TestDataDirectorySize aborts startup unless /config/data/data has 2GiB
-  # free, and it counts free space, not total. A 3Gi volume left exactly 2.0G free and
-  # the server threw InvalidOperationException on every boot while s6 kept the container
-  # reporting Running. Floor is therefore 889M + 2GiB + filesystem overhead.
+  # jellyfin.db is SQLite -- longhorn per the CLAUDE.md storage rule. This buys
+  # replication, not mobility: the nodeSelector and the i915 request still pin the pod.
+  # Backup: jellyfin-db-backup calling Jellyfin's own /Backup/Create onto NFS. Restore
+  # with `--restore-archive /config/data/data/backups/<newest>.zip`.
+
+  # Sized for Jellyfin 10.11's 2GiB-free startup check, not for growth -- too small a
+  # volume aborts startup while s6 keeps the container reporting Running.
+
+  # /config/network.xml is UI state living only here. After a rebuild from empty,
+  # re-enter both under Dashboard -> Networking or clients are silently seen as LAN:
+  # KnownProxies = 10.42.0.0/16 (empty discards XFF), and LocalNetworkSubnets =
+  # 192.168.10.0/24,192.168.30.0/24 (empty falls back to all of RFC1918).
   storageClassName: longhorn
   resources:
     requests:

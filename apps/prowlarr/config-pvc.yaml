@@ -3,32 +3,11 @@ kind: PersistentVolumeClaim
 metadata:
   name: prowlarr-config-local
   namespace: prowlarr
-  # NO sync-wave annotation -- do not add one. local-path is WaitForFirstConsumer,
-  # so this stays Pending (= unhealthy to ArgoCD) until its consumer is scheduled.
-  # An earlier wave deadlocks the sync forever. Same reasoning as
-  # apps/nextcloud/html-pvc.yaml.
+  # No sync-wave annotation -- see the local-path note in CLAUDE.md. Superseded by
+  # prowlarr-config below; scheduled for deletion.
 spec:
   accessModes:
     - ReadWriteOnce
-  # local-path, same exception as apps/sonarr/config-pvc.yaml -- read that one for
-  # the full argument.
-  #
-  # Prowlarr logged zero "database is locked" errors, so like Radarr this is
-  # uniformity rather than a fix: same SQLite-on-NFS hazard, just the lightest
-  # write load of the four, and no reason to leave one config on the USB disk.
-  #
-  # Prowlarr is the one *arr with no /data mount of its own -- it is not a media
-  # app -- so its backups reach the USB disk through the narrow backups-only NFS
-  # mount added in values.yaml. That mount is what makes the recovery path below
-  # exist at all; do not remove it while this volume is local-path.
-  #
-  # Recovery if worker-01's NVMe dies: delete this PVC, let it recreate empty,
-  # then restore the newest zip from /data/backups/prowlarr/ via
-  # System -> Backup -> Restore. Indexer definitions and *arr sync settings come
-  # back with it; API keys in the *arr apps do not change.
-  #
-  # 10Gi against a ~100M config is headroom -- local-path cannot be expanded in
-  # place, so this is sized once.
   storageClassName: local-path
   resources:
     requests:
@@ -39,29 +18,13 @@ kind: PersistentVolumeClaim
 metadata:
   name: prowlarr-config
   namespace: prowlarr
-  # No sync-wave annotation. The longhorn class binds Immediate rather than
-  # WaitForFirstConsumer, so unlike the local-path PVC above this does not sit Pending
-  # waiting for a consumer -- but a PVC still has no reason to own a wave.
 spec:
   accessModes:
     - ReadWriteOnce
-  # longhorn, not local-path: /config is SQLite, and SQLite needs a real block device
-  # with a real filesystem -- which Longhorn provides and NFS does not. Two replicas,
-  # one of them local to whichever node the pod runs on (best-effort locality), so
-  # losing a node degrades this volume instead of taking it offline.
-  #
-  # Durability still does not come from the volume. Prowlarr's own System -> Backup
-  # writing to /data/backups/prowlarr/scheduled/ is the application-consistent copy.
-  # Prowlarr syncs indexers out to the other arrs, so a bad restore here is worth
-  # more caution than the volume alone suggests -- it surfaces as breakage in apps
-  # that were never touched.
-  #
-  # Recovery if a node dies: nothing to do, the replica rebuilds. If the volume is
-  # faulted, restore the newest zip from /data/backups/prowlarr/scheduled/ via
-  # System -> Backup -> Restore.
-  #
-  # 2Gi against 97M today is headroom, and longhorn expands in place, so this isn't
-  # sized once like the local-path PVC above.
+  # /config is SQLite -- longhorn per the CLAUDE.md storage rule.
+  # Backup: Prowlarr's own System -> Backup. Prowlarr has no /data mount, so it
+  # reaches /data/backups/prowlarr/scheduled/ through the backups-only NFS mount in
+  # values.yaml -- don't remove that mount. A bad restore breaks the other arrs too.
   storageClassName: longhorn
   resources:
     requests:

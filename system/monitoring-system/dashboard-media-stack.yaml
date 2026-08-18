@@ -1,24 +1,5 @@
-# Media stack dashboard, loaded by the Grafana sidecar (LABEL=grafana_dashboard,
-# LABEL_VALUE=1, NAMESPACE=ALL) — same mechanism as dashboard-temperatures.yaml, and the same
-# caveat applies: no FOLDER_ANNOTATION is set on the sidecar, so this lands in the default
-# folder and a grafana_folder annotation here would be silently ignored.
-#
-# Scope is deliberately health-and-capacity, not application internals. None of the *arr apps,
-# jellyfin, or qBittorrent export Prometheus metrics on their own, so queue depth, download
-# rate, and indexer health are not available here — that needs exportarr plus an API key per
-# app. Everything below comes from signals that already exist: cAdvisor, kube-state-metrics,
-# node-exporter, and Loki.
-#
-# The $media variable is the one place the namespace list lives; every panel derives from it.
-#
-# Two traps worth knowing before editing:
-#   - kubelet_volume_stats_* is useless for these apps. Every media PVC is NFS-backed, so each
-#     one reports the whole 12TB filesystem's usage — all eight report an identical 2.9TB. The
-#     library panels read node_filesystem on worker-01 instead, selected by fstype="xfs" so
-#     they hit the local disk and not the two nfs4 client mounts of the same path.
-#   - node-exporter is a DaemonSet, so its pod label changes on every restart and
-#     node_filesystem_* silently becomes several overlapping series for one device. Without the
-#     max() wrapper, predict_linear returns one divergent projection per historical pod.
+# Scope, the $media variable, and the two NFS/DaemonSet query traps:
+# see system/monitoring-system/README.md.
 apiVersion: v1
 kind: ConfigMap
 metadata:

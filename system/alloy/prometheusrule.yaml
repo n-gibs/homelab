@@ -1,9 +1,7 @@
 ---
-# Alloy is the only thing shipping logs into Loki. If it stops, Loki stays up and answers
-# queries against an increasingly stale index, so nothing looks broken — and the log-based
-# alert the Loki ruler evaluates quietly stops being able to match anything.
-#
-# Requires serviceMonitor.enabled in system/alloy/values.yaml.
+# Alloy is the only thing shipping logs into Loki. If it stops, Loki stays up and answers queries
+# against a stale index, so nothing looks broken while the Loki ruler's log-based alert quietly
+# stops being able to match anything. Requires serviceMonitor.enabled in values.yaml.
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:

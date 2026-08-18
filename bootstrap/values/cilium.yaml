@@ -1,23 +1,18 @@
-# cilium-operator, hubble-relay and hubble-ui deliberately have NO resource requests,
-# unlike their requestless peers fixed in argocd.yaml / monitoring-system / nfs-provisioner.
-# Setting them means `helmfile apply -l name=cilium`, and rolling the agent DaemonSet is
-# how you get two agents writing the BPF LB maps at once (k3s KillMode=process) — the
-# dangling-backend DNS outage. Combined peak is only 55m / 448Mi, so the scheduling win
-# does not justify it. If you do it, do it in a deliberate window watching
-# CiliumAgentDuplicate, not as a side effect. See commit 76af3e5.
+# cilium-operator, hubble-relay and hubble-ui deliberately have NO resource requests, unlike
+# their requestless peers elsewhere: setting them rolls the agent DaemonSet, which is how you
+# get two agents writing the BPF LB maps at once. Their combined peak is small enough that the
+# scheduling win does not justify it. Do it in a deliberate window or not at all.
 kubeProxyReplacement: true
 
-# Every node is a k3s server with its own apiserver on *:6443, and the agent DaemonSet and
-# operator both run hostNetwork, so 127.0.0.1 is the local apiserver wherever the pod lands.
-# This was hardcoded to worker-00's IP, which made that node a cluster-wide single point of
-# failure for Cilium — every agent logged `apiserver not ready` when its k3s restarted.
-# A node whose own apiserver is down has no working k3s anyway, so its agent is moot.
+# Every node is a k3s server with its own apiserver, and the agent and operator both run
+# hostNetwork, so 127.0.0.1 is the local apiserver wherever the pod lands. Naming one node's
+# IP instead makes that node a cluster-wide single point of failure for Cilium, and a node
+# whose own apiserver is down has no working k3s anyway.
 k8sServiceHost: "127.0.0.1"
 k8sServicePort: "6443"
 
-# Cilium's chart default is maxUnavailable: 2, which on a 3-node cluster tears down
-# two thirds of the CNI at once. Roll one node at a time — Renovate bumps the chart
-# version in bootstrap/helmfile.yaml, so this applies to every future upgrade too.
+# The chart default of maxUnavailable: 2 tears down two thirds of the CNI at once on a
+# 3-node cluster. Renovate bumps the chart, so this applies to every future upgrade too.
 updateStrategy:
   rollingUpdate:
     maxUnavailable: 1
@@ -40,12 +35,10 @@ l2podAnnouncements:
   enabled: true
   interfacePattern: "^(enp2s0|eno1)$"
 
-# metricsService rather than the chart's own serviceMonitor: that one is gated behind a
-# capabilities check for monitoring.coreos.com/v1, which does not exist yet at bootstrap —
-# Prometheus arrives later as an ArgoCD app — so enabling it here fails the Cilium release
-# and takes the CNI with it on a fresh cluster. The Services are plain kinds and always
-# apply; the ServiceMonitors that scrape them live in
-# system/monitoring-system/servicemonitor-cilium.yaml.
+# metricsService rather than the chart's own serviceMonitor: that one is gated on a
+# monitoring.coreos.com/v1 capabilities check, and Prometheus arrives later as an ArgoCD app,
+# so enabling it here fails the Cilium release and takes the CNI with it on a fresh cluster.
+# The ServiceMonitors live in system/monitoring-system/servicemonitor-cilium.yaml.
 prometheus:
   enabled: true
   metricsService: true
@@ -64,10 +57,9 @@ bpf:
 
 hubble:
   enabled: true
-  # drop and dns only. `flow`, `tcp` and `http` are the cardinality trap — they are
-  # per-flow and would dwarf the current ~493k head series. drop is bounded by namespace
-  # pairs at this context setting (~30 namespaces), and bare `dns` gives rcode/qtype
-  # without the `query` label, which would otherwise be one series per domain name.
+  # drop and dns only. `flow`, `tcp` and `http` are per-flow and would dwarf the whole head
+  # series count. drop is bounded by namespace pairs at this context setting, and bare `dns`
+  # gives rcode/qtype without the `query` label, which is one series per domain name.
   metrics:
     enabled:
       - drop:sourceContext=namespace;destinationContext=namespace

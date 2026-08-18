@@ -60,3 +60,30 @@ max by (namespace) (cnpg_pg_replication_streaming_replicas)
 **CNPG has no declarative field for this grant, so it is not in git and it does not survive
 a cluster rebuild or a restore into a fresh cluster.** Re-run it after rebuilding any
 cluster, and after any restore drill that creates a throwaway cluster you intend to keep.
+
+## Dashboards
+
+`dashboard.yaml` is hand-written, not vendored. Upstream publishes one
+([cloudnative-pg/grafana-dashboards](https://github.com/cloudnative-pg/grafana-dashboards/blob/main/charts/cluster/grafana-dashboard.json)),
+but it is 66 panels and 253KB, and its template variables assume a metric set this cluster does
+not have. Its `operatorNamespace` variable derives from
+`controller_runtime_webhook_requests_total{webhook="/mutate-postgresql-cnpg-io-v1-cluster"}`,
+which requires scraping the CNPG operator's own controller-runtime metrics; `podmonitor.yaml`
+here scrapes only instance pods (`cnpg.io/podRole: instance`), so that series does not exist and
+every panel gated behind it comes up empty.
+
+Its per-panel label scheme is also inconsistent across CNPG's own metric set. Collector-level
+metrics (`cnpg_collector_up`) carry a native `cluster` label, but pg_stat-derived ones
+(`cnpg_backends_total`, `cnpg_pg_replication_lag`) do not, relying instead on a pod-name regex
+variable. Fixing that is a redesign per panel, not a datasource-uid rewrite, so six hand-written
+panels using this cluster's actual labels (`cnpg_io_cluster`, `cnpg_io_instanceRole`,
+`namespace`) is the smaller and more honest fix.
+
+### Why the backup timestamp reads zero
+
+No CNPG Cluster here has a `.spec.backup` stanza and there are zero `Backup`/`ScheduledBackup`
+CRs, so `cnpg_collector_last_available_backup_timestamp` reads 0 (unix epoch) on all four
+clusters permanently. That is CNPG-native backup never having been configured, by design, not
+four backups that failed. The actual backup path is the app-level `pg_dump` CronJobs (see
+`apps/*/pg-backup.yaml` and `system/monitoring-system/dashboard-backups.yaml` panel 5), which is
+why panel 4 points at that dashboard instead of rendering this metric.

@@ -1,13 +1,5 @@
-# Hardware temperature dashboard, loaded by the Grafana sidecar (LABEL=grafana_dashboard,
-# LABEL_VALUE=1, NAMESPACE=ALL). Answers "is it getting worse?", which the alerts and the
-# Homepage widget cannot: a common-mode step across all three nodes at once — a room move
-# cost 2-5C everywhere — is only legible on a shared time axis.
-#
-# The sidecar has no FOLDER_ANNOTATION set, so a grafana_folder annotation here would be
-# silently ignored. Lands in the default folder, which is fine for one dashboard.
-#
-# Thresholds mirror prometheusrule-temperature.yaml (crit-12 warning, crit-5 critical) so
-# the colours change where the alerts fire. Keep them in sync.
+# Thresholds mirror prometheusrule-temperature.yaml; keep them in sync.
+# See system/monitoring-system/README.md.
 apiVersion: v1
 kind: ConfigMap
 metadata:

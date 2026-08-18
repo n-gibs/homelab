@@ -1,9 +1,6 @@
 ---
-# Every public hostname in the cluster is served from one wildcard certificate, renewed by
-# cert-manager over DNS-01 against Cloudflare. Nothing watched it: no scrape existed, so no
-# expiry metric existed, and a renewal that stopped working would have shown up as a browser
-# warning about 90 days after the last successful issue.
-#
+# Every public hostname in the cluster is served from one wildcard certificate, so a renewal that
+# stops working surfaces as a browser warning roughly 90 days later and nowhere sooner.
 # Requires prometheus.servicemonitor.enabled in system/cert-manager/values.yaml.
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
@@ -16,12 +13,10 @@ spec:
   groups:
     - name: cert-manager
       rules:
-        # The backstop, and the one that matters: cert-manager holds a Certificate Ready
-        # while renewal attempts fail behind it, because the existing secret is still valid.
-        # So a broken renewal is invisible on readiness and only shows in the clock.
-        #
-        # Let's Encrypt issues for 90d and cert-manager renews at 30d out, so 21d means
-        # renewal has been failing for over a week and there are still three weeks to fix it.
+        # The backstop: cert-manager keeps a Certificate Ready while renewal attempts fail behind
+        # it, because the existing secret is still valid, so a broken renewal is invisible on
+        # readiness and only shows in the clock. The threshold sits below cert-manager's own
+        # renewal point, far enough out to leave weeks of repair time.
         - alert: CertExpiringSoon
           expr: certmanager_certificate_expiration_timestamp_seconds - time() < 21 * 86400
           for: 1h

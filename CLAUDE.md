@@ -279,7 +279,15 @@ just todos              # Show remaining TODOs in repo
   mode spreads committed state across `.db`/`-wal`/`-shm`. Longhorn changed the volume underneath
   these apps, not the backup story on top of it — `apps/cleanuparr/backup-cronjob.yaml` still
   exists for exactly the same reason it did on `local-path`.
+- A namespace `LimitRange` sets `defaultRequest` but **no default CPU limit**. VPA preserves
+  the request:limit ratio, so a shrinking request drags the ceiling down and throttles the
+  container. The default *memory* limit stays — memory is not a burst-and-idle resource and an
+  unbounded heap is a real risk.
 - Never commit `secrets/.secrets`, `secrets/.secrets.generated`, `.vault_pass`, `pub-cert.pem`, or anything in `config/` (gitignored).
 - Chart versions in `app.yaml` are managed by Renovate — don't pin to `latest`.
 - Server-side apply only for ArgoCD managed resources (avoids annotation conflicts).
+- Manifest comments: the non-obvious *why* only, **4 lines max**. Dates, measurements, pod
+  names, PVC inventories and incident narration go in the commit message — a manifest here has
+  no `git log` in front of the reader, and this repo's YAML has repeatedly collected 15–20 line
+  write-ups on 3-line changes.
 - Never add `Co-Authored-By` lines to commit messages.

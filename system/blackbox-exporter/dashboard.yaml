@@ -1,14 +1,5 @@
-# Blackbox dashboard, fed by the two Probes in probes.yaml (system/blackbox-exporter/probes.yaml).
-# Every other dashboard in this cluster is Prometheus scraping something that lives inside the
-# cluster — this is the only one where the check leaves the cluster and comes back in through the
-# gateway, the HTTPRoute, and the served certificate, the same path a browser takes.
-#
-# Panel 2 (failing endpoints) is a probe_success == 0 table: an empty table is the healthy state,
-# not a broken query — there is nothing to render when every probe is passing.
-#
-# Panel 4's thresholds are pinned to the one window cert-manager actually alerts on
-# (system/cert-manager/prometheusrule.yaml: CertExpiringSoon fires under 21 days, no second
-# tier exists below that), rather than inventing a red step the rule file doesn't back.
+# Why an empty panel 2 is healthy and where panel 4's thresholds come from:
+# see system/blackbox-exporter/README.md.
 apiVersion: v1
 kind: ConfigMap
 metadata:

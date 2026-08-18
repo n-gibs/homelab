@@ -10,11 +10,9 @@ spec:
   imageName: ghcr.io/cloudnative-pg/postgresql:18-standard-trixie
 
   storage:
-    # local-path per the CNPG exception in CLAUDE.md: streaming replication across the
-    # three instances, not the volume, is what survives a node failure, and NFS is not a
-    # supported CNPG configuration. local-path cannot be expanded in place, so 5Gi is
-    # sized once -- against a 1.2M database whose attachments live on the /data volume
-    # rather than in Postgres, that is already enormous headroom.
+    # local-path per the CNPG exception in CLAUDE.md: streaming replication across the instances,
+    # not the volume, is what survives a node failure. local-path cannot be expanded in place, so
+    # this is sized once — generous, since attachments live on the /data volume, not in Postgres.
     size: 5Gi
     storageClass: local-path
 

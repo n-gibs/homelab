@@ -13,12 +13,10 @@ spec:
   resourcePolicy:
     containerPolicies:
       - containerName: "*"
-        # 200m rather than the usual 10m. VPA targets sustained usage, and this pod is idle
-        # between page loads, so it recommended 15m for a process that measurably wants a
-        # whole core in bursts. With no CPU limit that no longer throttles, but the request
-        # is still what cpu.shares and the scheduler go by — and this pod lives on
-        # worker-00, the node that already loses arguments about CPU. A floor that admits
-        # the burst exists keeps a page load from queueing behind a noisy neighbour.
+        # Well above the usual floor. VPA targets sustained usage, and this pod is idle between
+        # page loads, so it recommends a request for a process that actually wants a whole core
+        # in bursts. The request is still what cpu.shares and the scheduler go by, so a floor
+        # admitting the burst keeps a page load from queueing behind a noisy neighbour.
         minAllowed:
           cpu: 200m
           memory: 64Mi

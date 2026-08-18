@@ -16,11 +16,10 @@ spec:
     # groups make the /rules API and Grafana's rule list ambiguous.
     - name: etcd-coverage
       rules:
-        # The chart's whole etcd group filters on up{job=~".*etcd.*"}, so if the ScrapeConfig
-        # is deleted or renamed there is no `up` series to be 0 and all fifteen rules go
-        # quiet rather than firing. That is the exact state this cluster sat in for 33 days.
-        # ScrapePoolEmpty does not cover it either: a ScrapeConfig's static targets vanish
-        # with the config instead of staying at zero.
+        # The chart's etcd group filters on up{job=~".*etcd.*"}, so renaming or deleting the
+        # ScrapeConfig leaves no `up` series to be 0 and every rule goes quiet instead of
+        # firing. ScrapePoolEmpty misses it too: static targets vanish with the config rather
+        # than staying at zero.
         - alert: EtcdMetricsMissing
           expr: absent(up{job="kube-etcd"})
           for: 15m
@@ -34,13 +33,10 @@ spec:
               ScrapeConfig, and that the servers still carry --etcd-expose-metrics=true from
               ansible/group_vars/k3s_cluster.yml.
 
-        # Stands in for the chart's etcdGRPCRequestsSlow, which reads
-        # grpc_server_handling_seconds_bucket. etcd only publishes that histogram under
-        # `--metrics extensive`; on default settings it does not exist, so that rule is
-        # permanently dataless. This measures the same symptom from the apiserver side, which
-        # is where slow etcd actually hurts, and needs no etcd flag change.
-        #
-        # Threshold is ~20x the observed baseline: p99 sits at 5-24ms per operation.
+        # Stands in for the chart's etcdGRPCRequestsSlow, which is permanently dataless here:
+        # its histogram only exists under `--metrics extensive`. This measures the same symptom
+        # from the apiserver side, where slow etcd actually hurts, and needs no etcd flag change.
+        # Threshold is a wide multiple of the observed p99.
         - alert: EtcdRequestLatencyHigh
           expr: |
             histogram_quantile(0.99,
@@ -57,13 +53,10 @@ spec:
               on any one member drags the whole cluster, and NVMe thermal throttling on
               worker-01 has done it before.
 
-        # A snapshot is the only restore path for this cluster, and k3s writes them to local
-        # disk on each node rather than anywhere off-box. `or absent(...)` because the metric
-        # disappearing is the same emergency as the snapshots stopping: kube-state-metrics
-        # losing its CustomResourceState config or its k3s.cattle.io RBAC would otherwise
-        # leave this rule with nothing to age.
-        #
-        # 26h against a 12h schedule (00:00 and 12:00 UTC) tolerates one missed run.
+        # A snapshot is the only restore path for this cluster. `or absent(...)` because the
+        # metric disappearing is the same emergency as the snapshots stopping — kube-state-metrics
+        # losing its CustomResourceState config or RBAC would leave nothing to age. The window
+        # is set at just over two scheduled runs so one missed run is tolerated.
         - alert: EtcdSnapshotStale
           expr: |
             time() - max(kube_customresource_k3s_etcd_snapshot_creation_timestamp_seconds) > 26 * 3600

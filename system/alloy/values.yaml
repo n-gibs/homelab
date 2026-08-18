@@ -35,11 +35,10 @@ alloy:
           target_label  = "container"
         }
 
-        // Without an `app` label every bjw-s app-template pod ships as container="app", and
-        // Loki's discover_service_name picks `container` — so sonarr, radarr, jellyfin and a
-        // dozen others all collapse into a single service_name="app" stream, which is why
-        // per-app logs were unfindable in Explore/Drilldown. `app` sits above `container` in
-        // discover_service_name, so setting it here is what splits them back apart.
+        // Every bjw-s app-template pod ships as container="app", and Loki's
+        // discover_service_name picks `container` — so without this every app collapses into
+        // one service_name="app" stream. `app` outranks `container` in discover_service_name,
+        // so setting it here is what splits them apart.
         rule {
           source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
           target_label  = "app"
@@ -80,15 +79,10 @@ alloy:
         forward_to = [loki.process.pods.receiver]
       }
 
-      // Rejoins the *arr apps' stack traces, which arrive one Loki entry per physical line —
-      // 56% of prowlarr's lines were trace continuations. Only these four match `^[`; adding an
-      // app whose lines don't (bazarr, navidrome, flaresolverr, rclone) would treat every line
-      // as a continuation and glue its whole log into one entry.
-      //
-      // Not `^\\[(Info|Warn|...)\\]`: the exception body sits under a `[v2.5.2.5491]` prefix, so
-      // the tighter regex merges consecutive unrelated failures (209 lines vs 37).
-      // Trade-off: the `[Error]` header stays a separate entry, so detected_level="error" still
-      // won't match the body. Set it via stage.structured_metadata if that starts mattering.
+      // Rejoins the *arr apps' stack traces, which arrive one Loki entry per physical line. Only
+      // these apps' lines start with `[`; adding one whose lines do not would treat every line as
+      // a continuation and glue its whole log into one entry. A tighter level-matching regex
+      // merges unrelated failures instead, because the exception body sits under a version prefix.
       loki.process "pods" {
         forward_to = [loki.write.local.receiver]
 

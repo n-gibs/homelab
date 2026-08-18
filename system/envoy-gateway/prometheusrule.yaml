@@ -1,10 +1,6 @@
 ---
-# Every user-facing request in the cluster passes through this proxy and none of it was
-# measured: no error rate, no backend health, no proxy liveness. Pod-level failures were
-# covered by the chart's default rules, but a proxy that is Running and answering 503 to
-# everything looked identical to a healthy one.
-#
-# Requires podmonitor.yaml.
+# A proxy that is Running and answering 503 to everything looks identical to a healthy one, and
+# the chart's default pod-level rules cannot see the difference. Requires podmonitor.yaml.
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
@@ -16,14 +12,10 @@ spec:
   groups:
     - name: envoy-gateway
       rules:
-        # Ratio rather than a raw count, because absolute 5xx volume scales with traffic and
-        # would need retuning. The second clause is a volume floor: without it two errors on
-        # an idle listener read as 100% and page. It also keeps the admin, eg-ready-http and
-        # eg-stats-http listeners out of scope on their own, since none of them carry real
-        # traffic, so no listener needs naming here and a new one is covered automatically.
-        #
-        # 5% against a lifetime baseline of ~1.1% (890 5xx in 83k requests), most of which is
-        # 503s while a backend pod restarts.
+        # Ratio rather than a raw count, since absolute 5xx volume scales with traffic. The
+        # second clause is a volume floor: without it two errors on an idle listener read as
+        # 100% and page. It also drops the admin and readiness listeners from scope without
+        # naming them, so a new listener is covered automatically.
         - alert: Gateway5xxRateHigh
           expr: |
             (
@@ -44,13 +36,10 @@ spec:
               one backend is responsible. A VPA Recreate that shrank a container's CPU limit
               has caused this before, so check recent pod resizes on the backends too.
 
-        # One series per HTTPRoute backend, named httproute/<namespace>/<name>/rule/<n>, so the
-        # firing label points straight at the route. This is the alert that distinguishes "the
-        # gateway is broken" from "one app behind it is".
-        #
-        # Fires for an app deliberately scaled to zero. Nothing here is, and 15m rides out a
-        # rollout; if that changes, exclude it by envoy_cluster_name rather than loosening the
-        # threshold.
+        # One series per HTTPRoute backend, so the firing label points straight at the route.
+        # This is the alert that distinguishes "the gateway is broken" from "one app behind it
+        # is". It also fires for an app deliberately scaled to zero — nothing here is; if that
+        # changes, exclude it by envoy_cluster_name rather than loosening the threshold.
         - alert: GatewayNoHealthyUpstream
           expr: envoy_cluster_membership_healthy == 0
           for: 15m

@@ -42,11 +42,9 @@ controllers:
           # No cpu limit: VPA preserves the request:limit ratio, so the 200m:2 declared
           # here became a 50m:500m pod -- a quarter of the intended ceiling.
       gluetun:
-        # Deliberately unpinned, unlike every other image here. gluetun's
-        # `latest` is a rolling build off master; its newest release tag is
-        # weeks behind what this pod runs, so pinning would be a rollback of
-        # the VPN container rather than a no-op. Revisit if gluetun's release
-        # cadence tightens. No renovate comment, so Renovate ignores it.
+        # Deliberately unpinned, unlike every other image here: gluetun's `latest` is a rolling
+        # build off master and its newest release tag lags it, so pinning would roll the VPN
+        # container back rather than be a no-op. No renovate comment, so Renovate ignores it.
         image:
           repository: qmcgaw/gluetun
           tag: latest

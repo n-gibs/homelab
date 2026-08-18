@@ -1,9 +1,7 @@
 ---
-# Alerts on the four CloudNativePG clusters. Their PVCs are local-path, so node-failure
-# durability comes from streaming replication rather than the volume -- a cluster that
-# drops to one replica still serves normally while having no surviving copy of the data.
-#
-# Requires podmonitor.yaml. Aggregations are `by (namespace)` because this repo runs
+# CNPG PVCs are local-path, so node-failure durability comes from streaming replication rather
+# than the volume: a cluster down to one replica still serves normally with no surviving copy of
+# the data. Requires podmonitor.yaml. Aggregations are `by (namespace)` because this repo runs
 # one cluster per namespace; switch to `by (cnpg_io_cluster)` if that changes.
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
@@ -96,10 +94,9 @@ spec:
               Autovacuum is not freezing rows. Investigate long-running transactions and
               stuck replication slots holding back the freeze horizon.
 
-        # A cluster emitting no replication series is invisible to a threshold comparison,
-        # not healthy. nextcloud sat that way for over a week: its cnpg_metrics_exporter
-        # lost CONNECT on the app database, so every per-database query failed while
-        # cnpg_collector_up still read 1. `unless`, not a comparison, for that reason.
+        # A cluster emitting no replication series is invisible to a threshold comparison, not
+        # healthy: an exporter that loses CONNECT on the app database fails every per-database
+        # query while cnpg_collector_up still reads 1. Hence `unless` rather than a comparison.
         # Fix is a grant -- see platform/cloudnative-pg/README.md.
         - alert: CNPGReplicationMetricsMissing
           expr: >-

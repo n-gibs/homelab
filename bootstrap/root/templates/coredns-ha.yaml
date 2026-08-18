@@ -1,12 +1,8 @@
 ---
-# CoreDNS HA gets its own Application rather than riding the `system`
-# ApplicationSet, for two reasons the generator in stack.yaml can't express:
-#   1. it has no Helm chart -- the generator requires app.yaml with
-#      chartName/chartRepo/chartVersion and builds a chart source from them;
-#   2. its objects must land in kube-system, but the generator hardcodes
-#      destination.namespace to {{ `{{path.basename}}` }}.
-# Everything else matches the ApplicationSet: same repo/revision, automated
-# sync with prune + selfHeal, server-side apply.
+# Own Application rather than the `system` ApplicationSet: that generator builds a Helm
+# source from app.yaml, and this has no chart. Its objects must also land in kube-system,
+# which the generator hardcodes to the directory basename. Everything else matches the
+# ApplicationSet. See CLAUDE.md before adding an app.yaml here.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
