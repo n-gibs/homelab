@@ -3,8 +3,9 @@
 extra_server_args: "{{ common_server_flags }}"
 
 # The WD PC SN740 here stops answering shortly after boot if it picks its own power state.
-# 5000us is a max exit latency: it leaves ps3 (2500us, 0.0150W) and blocks ps4 and ps5,
-# whose combined extra saving is 0.010W. Read the table with `nvme id-ctrl -H /dev/nvme0`.
-# Falls back to 0, which disables APST outright, if the dropout returns.
+# 0 disables APST outright — the value this drive has actually run on. 5000us (leave ps3,
+# block ps4/ps5) was tried on 2026-08-17 and is untested: the node needed a physical M.2
+# reseat before it would POST again, so that boot never reached the kernel. The saving at
+# stake is 0.010W; the heat this was chasing is the ACPI _CST C3 ceiling, not the drive.
 kernel_cmdline_extra:
-  - nvme_core.default_ps_max_latency_us=5000
+  - nvme_core.default_ps_max_latency_us=0
