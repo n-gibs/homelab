@@ -1,10 +1,8 @@
 ---
-# Scrapes every CloudNativePG instance. `any: true` plus the podRole selector covers every
-# current and future cluster with no further edits.
-#
-# A PodMonitor, not a ServiceMonitor: the -rw/-ro Services route only to the primary or the
-# replicas, so scraping through them would miss instances and relabel samples onto
-# whichever pod answered.
+# Scrapes every CloudNativePG instance; `any: true` plus the podRole selector covers current and
+# future clusters with no further edits. A PodMonitor, not a ServiceMonitor: the -rw/-ro Services
+# route only to the primary or the replicas, so scraping through them would miss instances and
+# relabel samples onto whichever pod answered.
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:

@@ -3,32 +3,11 @@ kind: PersistentVolumeClaim
 metadata:
   name: bazarr-config-local
   namespace: bazarr
-  # NO sync-wave annotation -- do not add one. local-path is WaitForFirstConsumer,
-  # so this stays Pending (= unhealthy to ArgoCD) until its consumer is scheduled.
-  # An earlier wave deadlocks the sync forever. Same reasoning as
-  # apps/sonarr/config-pvc.yaml.
+  # No sync-wave annotation -- see the local-path note in CLAUDE.md. Superseded by
+  # bazarr-config below; scheduled for deletion.
 spec:
   accessModes:
     - ReadWriteOnce
-  # local-path, because /config/db/bazarr.db is SQLite and this volume was on nfs,
-  # in WAL mode (header bytes 18-19 = 2 2, with a live bazarr.db-shm beside it) --
-  # which SQLite does not support on a network filesystem, since WAL coordinates
-  # readers and writers through an mmap'd -shm file NFS cannot provide reliably.
-  # The last of the four apps missed by the 2026-08-06 arr migration, together with
-  # Jellyfin, Vaultwarden and Navidrome.
-  #
-  # Durability comes from Bazarr's own scheduled backup (Settings -> Scheduler),
-  # which already writes to /data/backups/bazarr on worker-01's USB disk -- a
-  # different disk from the NVMe behind local-path. That backup predates this
-  # migration and is why this volume needed no new backup machinery.
-  #
-  # Recovery if the NVMe dies: delete this PVC, let it recreate empty, then restore
-  # the newest zip from /data/backups/bazarr/ via System -> Backups -> Restore.
-  # Subtitles themselves live beside the media on the NFS share; what is here is the
-  # provider config, history and per-episode subtitle state.
-  #
-  # 5Gi against a ~7.4M volume is headroom for db and log growth -- local-path
-  # cannot be expanded in place, so this is sized once.
   storageClassName: local-path
   resources:
     requests:
@@ -39,27 +18,11 @@ kind: PersistentVolumeClaim
 metadata:
   name: bazarr-config
   namespace: bazarr
-  # No sync-wave annotation. The longhorn class binds Immediate rather than
-  # WaitForFirstConsumer, so unlike the local-path PVC above this does not sit Pending
-  # waiting for a consumer -- but a PVC still has no reason to own a wave.
 spec:
   accessModes:
     - ReadWriteOnce
-  # longhorn, not local-path: /config holds bazarr.db in WAL mode, which needs a real
-  # block device with a real filesystem -- which Longhorn provides and NFS does not.
-  # Two replicas, one of them local to whichever node the pod runs on (best-effort
-  # locality), so losing a node degrades this volume instead of taking it offline.
-  #
-  # Durability still does not come from the volume. Bazarr's own scheduled backup
-  # (Settings -> Scheduler) writing to /data/backups/bazarr daily at 03:00 is the
-  # application-consistent copy -- no CronJob needed here.
-  #
-  # Recovery if a node dies: nothing to do, the replica rebuilds. If the volume is
-  # faulted, restore the newest zip from /data/backups/bazarr/ via
-  # System -> Backups -> Restore.
-  #
-  # 2Gi against 7.3M today is generous headroom, and longhorn expands in place, so
-  # this isn't sized once like the local-path PVC above.
+  # /config holds bazarr.db (SQLite, WAL) -- longhorn per the CLAUDE.md storage rule.
+  # Backup: Bazarr's own Settings -> Scheduler, writing to /data/backups/bazarr.
   storageClassName: longhorn
   resources:
     requests:

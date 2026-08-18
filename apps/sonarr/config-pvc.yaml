@@ -3,34 +3,11 @@ kind: PersistentVolumeClaim
 metadata:
   name: sonarr-config-local
   namespace: sonarr
-  # NO sync-wave annotation -- do not add one. local-path is WaitForFirstConsumer,
-  # so this stays Pending (= unhealthy to ArgoCD) until its consumer is scheduled.
-  # An earlier wave deadlocks the sync forever. Same reasoning as
-  # apps/nextcloud/html-pvc.yaml.
+  # No sync-wave annotation -- see the local-path note in CLAUDE.md. Superseded by
+  # sonarr-config below; scheduled for deletion.
 spec:
   accessModes:
     - ReadWriteOnce
-  # local-path, as a third exception to the CLAUDE.md rule. Sonarr's config is a
-  # SQLite database, and SQLite over NFS does not work reliably: 996 "database is
-  # locked" errors in a week, one of which stalled the nightly refresh for 35
-  # minutes (2026-08-06 04:01->04:36) and jammed the task queue hard enough that
-  # /api/v3/queue stopped answering and unpackerr timed out 33 times.
-  #
-  # The usual objection -- local-path does not survive node failure -- carries
-  # less weight than it looks like here. worker-01 is itself the NFS server, so
-  # the nfs class was never giving this volume a second node; it was giving it a
-  # second *disk* on the same node (sda, a 10.9T spinning USB drive) versus the
-  # internal NVMe that local-path uses. The durability trade is real but small,
-  # and it is bought back by Sonarr's scheduled backup, which now writes to
-  # /data/backups/sonarr on that same USB disk -- a different failure domain from
-  # this volume.
-  #
-  # Recovery if worker-01's NVMe dies: delete this PVC, let it recreate empty,
-  # then restore the newest zip from /data/backups/sonarr/scheduled/ via
-  # System -> Backup -> Restore. Media library and downloads are untouched.
-  #
-  # 10Gi against a ~110M config is headroom for MediaCover growth -- local-path
-  # cannot be expanded in place, so this is sized once.
   storageClassName: local-path
   resources:
     requests:
@@ -41,30 +18,12 @@ kind: PersistentVolumeClaim
 metadata:
   name: sonarr-config
   namespace: sonarr
-  # No sync-wave annotation. The longhorn class binds Immediate rather than
-  # WaitForFirstConsumer, so unlike the local-path PVC above this does not sit Pending
-  # waiting for a consumer -- but a PVC still has no reason to own a wave.
 spec:
   accessModes:
     - ReadWriteOnce
-  # longhorn, not local-path: /config is SQLite, and SQLite needs a real block device
-  # with a real filesystem -- which Longhorn provides and NFS does not. Two replicas,
-  # one of them local to whichever node the pod runs on (best-effort locality), so
-  # losing a node degrades this volume instead of taking it offline.
-  #
-  # Durability still does not come from the volume. Sonarr's own System -> Backup
-  # writing to /data/backups/sonarr/scheduled/ is the application-consistent copy --
-  # it knows how to quiesce its own database, so no CronJob is needed here. Sonarr
-  # is the busiest writer of the eight migrated volumes and the app whose 996
-  # "database is locked" errors on NFS produced the repo's SQLite-storage rule in
-  # the first place, so it is the last, not the first, to move here.
-  #
-  # Recovery if a node dies: nothing to do, the replica rebuilds. If the volume is
-  # faulted, restore the newest zip from /data/backups/sonarr/scheduled/ via
-  # System -> Backup -> Restore.
-  #
-  # 2Gi against 107M today is headroom, and longhorn expands in place, so this isn't
-  # sized once like the local-path PVC above.
+  # /config is SQLite -- longhorn per the CLAUDE.md storage rule. Sonarr is the
+  # busiest writer of the migrated volumes.
+  # Backup: Sonarr's own System -> Backup, writing to /data/backups/sonarr/scheduled/.
   storageClassName: longhorn
   resources:
     requests:

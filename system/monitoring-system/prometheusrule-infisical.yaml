@@ -1,11 +1,8 @@
 ---
-# Watches Infisical -> cluster secret delivery. The obvious signal — the operator's
-# reconcile-error counter / status conditions — doesn't work: it logs "Reconciliation
-# successful" and sets conditions True every cycle whether or not it actually wrote
-# anything, so a stuck sync is silent on that path. Instead this reads the
-# LastSuccessfulReconcileAt condition's message, a live RFC3339 timestamp rewritten on
-# every successful reconcile, turned into a gauge by kube-state-metrics'
-# CustomResourceState (system/monitoring-system/values.yaml).
+# Watches Infisical -> cluster secret delivery. The operator's own error counter and conditions
+# are useless here: it reports success every cycle whether or not it wrote anything. This reads
+# the LastSuccessfulReconcileAt timestamp instead, turned into a gauge by kube-state-metrics'
+# CustomResourceState (see values.yaml).
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
@@ -35,12 +32,10 @@ spec:
               `kubectl -n infisical-operator logs deploy/infisical-opera-controller-manager`
               and `kubectl get infisicalstaticsecret -A -o wide`.
 
-        # InfisicalSecretStale reads a metric that stops existing if kube-state-metrics
-        # loses the CustomResourceState config, its RBAC is revoked, or every
-        # InfisicalStaticSecret is deleted — an absent series can't go stale, so the rule
-        # above would fall silent instead of firing. absent() over a hardcoded expected
-        # count so this doesn't need editing every time a secret is added. Critical: this
-        # is the rule that notices the monitoring itself stopped.
+        # An absent series cannot go stale, so InfisicalSecretStale falls silent if
+        # kube-state-metrics loses its CustomResourceState config or RBAC. absent() over a
+        # count rather than named secrets, so adding a secret needs no edit here. This is the
+        # rule that notices the monitoring itself stopped.
         - alert: InfisicalSecretMetricsMissing
           expr: absent(kube_customresource_infisical_secret_last_sync_timestamp_seconds)
           for: 1h

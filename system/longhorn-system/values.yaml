@@ -26,11 +26,9 @@ defaultSettings:
   # the volumes with it. Set it true only for a deliberate teardown.
   deletingConfirmationFlag: false
   upgradeChecker: false
-  # Bumping chartVersion only moves the control plane. The 1.12.1 upgrade left all ten
-  # volumes still running the v1.11.3 engine, which is where half the expansion fixes the
-  # upgrade was *for* actually live. The chart default here is 0, meaning "deploy the new
-  # engine image and never adopt it". 1 lets Longhorn live-upgrade attached healthy v1
-  # volumes, one per node at a time, so the data plane follows the manager on its own.
+  # Bumping chartVersion only moves the control plane; volumes keep their old engine image.
+  # The chart default is 0, meaning "deploy the new engine and never adopt it". 1 lets Longhorn
+  # live-upgrade attached healthy volumes one node at a time, so the data plane follows.
   concurrentAutomaticEngineUpgradePerNodeLimit: 1
 
 # The chart's own values comment says to disable this under GitOps -- ArgoCD, not the

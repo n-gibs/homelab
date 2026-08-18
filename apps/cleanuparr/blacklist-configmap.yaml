@@ -1,22 +1,7 @@
-# Vendored copy of https://cleanuparr.pages.dev/static/blacklist, synced into
-# qBittorrent's "Excluded file names" setting by Cleanuparr's Blacklist Sync.
-#
-# It is vendored rather than fetched from that URL because the upstream list is
-# written for a video-only library: it excludes *.flac, *.mp3, *.m4a, *.wav,
-# *.wma, plus every scene sidecar (*.cue, *.m3u, *.sfv, *.nfo, *.log, *.txt) and
-# all cover art (*.jpg, *.jpeg, *.png, *.pdf, *.gif, *.bmp, *.tif, *.tiff). A
-# music torrent contains nothing else, so qBittorrent marked every file
-# "Do Not Download", reported the torrent complete after transferring 0 bytes,
-# and Lidarr retried importing a directory that was never written -- 1,471
-# errors over two days from two Fuel albums grabbed 2026-08-10, one every 90s
-# forever. Video is unaffected (.mkv/.mp4/.avi are not on the list), which is
-# why only Lidarr broke.
-#
-# The 19 removed entries are all inert container formats, not malware vectors,
-# so dropping them costs none of the protection the list exists to provide.
-#
-# Re-syncing with upstream is manual: re-fetch the URL, re-apply the same
-# removals, and diff. Cleanuparr hashes the content and only pushes on change.
+# Vendored copy of https://cleanuparr.pages.dev/static/blacklist, synced into qBittorrent's
+# "Excluded file names" setting by Cleanuparr's Blacklist Sync. Entries are removed from it
+# because the upstream list is video-only and excludes every file a music torrent contains.
+# See README.md for what was removed, why, and how to re-sync.
 apiVersion: v1
 kind: ConfigMap
 metadata:

@@ -9,11 +9,7 @@ spec:
       defaultRequest:
         cpu: 50m
         memory: 128Mi
-      # no default cpu limit on purpose: VPA preserves the request:limit ratio, so a
-      # shrinking request drags the limit down with it and throttles the container.
-      # Measured on bazarr 2026-08-11: a 15m recommendation against this 1:10 ratio
-      # gave a 150m ceiling, which throttled 1144 of 1163 CFS periods and stretched
-      # startup to ~2 minutes. The memory limit stays -- memory is not a
-      # burst-and-idle resource, and an unbounded heap is a real risk.
+      # No default cpu limit on purpose: VPA would drag the ceiling down with the request.
+      # See the LimitRange rule in CLAUDE.md.
       default:
         memory: 512Mi

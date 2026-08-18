@@ -22,11 +22,9 @@
     mode: "0755"
   become: true
 
-# The native snapshotter worked around an early Ubuntu 26.04 / kernel 7.x problem.
-# overlayfs is healthy on these nodes now, and native has no union mount — each
-# layer is a full copy of its parent (measured 8m23s vs 26s to unpack one 798MB
-# image, 80G vs 2.2G of store). `state: absent` rather than deleting the task, so
-# already-provisioned nodes get cleaned up too. Takes effect on next k3s restart.
+# overlayfs is healthy on these nodes now, and native has no union mount, so every layer
+# is a full copy of its parent. `state: absent` rather than deletion, so already-provisioned
+# nodes get cleaned up too. See ansible/README.md.
 - name: Remove the containerd native-snapshotter override
   ansible.builtin.file:
     path: /var/lib/rancher/k3s/agent/etc/containerd/config-v3.toml.d/snapshotter.toml
@@ -40,27 +38,10 @@
     mode: "0755"
   become: true
 
-# Cilium's 05-cilium.conflist persists on disk once written, so at boot containerd
-# finds it and kubelet marks the node Ready — while /var/run is a fresh tmpfs and
-# cilium.sock does not exist yet. kubelet then starts every bound pod at once and
-# cilium-cni fails the losers after a hard 30s wait for the socket ("CNI ADD failed
-# ... failed to create cilium agent client"). CoreDNS is usually among them, so it
-# presents as a per-node DNS outage on an apparently-Ready node.
-#
-# Dropping the stale conflist first makes the node honestly NotReady until the agent
-# rewrites it. Note --register-with-taints=node.cilium.io/agent-not-ready does NOT
-# work here: taints apply only at first Node registration, never on reboot.
-#
-# Guarded on the socket so `systemctl restart k3s` against a healthy agent is a
-# no-op — KillMode=process keeps the running agent alive across a k3s restart, and
-# it only writes the conflist during its own startup.
-#
-# That guard is what allows two cilium-agents on one node when a restart builds a
-# *new* agent container while the old process survives; they then fight over the
-# shared BPF LB maps, invisibly. Reaping the old agent here was tried (84ca78e) and
-# reverted — it trades a rare silent failure for a routine one, and the containerd
-# wedge remediation is exactly `systemctl restart k3s`. The invariant belongs in the
-# new agent's startup. Detection is the CiliumAgentDuplicate alert (system/monitoring/).
+# A stale conflist lets kubelet call the node Ready before cilium.sock exists, so pods
+# start and cilium-cni fails them. Dropping it makes the node honestly NotReady. Guarded
+# on the socket, which is also why two agents can coexist after a restart.
+# See ansible/README.md.
 - name: Gate k3s startup on a live Cilium CNI socket
   ansible.builtin.copy:
     dest: /etc/systemd/system/k3s.service.d/cilium-cni-gate.conf
@@ -71,18 +52,9 @@
   become: true
   notify: Reload systemd
 
-# k3s.service already has Wants=/After=network-online.target, but that target is
-# vacuous here: systemd-networkd-wait-online is skipped every boot on an unmet
-# ConditionPathIsSymbolicLink pointing into /run/systemd/generator/, which does not
-# exist on any of the three nodes. So nothing waits for DHCP and k3s starts with no
-# default route ("no default routes found in /proc/net/route"). Restart=always
-# self-heals a normal reboot, but during a cluster move — switch booting alongside
-# the nodes — all three flap k3s and their etcd members until the route appears.
-#
-# Clearing the condition lets the unit run, which is all the target needs to mean
-# something; k3s's existing After= does the rest. Costs 7ms when the network is
-# already up, and k3s uses Wants= not Requires=, so a DHCP that never completes
-# degrades to today's behaviour rather than blocking the boot.
+# network-online.target is vacuous here: wait-online is skipped every boot on an unmet
+# ConditionPathIsSymbolicLink, so nothing waits for DHCP and k3s starts with no default
+# route. Clearing the condition lets the unit run. See ansible/README.md.
 - name: Create systemd-networkd-wait-online override directory
   ansible.builtin.file:
     path: /etc/systemd/system/systemd-networkd-wait-online.service.d
@@ -126,17 +98,15 @@
       # intel_gpu_top: shows Video/VideoEnhance engine occupancy, the only way to tell a
       # QSV transcode from a software one that merely opened the device.
       - intel-gpu-tools
-      # nvme-cli: reads the APST power-state table that kernel_cmdline_extra is tuned
-      # against on worker-02. smartctl does not expose it.
+      # nvme-cli: reads the APST power-state table kernel_cmdline_extra is tuned against
+      # on worker-02. smartctl does not expose it.
       - nvme-cli
     state: present
   become: true
 
-# Longhorn's v1 data engine attaches every volume over iSCSI to localhost, so iscsid is a
-# hard runtime dependency -- open-iscsi above ships the daemon disabled. A missing iscsid
-# surfaces as a volume stuck in Attaching, which reads like a Longhorn bug.
-# Talos equivalent: the iscsi-tools and util-linux-tools system extensions. See
-# docs/talos-migration-audit.md before deleting this role.
+# Longhorn's v1 data engine attaches every volume over iSCSI to localhost, and open-iscsi
+# ships the daemon disabled. A missing iscsid surfaces as a volume stuck in Attaching,
+# which reads like a Longhorn bug. Talos equivalent: docs/talos-migration-audit.md.
 - name: Load iscsi_tcp on boot
   ansible.builtin.copy:
     content: "iscsi_tcp\n"
@@ -157,13 +127,10 @@
     state: started
   become: true
 
-# multipathd can claim the block devices Longhorn attaches over iSCSI before Longhorn does,
-# which Longhorn surfaces as the `multipathd` node condition. `multipath -ll` returned no maps
-# on any of the three nodes -- it manages nothing here (direct-attached NVMe + one USB disk),
-# so this removes an unused daemon rather than a capability. If real multipath storage is ever
-# added, Longhorn's documented alternative is to blacklist its devices in /etc/multipath.conf
-# instead of disabling the daemon outright. Talos status unverified: docs/talos-migration-audit.md
-# doesn't mention multipathd and this hasn't been checked against a Talos image.
+# multipathd can claim the block devices Longhorn attaches over iSCSI, and it manages nothing
+# on these nodes (direct-attached NVMe plus one USB disk), so this drops an unused daemon
+# rather than a capability. Add real multipath storage and blacklist its devices in
+# /etc/multipath.conf instead. Talos status unverified.
 - name: Disable and stop multipathd
   ansible.builtin.systemd_service:
     name: multipathd
@@ -171,10 +138,8 @@
     state: stopped
   become: true
 
-# chrony is the only time source on these nodes — no systemd-timesyncd. It ships
-# without Restart=, so a stray SIGTERM (once collateral from a `kill` sweep) leaves
-# it dead silently and the clock drifts unmonitored. Same for thermald and fail2ban,
-# which the task below reconciles.
+# chrony is the only time source on these nodes and ships without Restart=, so a stray
+# SIGTERM leaves it dead silently while the clock drifts unmonitored.
 - name: Create chrony systemd override directory
   ansible.builtin.file:
     path: /etc/systemd/system/chrony.service.d
@@ -182,10 +147,9 @@
     mode: "0755"
   become: true
 
-# Restart=always, not on-failure: a SIGTERM is a clean exit (status=0/SUCCESS). An
-# explicit `systemctl stop` still wins — systemd never restarts a deliberate stop.
-# ponytail: chrony only. Clock skew on an etcd control-plane node is the one that hurts;
-# add the same override for thermald/fail2ban if either ever goes missing again.
+# Restart=always, not on-failure: a SIGTERM is a clean exit. An explicit `systemctl stop`
+# still wins, because systemd never restarts a deliberate stop.
+# Applied to chrony alone: clock skew on an etcd node is the one that hurts.
 - name: Make chrony survive an unexpected termination
   ansible.builtin.copy:
     dest: /etc/systemd/system/chrony.service.d/override.conf
@@ -208,17 +172,9 @@
     - fail2ban
   become: true
 
-# CPU and NVMe temperatures already reach Prometheus free via node-exporter's hwmon
-# collector. USB-attached drives have no hwmon entry — `drivetemp` binds to SATA hosts,
-# not usb-storage — so worker-01's 12TB WD (the only spinning disk, and the hottest
-# sensor in the cluster at 61C against a 65C spec max) is invisible to it. Feeding it
-# through the textfile collector beats adding a second exporter. Emits nothing on nodes
-# with no SMART-readable non-NVMe disk.
-#
-# TODO(NAS): this exporter, its two systemd units, and the disk half of
-# system/monitoring-system/prometheusrule-temperature.yaml all exist for that one USB
-# drive. Once /mnt/storage moves to a NAS the nodes have only NVMe left, hwmon covers it,
-# and this whole block goes silent — delete it rather than leaving it emitting nothing.
+# hwmon covers CPU and NVMe already, but USB-attached drives have no hwmon entry, so
+# worker-01's 12TB WD is invisible to it. See ansible/README.md.
+# TODO(NAS): delete this exporter and its two units once /mnt/storage leaves that drive.
 - name: Create node-exporter textfile collector directory
   ansible.builtin.file:
     path: /var/lib/node_exporter/textfile_collector
@@ -226,9 +182,9 @@
     mode: "0755"
   become: true
 
-# Writes to a temp file and renames: a half-written .prom fails the whole scrape, not
-# just this metric. Unreadable metrics are omitted per-disk rather than emitted as 0 —
-# a missing series leaves the alert expression empty, a 0 reads as a stone-cold drive.
+# Writes to a temp file and renames, because a half-written .prom fails the whole scrape.
+# Unreadable metrics are omitted per-disk rather than emitted as 0: a missing series leaves
+# the alert expression empty, where a 0 reads as a stone-cold drive.
 - name: Install SMART drive temperature textfile exporter
   ansible.builtin.copy:
     dest: /usr/local/bin/smart-temp-textfile
@@ -258,9 +214,9 @@
         [[ "$name" == nvme* ]] && continue
         dev="/dev/$name"
 
-        # Every smartctl call needs `|| true`: its exit status is a bitmask and sets bits
-        # for non-failures. worker-01's WD returns non-zero every time (the enclosure
-        # reports a bad SMART threshold checksum) while still giving a good temperature.
+        # Every smartctl call needs `|| true`: its exit status is a bitmask that sets bits
+        # for non-failures, and worker-01's WD returns non-zero every time while still
+        # giving a good temperature.
         attrs="$(smartctl -A "$dev" 2>/dev/null || true)"
         # Field 10 of attribute 194 is the raw value. Falls back to the SCSI-style line
         # for drives reporting no ATA attributes.
@@ -275,8 +231,8 @@
         printf 'node_smart_temperature_celsius{device="%s",model="%s"} %s\n' \
           "$name" "${model:-unknown}" "$temp" >>"$tmp"
 
-        # Head parking is a wear budget, not a temperature, but only a rate over time
-        # shows whether the APM fix below is holding — so it rides the same SMART read.
+        # Head parking is a wear budget rather than a temperature, but only a rate over
+        # time shows whether the APM fix below is holding, so it rides the same SMART read.
         cycles="$(awk '$1 == 193 { print $10; exit }' <<<"$attrs")"
         if [[ "$cycles" =~ ^[0-9]+$ ]]; then
           printf 'node_smart_load_cycle_count{device="%s"} %s\n' "$name" "$cycles" >>"$tmp"
@@ -337,24 +293,10 @@
     daemon_reload: true
   become: true
 
-# TODO(NAS): delete this task and the rule it installs once /mnt/storage moves off the
-# USB drive. It is pinned to one serial and is dead weight the moment that drive leaves.
-#
-# worker-01's 12TB WD ships at APM 128, which parks the heads ~50 times an hour on a
-# drive that is 0.02% busy — 9% of its 600k load-cycle rating in five weeks. APM 254
-# stops it outright with no temperature penalty.
-#
-# On udev add/change, not a boot-time unit: APM is volatile and resets whenever the
-# drive loses power, which on USB includes bus re-enumeration with the node still up.
-#
-# smartctl, not idle3ctl or hdparm: the WD120EDGZ is an Ultrastar He12 white-label with
-# no idle3 timer, so unload is APM alone — and APM over SAT needs no vendor commands
-# aimed at the disk backing every NFS PVC in the cluster.
-#
-# Matched on vendor+model, not serial: the shucked drive hangs off a generic SATA-USB
-# bridge that fabricates an unstable identity (ID_SERIAL_SHORT and ID_WWN both
-# 5000000000000001, by-id link re-randomised per enumeration). The SCSI INQUIRY strings
-# are the only bridge-independent fields left, and worker-01 has exactly one USB disk.
+# APM 254 stops worker-01's 12TB WD parking its heads on a near-idle drive. On udev
+# add/change because APM is volatile; matched on vendor+model because the USB bridge
+# fabricates an unstable serial. See ansible/README.md.
+# TODO(NAS): delete once /mnt/storage leaves that drive.
 - name: Stop the 12TB USB drive parking its heads every minute
   ansible.builtin.copy:
     dest: /etc/udev/rules.d/60-wd-elements-apm.rules
@@ -367,12 +309,9 @@
   become: true
   notify: Reload udev rules
 
-# The default fs.inotify.max_user_instances=128 is charged per-UID and every
-# containerd-shim holds 2 — worker-00 hit 129/128 at 37 pods, after which even PID 1
-# could not allocate an inotify fd. Audited first (.claude/scripts/inotify-audit.py):
-# not a leak, the only growth term is pod count, which kubelet caps at 110/node, so
-# 1024 is real headroom at the measured ~2.2 fds/pod. max_user_watches is nowhere near
-# its limit; raised for symmetry.
+# The default max_user_instances=128 is charged per-UID and every containerd-shim holds 2,
+# so a dense node runs the whole UID out of inotify fds. Not a leak: the only growth term
+# is pod count, which kubelet caps. See ansible/README.md.
 - name: Raise inotify limits for Kubernetes pod density
   ansible.posix.sysctl:
     name: "{{ item.name }}"
@@ -497,12 +436,9 @@
     src: 192.168.30.0/24
   become: true
 
-# Node-subnet source, not pod-subnet: Prometheus scrapes a node IP, which is outside the
-# cluster CIDR, so Cilium masquerades the pod source to the scraping node's own address.
-# Without these the default deny made every cross-node probe time out while ICMP and
-# pod-to-pod both passed — cilium-health read 1/3 reachable on all three nodes for as long
-# as anyone had looked, and the Cilium scrape only ever worked on whichever node Prometheus
-# happened to be running on.
+# Node-subnet source, not pod-subnet: Prometheus scrapes a node IP from outside the cluster
+# CIDR, so Cilium masquerades the pod source to the scraping node's own address.
+# See ansible/README.md.
 - name: Allow Cilium health and metrics ports from cluster node subnet
   community.general.ufw:
     rule: allow
@@ -516,12 +452,9 @@
     - "9965"      # hubble metrics
   become: true
 
-# Embedded etcd: 2379 client, 2380 peer, 2381 metrics, all three listening on the node IP
-# on every server. This was hand-added and never written down, which is the only reason the
-# HA control plane worked at all while the role claimed to describe the firewall.
-# Node-subnet source, unlike the hand-added rule it replaces: every etcd peer is on
-# 192.168.30.0/24 and nothing off that subnet has any business holding a cluster datastore
-# connection.
+# Embedded etcd: 2379 client, 2380 peer, 2381 metrics, on the node IP of every server.
+# Node-subnet source, unlike the hand-added rule this replaces — nothing off that subnet
+# has any business holding a cluster datastore connection. See ansible/README.md.
 - name: Allow etcd client, peer and metrics from cluster node subnet
   community.general.ufw:
     rule: allow
@@ -530,24 +463,17 @@
     src: 192.168.30.0/24
   become: true
 
-# Kept deliberately, not by accident. Pods reach the host on more ports than anyone can
-# enumerate — kubelet, hostPort metrics endpoints, NFS, cilium-health — and the failure mode
-# of missing one is a silent timeout that reads as a network fault, which cost real hours
-# once already. The pod CIDR is inside the cluster's trust boundary; anything that can source
-# from it is already running on these nodes. The service CIDR twin of this rule was removed
-# rather than codified: a service IP is a destination that DNAT rewrites, so no packet ever
-# arrives with a source address in 10.43.0.0/16 and the rule matched nothing.
+# Kept deliberately. Pods reach the host on more ports than anyone can enumerate, and the
+# failure mode of missing one is a silent timeout that reads as a network fault. The pod
+# CIDR is inside the cluster's trust boundary. See ansible/README.md.
 - name: Allow all traffic from the pod network
   community.general.ufw:
     rule: allow
     src: 10.42.0.0/16
   become: true
 
-# Hand-added, then found to be backed by nothing: no listener on any node, no hostPort, no
-# registry mirror for 5001, and Tailscale actually uses 41641/udp outbound — it has been
-# working this whole time without an inbound allow, so 51820/51821 are WireGuard ports for a
-# WireGuard nobody runs. Removing rather than codifying; the ufw module only adds, so these
-# need an explicit delete to leave the nodes.
+# Hand-added, then found to be backed by nothing on any node. The ufw module only adds, so
+# these need an explicit delete to leave the nodes. See ansible/README.md.
 - name: Remove UFW rules with nothing behind them
   community.general.ufw:
     rule: allow
@@ -568,8 +494,8 @@
     state: enabled
   become: true
 
-# The Ubuntu installer allocates only part of the volume group to the root LV, and
-# container images are the dominant consumer here — claim the whole VG.
+# The Ubuntu installer allocates only part of the volume group to the root LV, and container
+# images are the dominant consumer here, so claim the whole VG.
 - name: Check for unallocated space in the root volume group
   ansible.builtin.command: vgs --noheadings --nosuffix --units b -o vg_free ubuntu-vg
   register: root_vg_free

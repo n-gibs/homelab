@@ -233,3 +233,18 @@ Unlike Longhorn's `Retain`, the `local-path` class those PVCs use is `Delete` â€
 so for those eight, removing the PVC from git and letting ArgoCD prune it
 destroys the data immediately, with no `Released` PV to reclaim. Confirm each
 volume's Longhorn backup exists in the backupstore before that PVC is removed.
+
+## Dashboards
+
+`dashboard.yaml` is fed by the longhorn-backend scrape that
+`networkpolicy-monitoring.yaml` unblocks. Before that NetworkPolicy the scrape was dead and
+every `longhorn_*` series was empty. The question it answers is whether the volumes underneath
+the control plane are healthy, current, and backed up, not whether the Longhorn UI is reachable.
+
+Panel 2 (engine images in use) exists because a Longhorn chart bump upgrades the manager and
+reports green while existing volumes keep running their old engine image until each one is
+individually upgraded. The control plane and the data plane can silently disagree.
+
+Panel 6 (scrape health) exists because a dead scrape is invisible: a dashboard fed by one
+renders identically to a healthy idle cluster. Below 3 targets up means the rest of the
+dashboard is stale, not quiet.

@@ -1,22 +1,8 @@
 ---
-# Duration-based escalation. A `severity: warning` that never escalates is
-# indistinguishable from noise: the ntfy route inherits repeat_interval 12h, so 30h of
-# continuous firing yields two or three notifications interleaved with everything else.
-# NodeClockNotSynchronising went unnoticed for 38h that way.
-#
-# Escalates the whole class on duration rather than reclassifying alerts one at a time.
-# Pairs with the `severity = "critical"` child route in values.yaml, which re-notifies
-# hourly — escalation alone would just add one more message to the same stream.
-#
-# No feedback loop: matches `severity="warning"`, emits `severity: critical`, so it cannot
-# match itself. Do not change the emitted severity to warning.
-#
-# ALERTS_FOR_STATE timestamps the PENDING transition, not firing, and carries no
-# `alertstate` label — hence the join against ALERTS, which does. So a source with
-# `for: 15m` trips at 1h45m of firing, not 2h. Erring early is fine.
-#
-# `label_replace` saves the source alertname into `escalated_alert` because Prometheus
-# overwrites `alertname` with this rule's own.
+# Escalates the warning class on duration instead of reclassifying alerts one at a time; pairs
+# with the `severity = "critical"` route in values.yaml, which re-notifies hourly. No feedback
+# loop: matches severity="warning", emits critical, so it cannot match itself. ALERTS supplies
+# the `alertstate` ALERTS_FOR_STATE lacks; label_replace preserves an alertname Prometheus overwrites.
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:

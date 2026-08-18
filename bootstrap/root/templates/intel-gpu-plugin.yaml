@@ -1,9 +1,8 @@
 ---
 # Own Application rather than the `system` ApplicationSet, same exception as coredns-ha:
-# the generator builds a Helm source from app.yaml, and this is kustomize.
-#
-# Wave 2, after node-feature-discovery: the DaemonSet selects a label NFD has to produce
-# first, and the NodeFeatureRules need its CRD.
+# the generator builds a Helm source from app.yaml, and this is kustomize. Wave 2, after
+# node-feature-discovery — the DaemonSet selects a label NFD has to produce first, and the
+# NodeFeatureRules need its CRD.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:

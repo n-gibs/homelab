@@ -19,11 +19,9 @@ controllers:
           PUID: "1000"
           PGID: "1000"
           TZ: America/Los_Angeles
-        # Static, not VPA-managed -- see the deleted vpa.yaml note in git history.
-        # jellyfin's demand is bimodal (idle vs transcode) and VPA only sizes for what
-        # it has already seen, so a transcode starting after a quiet stretch is sized
-        # against idle. On 2026-08-15 it OOM-killed ffmpeg 4x at a 1536Mi limit before
-        # VPA caught up 2 minutes later.
+        # Static, not VPA-managed. Jellyfin's demand is bimodal (idle vs transcode) and VPA
+        # only sizes for what it has already seen, so a transcode starting after a quiet
+        # stretch gets sized against idle and ffmpeg is OOM-killed before VPA catches up.
         resources:
           requests:
             cpu: "1"
@@ -94,22 +92,15 @@ persistence:
     globalMounts:
       - path: /data
         readOnly: true
-  # HLS segments default to /config/cache/transcodes, and one long transcode filled the
-  # 4.9G config volume -- every jellyfin.db write then returned SQLite error 13.
-  #
-  # Mounted at /config/cache, not /config/cache/transcodes: the image's init runs
-  # `lsiown abc:abc /config/*`, a one-level glob. It reaches /config/cache but not a
-  # directory below it, and an emptyDir mounts root:root, so the deeper mount point
-  # would leave jellyfin (uid 1000) unable to write its own segments.
-  #
-  # The whole tree is derived data -- images re-render from /config/data/metadata,
-  # which stays on longhorn -- so losing it on restart costs a lazy rebuild, nothing more.
-  # 16Gi holds ~7 concurrent transcodes: SegmentKeepSeconds is 720, so a stream keeps
-  # 12 minutes of segments, ~2.1Gi at the 8.77Mi segments measured on a 4K remux.
-  # Overshoot on purpose -- exceeding sizeLimit evicts the pod mid-stream, while the
-  # cost of the extra headroom is disk worker-01 has (359G free).
+  # Keeps HLS segments off the config volume, which a single long transcode can fill until
+  # every jellyfin.db write returns SQLite error 13. Mounted at /config/cache, not
+  # /config/cache/transcodes: the image's init `lsiown`s /config/* with a one-level glob, and an
+  # emptyDir mounts root:root, so a deeper mount point leaves uid 1000 unable to write segments.
   cache:
     type: emptyDir
+    # Derived data, so losing it on restart costs only a lazy rebuild. Overshoots the concurrent
+    # transcode footprint deliberately: exceeding sizeLimit evicts the pod mid-stream, while the
+    # headroom costs disk worker-01 has spare.
     sizeLimit: 16Gi
     globalMounts:
       - path: /config/cache

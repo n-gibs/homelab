@@ -3,19 +3,11 @@ kind: PersistentVolumeClaim
 metadata:
   name: nextcloud-html
   namespace: nextcloud
-  # NO sync-wave annotation — do not add one. local-path is WaitForFirstConsumer,
-  # so this stays Pending (= unhealthy to ArgoCD) until its consumer is scheduled.
-  # An earlier wave deadlocks the sync forever. The sibling volumes bind
-  # immediately, which is why they can carry wave -1.
+  # No sync-wave annotation -- see the local-path note in CLAUDE.md. Superseded by
+  # nextcloud-html-longhorn below; scheduled for deletion.
 spec:
   accessModes:
     - ReadWriteOnce
-  # local-path per the second exception in CLAUDE.md: ~15k small PHP files stat-ed
-  # on every request, too hot for the sync-exported USB disk the nfs class uses,
-  # and reconstructible from the image.
-  # Recovery if the pinned node dies: delete this PVC, the tree rebuilds on next
-  # start. Database and data directory are untouched.
-  # 10Gi against a ~1.5GB tree is headroom for apps — local-path can't be expanded.
   storageClassName: local-path
   resources:
     requests:
@@ -26,30 +18,13 @@ kind: PersistentVolumeClaim
 metadata:
   name: nextcloud-html-longhorn
   namespace: nextcloud
-  # No sync-wave annotation. The longhorn class binds Immediate rather than
-  # WaitForFirstConsumer, so unlike the local-path PVC above this does not sit
-  # Pending waiting for a consumer — but a PVC still has no reason to own a wave.
 spec:
   accessModes:
     - ReadWriteOnce
-  # longhorn, not local-path: this is still the PHP app tree — ~28k small files,
-  # reconstructible from the container image, so its loss costs a rebuild rather
-  # than data. It was on local-path because the alternative was the sync-exported
-  # USB spinning disk the nfs class uses, not because the tree needed real block
-  # storage the way the arrs' SQLite configs do. Longhorn gives it that plus two
-  # replicas, one of them local to whichever node the pod runs on (best-effort
-  # locality), so losing a node degrades this volume instead of taking it offline.
-  # nextcloud-cron also mounts this claim; both need updating together.
-  #
-  # Nextcloud's own upgrades rewrite this tree, so headroom matters more than for
-  # a config volume: 885M against 3Gi today, and longhorn expands in place if that
-  # gets tight, unlike the local-path PVC above.
-  #
-  # Recovery if a node dies: nothing to do, the replica rebuilds. If the volume is
-  # faulted, delete and recreate — the tree rebuilds from the image the same way
-  # it did on local-path. Database and data directory are untouched either way.
-  # Named nextcloud-html-longhorn rather than reusing nextcloud-html, which is
-  # still bound to the PVC above.
+  # The PHP app tree: thousands of small files, too hot for the nfs class, and
+  # rebuilt from the container image if lost -- so no app-level backup is needed.
+  # Nextcloud upgrades rewrite the tree, so it wants more headroom than a config
+  # volume. nextcloud-cron mounts this claim too; both need updating together.
   storageClassName: longhorn
   resources:
     requests:

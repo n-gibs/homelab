@@ -1,11 +1,8 @@
 ---
-# Cilium is helmfile-managed in bootstrap/ and owns no stack directory, so its monitoring
-# lives here alongside argocd's for the same reason. The chart can render these itself, but
-# only behind a capabilities check for monitoring.coreos.com/v1 — which does not exist during
-# a fresh bootstrap, where Cilium goes in first and Prometheus arrives later as an ArgoCD app.
-# Enabling it there fails the Cilium release outright, so the headless metrics Services come
-# from the chart (prometheus.metricsService in bootstrap/values/cilium.yaml) and the monitors
-# that scrape them come from here, after the CRDs exist.
+# Cilium is helmfile-managed and owns no stack directory, so its monitoring lives here. The
+# chart could render these, but gates them on a monitoring.coreos.com/v1 capability check that
+# fails during a fresh bootstrap, where Cilium precedes Prometheus. So the metrics Services come
+# from the chart and the monitors scraping them come from here, after the CRDs exist.
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:

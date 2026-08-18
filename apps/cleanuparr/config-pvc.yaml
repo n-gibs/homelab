@@ -3,33 +3,11 @@ kind: PersistentVolumeClaim
 metadata:
   name: cleanuparr-config-local
   namespace: cleanuparr
-  # NO sync-wave annotation -- do not add one. local-path is WaitForFirstConsumer,
-  # so this stays Pending (= unhealthy to ArgoCD) until its consumer is scheduled.
-  # An earlier wave deadlocks the sync forever. Same reasoning as
-  # apps/sonarr/config-pvc.yaml and apps/nextcloud/html-pvc.yaml.
+  # No sync-wave annotation -- see the local-path note in CLAUDE.md. Superseded by
+  # cleanuparr-config below; scheduled for deletion.
 spec:
   accessModes:
     - ReadWriteOnce
-  # local-path because /config holds SQLite databases, and SQLite over NFS does not
-  # work reliably -- Sonarr logged 996 "database is locked" errors in a week, one of
-  # which stalled the nightly refresh for 35 minutes and jammed the task queue until
-  # /api/v3/queue stopped answering. All four arrs were migrated off NFS on
-  # 2026-08-06; this app starts here rather than repeating the migration.
-  #
-  # Durability comes from backup-cronjob.yaml, not from the volume. Cleanuparr has no
-  # built-in backup feature (unlike the arrs' System -> Backup), so that CronJob
-  # snapshots the databases nightly to /data/backups/cleanuparr on the USB-attached
-  # NFS disk -- a different failure domain from worker-01's internal NVMe, which is
-  # what local-path uses.
-  #
-  # Recovery if that NVMe dies: delete this PVC, let it recreate empty, extract the
-  # newest archive from /data/backups/cleanuparr/ into /config, restart the pod. If no
-  # archive is usable, the fallback is manual: re-enter the arr URLs, API keys and job
-  # settings in the UI (~15 min). The API keys are all recoverable from
-  # secrets/.secrets because they are generate:-derived.
-  #
-  # 2Gi against a settings database plus logs is headroom -- local-path cannot be
-  # expanded in place, so this is sized once.
   storageClassName: local-path
   resources:
     requests:
@@ -40,26 +18,13 @@ kind: PersistentVolumeClaim
 metadata:
   name: cleanuparr-config
   namespace: cleanuparr
-  # No sync-wave annotation. The longhorn class binds Immediate rather than
-  # WaitForFirstConsumer, so unlike the local-path PVC above this does not sit Pending
-  # waiting for a consumer -- but a PVC still has no reason to own a wave.
 spec:
   accessModes:
     - ReadWriteOnce
-  # longhorn, not local-path: /config is SQLite, and SQLite needs a real block device with a
-  # real filesystem -- which Longhorn provides and NFS does not. Two replicas, one of them
-  # local to whichever node the pod runs on (best-effort locality), so losing a node
-  # degrades this volume instead of taking it offline.
-  #
-  # Durability still does not come from the volume. backup-cronjob.yaml is the
-  # application-consistent copy -- Cleanuparr has no built-in backup, and Longhorn's own
-  # backups are crash-consistent, so that CronJob has to keep existing.
-  #
-  # Recovery if a node dies: nothing to do, the replica rebuilds. If the volume is faulted,
-  # restore from the Longhorn backupstore (retained 7 days) or extract the newest archive
-  # from /data/backups/cleanuparr/ into /config.
-  #
-  # 2Gi against 5.7M of settings, and longhorn expands in place, so this is not sized once.
+  # /config is SQLite -- longhorn per the CLAUDE.md storage rule.
+  # Backup: backup-cronjob.yaml, since Cleanuparr has no backup feature of its own.
+  # Settings lost with the volume are re-enterable from the UI; the arr API keys are
+  # generate:-derived and recoverable from secrets/.secrets.
   storageClassName: longhorn
   resources:
     requests:

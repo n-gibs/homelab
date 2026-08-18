@@ -14,15 +14,10 @@ kubeScheduler:
 kubeProxy:
   enabled: false
 
-# etcd runs inside the k3s process rather than as a pod, so the chart's `component: etcd`
-# Service selector matches nothing and its ServiceMonitor scrapes an endpointless Service.
-# The chart can name static IPs instead (kubeEtcd.endpoints), but it renders them as an
-# Endpoints object, and ArgoCD excludes Endpoints and EndpointSlice by kind to keep from
-# watching control-plane churn -- so that object is never applied and the pool stays empty.
-# scrapeconfig-etcd.yaml addresses the three nodes directly instead.
-#
-# `enabled` stays true because the chart gates its etcd alert rules on it. Only the Service
-# and ServiceMonitor go, and with them the permanently-empty scrape pool.
+# etcd runs in the k3s process, so the chart's `component: etcd` selector matches nothing.
+# kubeEtcd.endpoints would render an Endpoints object, which ArgoCD excludes by kind, so
+# scrapeconfig-etcd.yaml addresses the nodes directly instead. `enabled` stays true only
+# because the chart gates its etcd alert rules on it.
 kubeEtcd:
   enabled: true
   service:
@@ -93,11 +88,8 @@ kube-state-metrics:
           sourceLabels: []
           targetLabel: cluster
           replacement: homelab
-  # KSM's default ClusterRole has no business with Infisical CRs; extend it rather
-  # than replace it so the chart's own rules (pods, nodes, etc.) stay intact.
-  # No apiextensions.k8s.io/customresourcedefinitions rule here: the chart already
-  # grants that itself whenever customResourceState.enabled is true (verified in the
-  # rendered ClusterRole) — adding it again would just be redundant, not additive.
+  # Extend KSM's ClusterRole rather than replace it so the chart's own rules survive. The
+  # CRD read rule is omitted deliberately: the chart grants it when customResourceState is on.
   rbac:
     extraRules:
       - apiGroups: ["secrets.infisical.com"]
@@ -106,11 +98,9 @@ kube-state-metrics:
       - apiGroups: ["k3s.cattle.io"]
         resources: ["etcdsnapshotfiles"]
         verbs: ["list", "watch"]
-  # Editing anything under customResourceState needs
-  # `kubectl -n monitoring-system rollout restart deploy/monitoring-system-kube-state-metrics`.
-  # It arrives as a ConfigMap that kube-state-metrics only reads at startup, and the chart
-  # puts no checksum annotation on the Deployment, so ArgoCD syncs the new config to a pod
-  # that never rereads it. The metric just never appears.
+  # Editing customResourceState needs a kube-state-metrics rollout restart: it reads the
+  # ConfigMap only at startup and the chart sets no checksum annotation, so ArgoCD reports
+  # Synced while the new metric never appears.
   customResourceState:
     enabled: true
     config:
@@ -161,12 +151,9 @@ prometheus-node-exporter:
     requests:
       cpu: 10m
       memory: 32Mi
-  # Points the textfile collector at what smart-temp-textfile.timer writes (see
-  # ansible/roles/common). No new volume: the chart already bind-mounts / at /host/root.
-  #
-  # The two filesystem excludes are the chart's own defaults, repeated verbatim because
-  # Helm replaces lists rather than merging — without them node-exporter would scrape
-  # every container overlay and kubelet bind mount. Re-check on a chart bump.
+  # Points the textfile collector at what smart-temp-textfile.timer writes (ansible/roles/common);
+  # the chart already bind-mounts / at /host/root. The filesystem excludes repeat the chart's own
+  # defaults verbatim because Helm replaces lists rather than merging — re-check on a chart bump.
   extraArgs:
     - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|run/containerd/.+|var/lib/docker/.+|var/lib/kubelet/.+)($|/)
     - --collector.filesystem.fs-types-exclude=^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|iso9660|mqueue|nsfs|overlay|proc|procfs|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|sysfs|tracefs|erofs)$
@@ -181,13 +168,10 @@ prometheus-node-exporter:
 
 prometheus:
   prometheusSpec:
-    # The cluster's largest consumer shipped requestless, so the scheduler saw a free pod
-    # and parked it on the 4-core node while it used 179m / 2.9Gi. Memory is 3Gi rather
-    # than trimmed to that peak because a TSDB's working set grows with retention and
-    # series count.
-    #
-    # No limits, deliberately: a memory limit on a TSDB turns a slow query into an OOMKill
-    # that loses the WAL, and this pod is the alerting path.
+    # Requests exist so the scheduler stops treating this pod as free. Memory is sized for a
+    # TSDB working set that grows with retention and series count, not for the observed peak.
+    # No limits, deliberately: a memory limit turns a slow query into an OOMKill that loses
+    # the WAL, and this pod is the alerting path.
     resources:
       requests:
         cpu: 250m
@@ -197,16 +181,10 @@ prometheus:
     podMonitorSelectorNilUsesHelmValues: false
     probeSelectorNilUsesHelmValues: false
     scrapeConfigSelectorNilUsesHelmValues: false
-    # A TSDB is mmap-heavy, which is what NFS handles worst, and this volume was a 12TB USB
-    # HDD behind a single node -- the alerting path's own state on the least durable storage
-    # in the cluster. 10.1GB of blocks at 10d retention, so 20Gi stays roughly half full;
-    # longhorn expands in place if that changes.
-    #
-    # Changing this line alone does nothing. volumeClaimTemplates are immutable, so the
-    # operator recreates the StatefulSet, and the recreated one finds a PVC already existing
-    # under the expected name and reuses it -- Prometheus keeps running on the old class
-    # while everything reports Synced. Migrating means deleting the PVC deliberately, with
-    # the operator scaled to 0 so it does not race the recreate.
+    # A TSDB is mmap-heavy, which NFS handles worst. Changing this line alone does nothing:
+    # volumeClaimTemplates are immutable, so the recreated StatefulSet reuses the existing PVC
+    # and Prometheus keeps running on the old class while everything reports Synced. Migrating
+    # means deleting the PVC deliberately, with the operator scaled to 0.
     storageSpec:
       volumeClaimTemplate:
         spec:
@@ -283,24 +261,18 @@ alertmanager:
       repeat_interval: 12h
       receiver: 'null'
       routes:
-        # Dead-man's switch. Watchdog fires continuously while the alerting path is healthy,
-        # so healthchecks.io alerting on the ABSENCE of these pings is what catches a broken
-        # alerting path. Don't pin hc-ping.com's IP — if cluster DNS breaks, the ping
-        # stopping IS the signal.
-        # group_interval must be well under repeat_interval: the dispatcher only re-evaluates
-        # on group_interval ticks, so 5m/5m yields a ping every 10m, not 5m (measured).
+        # Dead-man's switch: healthchecks.io alerts on the ABSENCE of these pings, so don't pin
+        # hc-ping.com's IP — a DNS break stopping the ping IS the signal. group_interval must
+        # stay well under repeat_interval; the dispatcher only re-evaluates on its ticks.
         - receiver: 'deadmanssnitch'
           matchers: ['alertname = "Watchdog"']
           group_wait: 0s
           group_interval: 1m
           repeat_interval: 5m
-        # Criticals re-notify hourly instead of inheriting the 12h below. Must stay ABOVE the
-        # warning|critical route — routes match in order and the broader one would swallow it.
-        # Delivery half of prometheusrule-alert-escalation.yaml, which turns a warning firing
-        # >2h into a critical.
-        # group_by overrides the top-level ['namespace'] because node-level alerts carry no
-        # namespace label: without alertname/escalated_alert every namespace-less alert
-        # collapses into one group sharing a single repeat_interval timer.
+        # Criticals re-notify hourly; delivery half of prometheusrule-alert-escalation.yaml.
+        # Must stay ABOVE the warning|critical route — routes match in order and the broader
+        # one would swallow it. group_by overrides the top-level ['namespace'] because
+        # node-level alerts carry none and would all collapse into one repeat_interval timer.
         - receiver: 'ntfy'
           matchers: ['severity = "critical"']
           group_by: ['alertname', 'escalated_alert', 'namespace']
@@ -318,11 +290,9 @@ alertmanager:
         webhook_configs:
           - url_file: /etc/alertmanager/secrets/ntfy-webhook-url/url
             send_resolved: true
-            # ntfy 400s (code 40041) once the rendered message exceeds 4096 bytes, and
-            # Alertmanager treats that as unrecoverable -- so delivery breaks during a
-            # storm, when the batch is biggest. Truncating keeps the notification;
-            # truncatedAlerts carries the dropped count. Lower this if a 400 recurs: the
-            # rendered size depends on the ntfy-side template, which is not in this repo.
+            # ntfy 400s once the rendered message exceeds 4096 bytes and Alertmanager treats
+            # that as unrecoverable, so delivery breaks during a storm. truncatedAlerts carries
+            # the dropped count; rendered size depends on the ntfy-side template, not this repo.
             max_alerts: 5
     templates:
       - '/etc/alertmanager/config/*.tmpl'

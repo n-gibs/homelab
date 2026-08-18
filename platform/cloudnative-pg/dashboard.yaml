@@ -1,25 +1,5 @@
-# CloudNativePG dashboard, loaded by the Grafana sidecar (LABEL=grafana_dashboard, LABEL_VALUE=1,
-# NAMESPACE=ALL). Hand-written, not vendored: upstream publishes one at
-# https://github.com/cloudnative-pg/grafana-dashboards/blob/main/charts/cluster/grafana-dashboard.json
-# (checked 2026-08-14) but it is 66 panels / 253KB and its template variables assume a metric
-# set we don't have — `operatorNamespace` is derived from
-# controller_runtime_webhook_requests_total{webhook="/mutate-postgresql-cnpg-io-v1-cluster"},
-# which requires scraping the CNPG operator's own controller-runtime metrics; our
-# podmonitor.yaml only scrapes instance pods (`cnpg.io/podRole: instance`), so that series
-# doesn't exist here and every panel gated behind it would come up empty. Its per-panel label
-# scheme is also inconsistent across CNPG's own metric set — collector-level metrics
-# (cnpg_collector_up) carry a native `cluster` label, but pg_stat-derived ones
-# (cnpg_backends_total, cnpg_pg_replication_lag) don't, relying instead on a pod-name regex
-# variable. That's a redesign per panel, not a datasource-uid rewrite, so six hand-written
-# panels using this cluster's actual labels (cnpg_io_cluster, cnpg_io_instanceRole, namespace —
-# confirmed live off cnpg_collector_up and cnpg_backends_total) is the smaller, more honest fix.
-#
-# No CNPG Cluster here has a `.spec.backup` stanza and there are zero Backup/ScheduledBackup
-# CRs, so cnpg_collector_last_available_backup_timestamp reads 0 (unix epoch) on all four
-# clusters permanently — that is CNPG-native backup never having been configured, by design,
-# not four backups that failed. The actual backup path is the app-level pg_dump CronJobs (see
-# apps/*/pg-backup.yaml and system/monitoring-system/dashboard-backups.yaml panel 5), which is
-# why panel 4 below points at that dashboard instead of rendering this metric.
+# Hand-written rather than vendored, and the backup timestamp reads 0 by design:
+# see platform/cloudnative-pg/README.md.
 apiVersion: v1
 kind: ConfigMap
 metadata:

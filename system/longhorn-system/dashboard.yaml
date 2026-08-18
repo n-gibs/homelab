@@ -1,16 +1,5 @@
-# Longhorn dashboard, fed by the longhorn-backend scrape (system/longhorn-system/networkpolicy-monitoring.yaml).
-# Before that NetworkPolicy, this scrape was dead and every longhorn_* series below was empty.
-#
-# The question this answers is whether the volumes underneath the control plane are actually
-# healthy, current, and backed up — not just whether the Longhorn UI is reachable.
-#
-# Panel 2 (engine images in use) exists because a Longhorn chart bump upgrades the manager
-# and reports green while existing volumes keep running their old engine image until each one
-# is individually upgraded — the control plane and the data plane can silently disagree.
-#
-# Panel 6 (scrape health) exists because Task 1's failure mode was invisible: a dashboard fed
-# by a dead scrape renders identically to a healthy idle cluster. Below 3 targets up means the
-# rest of this dashboard is stale, not quiet.
+# Why panels 2 and 6 exist, and the scrape that feeds all of this:
+# see system/longhorn-system/README.md.
 apiVersion: v1
 kind: ConfigMap
 metadata:

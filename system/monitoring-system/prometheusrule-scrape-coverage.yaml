@@ -1,11 +1,7 @@
 ---
-# Catches a scrape pool that resolves to zero targets — a ServiceMonitor whose selector
-# matches nothing, or a Service with no endpoints.
-#
-# TargetDown cannot cover this case: an empty pool produces no `up` series at all, so
-# there is nothing to compare against 0. Every rule written against that subsystem's
-# metrics then sits permanently empty and silently never fires, which looks identical to
-# healthy.
+# Catches a scrape pool that resolves to zero targets. TargetDown cannot cover this: an empty
+# pool produces no `up` series at all, so there is nothing to compare against 0, and every rule
+# written against that subsystem then sits permanently empty — indistinguishable from healthy.
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:

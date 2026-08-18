@@ -1,20 +1,5 @@
-# CronJob and backup dashboard, loaded by the Grafana sidecar (LABEL=grafana_dashboard,
-# LABEL_VALUE=1, NAMESPACE=ALL). Same default-folder caveat as the other two dashboards.
-#
-# Companion to prometheusrule-backups.yaml, which is what should actually wake you up. This
-# answers the questions an alert cannot: is the dump growing or has it quietly collapsed, are
-# runs getting slower, did a job fail and then pass on retry.
-#
-# The dump-size panel is the reason this dashboard is worth having. Every alert here proves a
-# job ran and exited zero; none of them prove it wrote a usable file. pg_dump exiting zero
-# after producing a truncated dump is the failure that stays invisible until a restore, and a
-# size series is the cheapest thing that shows it. The values are parsed straight out of the
-# job's own "wrote <path> (N bytes)" log line, since a PVC-usage metric cannot help here — the
-# backup PVCs are NFS-backed and each reports the whole 12TB filesystem.
-#
-# Job-level metrics are keyed by job_name, which carries a per-run timestamp suffix
-# (immich-db-backup-29765010), so every panel joins through kube_job_owner to group runs under
-# the owning CronJob. Without that join each nightly run is its own unrelated series.
+# Why the dump-size panel matters and why every panel joins kube_job_owner:
+# see system/monitoring-system/README.md.
 apiVersion: v1
 kind: ConfigMap
 metadata:

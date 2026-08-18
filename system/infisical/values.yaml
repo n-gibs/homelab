@@ -20,11 +20,9 @@ postgresql:
       name: infisical-database-app
       key: uri
 
-# Cache and queues only. persistence off: the chart's 8Gi local-path PVC would
-# pin Redis to one node with no reschedule on node failure.
-# Password is plaintext by necessity, not oversight — the chart bakes REDIS_URL
-# as an explicit `env` entry and `env` beats `envFrom`, so a SealedSecret can't
-# override it. Overrides the chart's public default. Private repo, cache only.
+# Cache and queues only. persistence off: the chart's local-path PVC would pin Redis to one node
+# with no reschedule on node failure. The password is plaintext by necessity — the chart bakes
+# REDIS_URL as an explicit `env` entry and `env` beats `envFrom`, so no secret can override it.
 redis:
   enabled: true
   auth:

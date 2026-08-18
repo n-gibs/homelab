@@ -14,7 +14,7 @@ images:
     newTag: "0.36.0"
 
 patches:
-  # ponytail: 4 is a guess, not a measurement. The default of 1 lets a single pod hold the
+  # 4 is a guess, not a measurement. The default of 1 lets a single pod hold the
   # iGPU; the hardware has no session limit, so oversubscribing costs speed, not errors.
   - target:
       kind: DaemonSet

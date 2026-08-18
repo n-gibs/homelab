@@ -31,11 +31,10 @@ controllers:
           # tracks in one directory, but per-track musicbrainz_albumid can differ
           # when tracks come from different releases, splitting the album in two.
           ND_PID_ALBUM: folder
-          # Navidrome's own scheduled backup -- VACUUM INTO snapshots, consistent
-          # without stopping the app. This is what makes the local-path config
-          # volume acceptable, so it writes to the NFS share, not next to the
-          # database it protects. No CronJob: the app schedules this itself, which
-          # also means BackupCronJobMissing does not watch it (same as the arrs).
+          # Navidrome's own scheduled backup -- VACUUM INTO snapshots, consistent without
+          # stopping the app. Writes to the NFS share rather than next to the database it
+          # protects. No CronJob, because the app schedules this itself, which also means
+          # BackupCronJobMissing does not watch it (same as the arrs).
           ND_BACKUP_PATH: /backups
           ND_BACKUP_SCHEDULE: "0 5 * * *"
           ND_BACKUP_COUNT: "14"
