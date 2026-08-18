@@ -8,13 +8,10 @@ metadata:
     # externalTrafficPolicy rather than defaulted and left un-reconciled — see gateway.yaml.
     argocd.argoproj.io/sync-wave: "-1"
 spec:
-  # Client IP survives only while the forward stays node-local: Cilium SNATs to the
-  # forwarding node's cilium_host address when it crosses a node, and that is still
-  # RFC1918, so Jellyfin reads every remote session as LAN and its bitrate limit goes
-  # inert. Silently — ingress keeps working.
-  #
-  # Local guarantees node-local backends. Cluster does not: it hashes across all of them,
-  # so a second replica would cross nodes for some connections.
+  # Client IP survives only while the forward stays node-local: a cross-node forward is
+  # SNATed to cilium_host, still RFC1918, so Jellyfin reads every session as LAN and its
+  # bitrate limit goes inert with ingress still working. Local guarantees node-local
+  # backends; Cluster hashes across all of them, so a second replica would cross nodes.
   provider:
     type: Kubernetes
     kubernetes:

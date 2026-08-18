@@ -13,11 +13,9 @@ spec:
   groups:
     - name: blackbox-exporter
       rules:
-        # 5m is five consecutive failed probes at the 60s interval, which rules out a single
-        # gateway reload or a rolling restart. probe_success is one-hot per target, so this
-        # fires per hostname and names the one that is down.
-        # Scoped to the https targets: probe_success is shared with the NFS probe below,
-        # and this rule's advice is misleading for a dead file server.
+        # 5m is five consecutive failures at the 60s interval, which rules out a gateway
+        # reload or a rolling restart. Scoped to the https targets because probe_success is
+        # shared with the NFS probe below, whose failure this rule's advice does not fit.
         - alert: EndpointDown
           expr: probe_success{instance=~"https://.*"} == 0
           for: 5m
@@ -32,12 +30,10 @@ spec:
               the gateway. probe_http_status_code and probe_duration_seconds for this
               instance narrow it down quickly.
 
-        # The certificate the gateway actually serves, which is a different fact from the one
-        # cert-manager holds in a Secret. CertExpiringSoon fires at 21d on the Secret; if
-        # renewal worked but Envoy never reloaded it over SDS, that rule sees a fresh
-        # certificate and stays quiet while browsers get the old one. 14d is deliberately
-        # below 21 so the two are distinguishable: this one alone means a reload problem,
-        # both together mean renewal itself is failing. Served cert had 35d when this shipped.
+        # The certificate the gateway serves is a different fact from the one cert-manager
+        # holds in a Secret. 14d sits below CertExpiringSoon's 21d so the two are
+        # distinguishable: this alone means Envoy never reloaded over SDS, both together
+        # mean renewal itself is failing.
         - alert: ProbeCertExpiringSoon
           expr: probe_ssl_earliest_cert_expiry - time() < 14 * 86400
           for: 1h

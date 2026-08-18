@@ -1,18 +1,12 @@
-# Every check in this cluster was inside-out: pod Ready, container not restarting, scrape
-# succeeding. None of that notices an app that is Running and answering 500s, a DNS record
-# that stopped resolving, or a certificate the gateway never reloaded. This probes the same
-# URL a browser would, from inside the cluster, through the real gateway and the real cert.
-#
+# Probes the URL a browser would, through the real gateway and the real cert. Readiness and
+# scrape checks are inside-out: they miss an app answering 500s, a name that stopped
+# resolving, and a certificate the gateway never reloaded.
 fullnameOverride: blackbox-exporter
 
-# This replaces the chart's default module map wholesale, so http_2xx is restated verbatim
-# rather than extended — widening it would stop the sixteen targets that really do answer
-# 200 from asserting it.
-#
-# http_2xx_auth exists for longhorn alone: its UI is behind basic auth and answers 401
-# unauthenticated, measured through this exporter before it was added. Accepting 401/403
-# still proves DNS, the gateway, the HTTPRoute and the served certificate all work; it just
-# stops short of claiming the app authenticated us, which no unauthenticated probe can.
+# Replaces the chart's default module map wholesale, so http_2xx is restated verbatim —
+# widening it would stop the sixteen real-200 targets from asserting it. http_2xx_auth is
+# for longhorn alone, whose UI answers 401 unauthenticated; 401/403 still proves DNS, the
+# gateway, the HTTPRoute and the served certificate.
 config:
   modules:
     http_2xx:
