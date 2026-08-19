@@ -8,6 +8,8 @@ metadata:
     gethomepage.dev/name: "Infisical"
     gethomepage.dev/description: "Secrets management"
     gethomepage.dev/group: "Infrastructure"
+    # Status lookup defaults to app.kubernetes.io/name=<route name>, which matches nothing here.
+    gethomepage.dev/pod-selector: "app=infisical-standalone"
     gethomepage.dev/icon: "infisical.png"
     gethomepage.dev/href: "https://infisical.nik-homelab.dev"
 spec:
