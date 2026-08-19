@@ -104,6 +104,10 @@ config:
         columns: 3
         icon: mdi-server
 
+    providers:
+      longhorn:
+        url: http://longhorn-frontend.longhorn-system.svc.cluster.local
+
   kubernetes:
     mode: cluster
     gateway: true
@@ -134,6 +138,11 @@ config:
           cpu: true
           memory: true
           showLabel: true
+    - longhorn:
+        expanded: true
+        total: true
+        labels: true
+        nodes: true
     - search:
         provider: duckduckgo
         target: _blank
