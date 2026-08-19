@@ -8,6 +8,8 @@ metadata:
     gethomepage.dev/name: "Longhorn"
     gethomepage.dev/description: "Replicated block storage"
     gethomepage.dev/group: "Infrastructure"
+    # Status lookup defaults to app.kubernetes.io/name=<route name>, which matches nothing here.
+    gethomepage.dev/pod-selector: "app=longhorn-ui"
     gethomepage.dev/icon: "longhorn.png"
     gethomepage.dev/href: "https://longhorn.nik-homelab.dev"
 spec:
