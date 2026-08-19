@@ -7,6 +7,22 @@ directory holds the rclone CronJob that copies completed seedbox downloads to NF
 Two-category design: private-tracker grabs go to the seedbox (ratio matters), public grabs go
 to the in-cluster qBittorrent behind gluetun.
 
+## Routing — per-indexer download client
+
+Nothing routes a grab automatically. Each *arr picks the download client per indexer, and an
+indexer left on "Any" falls to the lowest-priority client, which is the local qBittorrent
+(priority 1) rather than the seedbox (50). **Every private tracker must be pinned by hand, in
+each of Lidarr, Sonarr and Radarr, whenever it is added**: Settings -> Indexers -> the indexer ->
+Show Advanced -> Download Client -> Seedbox. Prowlarr does not sync this field, so a `fullSync`
+neither sets nor clears it.
+
+An unpinned private tracker seeds on the local client, where `removeCompletedDownloads: true`
+removes the torrent after import and the pod is not reliably up. That is a hit-and-run, and
+Yu-Scene issued one for two Underoath albums before the mapping was set.
+
+Current state, verified 2026-08-19: IPTorrents, TorrentLeech and YUSCENE pinned to Seedbox in all
+three arrs. Knaben, The Pirate Bay, EZTV and YTS deliberately left on Any.
+
 ## The sync job
 
 `values.yaml` is a CronJob, not a Deployment (hence no `vpa.yaml`): every 10 minutes it runs
