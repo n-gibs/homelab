@@ -56,6 +56,16 @@ env:
       secretKeyRef:
         name: jellyfin-api-key
         key: JELLYFIN_API_KEY
+  - name: HOMEPAGE_VAR_QBITTORRENT_USERNAME
+    valueFrom:
+      secretKeyRef:
+        name: qbittorrent-local-creds
+        key: QBITTORRENT_USERNAME
+  - name: HOMEPAGE_VAR_QBITTORRENT_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: qbittorrent-local-creds
+        key: QBITTORRENT_PASSWORD
   - name: HOMEPAGE_VAR_NAVIDROME_USER
     valueFrom:
       secretKeyRef:
@@ -183,9 +193,23 @@ config:
               user: "{{HOMEPAGE_VAR_NAVIDROME_USER}}"
               token: "{{HOMEPAGE_VAR_NAVIDROME_TOKEN}}"
               salt: "{{HOMEPAGE_VAR_NAVIDROME_SALT}}"
+        # Defined here rather than by HTTPRoute annotation: the widget needs WebUI
+        # credentials, and annotations are plaintext in git and skip HOMEPAGE_VAR
+        # substitution. namespace/app restore the status dot discovery gave for free.
+        - qBittorrent:
+            href: https://qbittorrent.nik-homelab.dev
+            description: Torrent client
+            icon: qbittorrent.png
+            namespace: qbittorrent
+            app: qbittorrent
+            widget:
+              type: qbittorrent
+              url: http://qbittorrent.qbittorrent.svc.cluster.local:8080
+              username: "{{HOMEPAGE_VAR_QBITTORRENT_USERNAME}}"
+              password: "{{HOMEPAGE_VAR_QBITTORRENT_PASSWORD}}"
         # Link only, no qbittorrent widget: seedit4.me fronts the WebUI with nginx basic
-        # auth, and the widget's username/password are qBittorrent's own login — it has no
-        # way to send the outer Authorization header, so it would just render 401.
+        # auth, which 401s the login POST before qBittorrent sees it. The widget cannot
+        # send that outer Authorization header.
         - Seedbox:
             href: https://203.nl137.seedit4.me/qbittorrent/
             description: qBittorrent on the seedbox
