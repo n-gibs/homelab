@@ -45,10 +45,11 @@ spec:
               Check the external-dns pod logs and its connection to the apiserver.
 
         # What actually matters to a user: desired records and published records disagreeing.
-        # Both read 17 at steady state. A real change makes them differ for one reconcile
-        # pass, which is why this waits 15m before believing it.
+        # TXT is excluded because the registry counts foreign TXT in the zone -- an in-flight
+        # cert-manager _acme-challenge is one -- that the gateway-httproute source never emits,
+        # so an unfiltered sum() compares record types that cannot match. A/CNAME only.
         - alert: ExternalDNSRecordsOutOfSync
-          expr: sum(external_dns_source_records) != sum(external_dns_registry_records)
+          expr: sum(external_dns_source_records) != sum(external_dns_registry_records{record_type!="txt"})
           for: 15m
           labels:
             severity: warning
