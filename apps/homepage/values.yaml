@@ -41,6 +41,21 @@ env:
       secretKeyRef:
         name: arr-api-keys
         key: LIDARR_API_KEY
+  - name: HOMEPAGE_VAR_PROWLARR_API_KEY
+    valueFrom:
+      secretKeyRef:
+        name: arr-api-keys
+        key: PROWLARR_API_KEY
+  - name: HOMEPAGE_VAR_BAZARR_API_KEY
+    valueFrom:
+      secretKeyRef:
+        name: arr-api-keys
+        key: BAZARR_API_KEY
+  - name: HOMEPAGE_VAR_NEXTCLOUD_TOKEN
+    valueFrom:
+      secretKeyRef:
+        name: nextcloud-token
+        key: NEXTCLOUD_TOKEN
   - name: HOMEPAGE_VAR_ARGOCD_API_KEY
     valueFrom:
       secretKeyRef:
