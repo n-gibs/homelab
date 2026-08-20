@@ -66,11 +66,16 @@ env:
       secretKeyRef:
         name: qbittorrent-local-creds
         key: QBITTORRENT_PASSWORD
-  - name: HOMEPAGE_VAR_SEEDBOX_QB_URL
+  - name: HOMEPAGE_VAR_SEEDBOX_QB_USERNAME
     valueFrom:
       secretKeyRef:
         name: qbittorrent-seedbox
-        key: SEEDBOX_QB_URL
+        key: SEEDBOX_QB_USERNAME
+  - name: HOMEPAGE_VAR_SEEDBOX_QB_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: qbittorrent-seedbox
+        key: SEEDBOX_QB_PASSWORD
   - name: HOMEPAGE_VAR_NAVIDROME_USER
     valueFrom:
       secretKeyRef:
@@ -215,16 +220,37 @@ config:
               url: http://qbittorrent.qbittorrent.svc.cluster.local:8080
               username: "{{HOMEPAGE_VAR_QBITTORRENT_USERNAME}}"
               password: "{{HOMEPAGE_VAR_QBITTORRENT_PASSWORD}}"
-        # The whole URL is a secret because it carries userinfo: seedit4.me fronts the
-        # WebUI with nginx basic auth, and the widget has no headers field. Node's
-        # http.request reads user:pass@ from the URL, which is the only way through.
+        # customapi, not the qbittorrent widget: seedit4.me fronts the WebUI with nginx
+        # basic auth, and only customapi can send those credentials. Past nginx the API
+        # answers unauthenticated, so no qBittorrent login is involved.
         - Seedbox:
             href: https://203.nl137.seedit4.me/qbittorrent/
             description: qBittorrent on the seedbox
             icon: qbittorrent.png
             widget:
-              type: qbittorrent
-              url: "{{HOMEPAGE_VAR_SEEDBOX_QB_URL}}"
+              type: customapi
+              url: https://203.nl137.seedit4.me/qbittorrent/api/v2/transfer/info
+              username: "{{HOMEPAGE_VAR_SEEDBOX_QB_USERNAME}}"
+              password: "{{HOMEPAGE_VAR_SEEDBOX_QB_PASSWORD}}"
+              refreshInterval: 30000
+              mappings:
+                - field: connection_status
+                  label: Status
+                - field: dl_info_speed
+                  label: Down
+                  format: float
+                  scale: 1/1048576
+                  suffix: " MB/s"
+                - field: up_info_speed
+                  label: Up
+                  format: float
+                  scale: 1/1048576
+                  suffix: " MB/s"
+                - field: up_info_data
+                  label: Uploaded
+                  format: float
+                  scale: 1/1073741824
+                  suffix: " GB"
     - Upcoming:
         - Calendar:
             description: Releases across the arr stack
