@@ -204,3 +204,6 @@ httpRoute:
     gethomepage.dev/group: "Infrastructure"
     gethomepage.dev/icon: "nextcloud.png"
     gethomepage.dev/href: "https://nextcloud.nik-homelab.dev"
+    gethomepage.dev/widget.type: "nextcloud"
+    gethomepage.dev/widget.url: "http://nextcloud.nextcloud.svc.cluster.local:8080"
+    gethomepage.dev/widget.key: '{{ "{{HOMEPAGE_VAR_NEXTCLOUD_TOKEN}}" }}'

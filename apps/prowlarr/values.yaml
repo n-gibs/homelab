@@ -46,6 +46,9 @@ route:
       gethomepage.dev/group: "Media"
       gethomepage.dev/icon: "prowlarr.png"
       gethomepage.dev/href: "https://prowlarr.nik-homelab.dev"
+      gethomepage.dev/widget.type: "prowlarr"
+      gethomepage.dev/widget.url: "http://prowlarr.prowlarr.svc.cluster.local:9696"
+      gethomepage.dev/widget.key: '{{ "{{HOMEPAGE_VAR_PROWLARR_API_KEY}}" }}'
     enabled: true
     kind: HTTPRoute
     hostnames:
