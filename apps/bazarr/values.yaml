@@ -56,6 +56,19 @@ route:
     parentRefs:
       - name: homelab
         namespace: envoy-gateway-system
+    # The UI holds a Socket.IO long-poll open until it has an event to push, so an idle
+    # tab outlives Envoy's 15s default and every poll returns 504. backendRefs must be
+    # spelled out here -- once rules are declared the chart no longer fills them in.
+    rules:
+      - backendRefs:
+          - name: bazarr
+            port: 6767
+        matches:
+          - path:
+              type: PathPrefix
+              value: /
+        timeouts:
+          request: 120s
 
 persistence:
   config:
