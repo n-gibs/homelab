@@ -16,3 +16,9 @@ prometheus:
           sourceLabels: []
           targetLabel: cluster
           replacement: homelab
+
+# The OPNsense resolver at 192.168.30.1 is authoritative for nik-homelab.dev (split horizon), so it
+# answers the DNS-01 self-check with an aa NODATA and the challenge never leaves pending. The
+# self-check has to ask a resolver that can actually see the public zone.
+dns01RecursiveNameservers: "1.1.1.1:53,8.8.8.8:53"
+dns01RecursiveNameserversOnly: true
