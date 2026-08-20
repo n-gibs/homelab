@@ -94,13 +94,6 @@ service:
 
 route:
   main:
-    annotations:
-      gethomepage.dev/enabled: "true"
-      gethomepage.dev/name: "qBittorrent"
-      gethomepage.dev/description: "Torrent client"
-      gethomepage.dev/group: "Media"
-      gethomepage.dev/icon: "qbittorrent.png"
-      gethomepage.dev/href: "https://qbittorrent.nik-homelab.dev"
     enabled: true
     kind: HTTPRoute
     hostnames:
