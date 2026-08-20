@@ -95,7 +95,10 @@ config:
     headerStyle: boxedWidgets
     target: _blank
     statusStyle: dot
-    useEqualHeights: true
+    # Off so link-only tiles (Bazarr, Prowlarr, Cleanuparr, Nextcloud, Vaultwarden,
+    # Longhorn, Infisical) collapse to one row instead of matching the tallest widget
+    # card in the group. Rows go ragged in exchange.
+    useEqualHeights: false
     # The browser fetches this, not the pod, so no cluster egress and no images volume to mount.
     # Bare-string form rather than the background: {image, ...} map — cardBlur is incompatible
     # with background filters, so frosted cards means no dimming. This image is dark enough.
