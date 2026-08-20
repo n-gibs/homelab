@@ -206,4 +206,6 @@ httpRoute:
     gethomepage.dev/href: "https://nextcloud.nik-homelab.dev"
     gethomepage.dev/widget.type: "nextcloud"
     gethomepage.dev/widget.url: "http://nextcloud.nextcloud.svc.cluster.local:8080"
-    gethomepage.dev/widget.key: '{{ "{{HOMEPAGE_VAR_NEXTCLOUD_TOKEN}}" }}'
+    # No tpl escaping here: the official chart writes annotations verbatim, unlike
+    # app-template, which is what Jellyfin and the arrs need the extra braces for.
+    gethomepage.dev/widget.key: "{{HOMEPAGE_VAR_NEXTCLOUD_TOKEN}}"
