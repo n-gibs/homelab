@@ -14,7 +14,7 @@ controllers:
         # renovate: datasource=docker depName=lscr.io/linuxserver/jellyfin versioning=regex:^(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)ubu(?<build>\d+)-ls(?<revision>\d+)$
         image:
           repository: lscr.io/linuxserver/jellyfin
-          tag: 10.11.11ubu2604-ls43
+          tag: 10.11.11ubu2604-ls45
         env:
           PUID: "1000"
           PGID: "1000"
