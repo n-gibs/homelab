@@ -13,7 +13,7 @@ controllers:
         # renovate: datasource=docker depName=lscr.io/linuxserver/radarr versioning=regex:^(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)\.(?<build>\d+)-ls(?<revision>\d+)$
         image:
           repository: lscr.io/linuxserver/radarr
-          tag: 6.3.0.10514-ls313
+          tag: 6.3.0.10514-ls314
         env:
           PUID: "1000"
           PGID: "1000"
