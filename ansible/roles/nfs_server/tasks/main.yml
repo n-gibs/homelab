@@ -60,6 +60,21 @@
   become: true
   notify: Re-export NFS shares
 
+# The export drive is USB. When it is absent or slow at boot, mnt-storage.mount fails and
+# nfs-server dies with result "dependency" — which Restart= does not cover, so it stays down
+# until started by hand. Start it from the device instead; nfs-server pulls the mount in
+# itself via RequiresMountsFor.
+- name: Start NFS server when the export drive appears
+  ansible.builtin.copy:
+    dest: /etc/udev/rules.d/99-nfs-storage.rules
+    mode: "0644"
+    content: |
+      # Managed by Ansible (roles/nfs_server). nfs-server cannot recover from a missing
+      # export drive on its own — see the task comment for why Restart= does not cover it.
+      ACTION=="add|change", SUBSYSTEM=="block", ENV{ID_FS_UUID}=="{{ nfs_drive_uuid }}", ENV{SYSTEMD_WANTS}+="nfs-server.service"
+  become: true
+  notify: Reload udev rules
+
 - name: Enable and start NFS server
   ansible.builtin.service:
     name: nfs-kernel-server
