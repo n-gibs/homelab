@@ -34,7 +34,7 @@ each other.
 |---|---|---|---|
 | YUSCENE | 120h seedtime after completion, regardless of ratio | blank | `7800` (130h) |
 | TorrentLeech | per-torrent 1:1 **or** the seedtime for your user class | `1` | `14400` (10 days) |
-| IPTorrents | account ratio above 0.96, no per-torrent seedtime stated | `1` | blank |
+| IPTorrents | account ratio above 0.96, no per-torrent seedtime stated | blank while under 0.96 | blank |
 | seedpool | 10-day seedtime on every release, account ratio 1:1 | blank | `15120` (10.5 days) |
 
 Ratio satisfies TorrentLeech, so a limit of 1 discharges the obligation and stops the torrent.
@@ -54,8 +54,9 @@ values once it is clear.
 
 IPTorrents polices the account, not the torrent. Their rules state a ratio obligation above
 0.96, a system warning below it that lifts once you pass 0.95 again, and a download freeze below
-0.3. They state no per-torrent seedtime, so a ratio limit of 1 per torrent is both the reaping
-rule and the thing that feeds the account floor.
+0.3. They state no per-torrent seedtime, so nothing there forces a stop, and the same reasoning
+as TorrentLeech applies: while the account sits under its floor a limit of 1 caps the only thing
+that lifts it. Set it to 1 once the account is clear, for the reaping.
 
 seedpool is Yu-Scene's shape with a longer clock: 10 days of seedtime on every release,
 freeleech included, and no per-torrent ratio requirement at all. Its 1:1 is an account
@@ -84,9 +85,9 @@ torrents already running keep the old one until it is changed by hand in the see
 seeding, ratio or hit-and-run rules to encode. It also has no download client. Both clients in
 every arr speak torrent, so an altHUB grab fails for want of a usenet client until one exists.
 
-Current state, verified 2026-08-24: seedpool pinned to Seedbox in all three arrs; YUSCENE ratio
-blank; TorrentLeech and IPTorrents ratio cleared and pending restoration to 1; no Seed Time set
-anywhere yet. The table above is the target, not the running config.
+Current state, verified 2026-08-24, and matching the table: YUSCENE Seed Time 7800 and seedpool
+15120 in all three arrs, Sonarr's season-pack fields alongside them; ratio blank on all four
+trackers; every private torrent indexer pinned to the Seedbox client.
 
 ## The sync job
 
