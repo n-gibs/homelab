@@ -1,4 +1,4 @@
 chartName: metrics-server
 chartRepo: https://kubernetes-sigs.github.io/metrics-server/
-chartVersion: 3.13.1
+chartVersion: 3.14.0
 syncWave: "1"
