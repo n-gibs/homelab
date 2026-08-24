@@ -23,6 +23,24 @@ Yu-Scene issued one for two Underoath albums before the mapping was set.
 Current state, verified 2026-08-19: IPTorrents, TorrentLeech and YUSCENE pinned to Seedbox in all
 three arrs. Knaben, The Pirate Bay, EZTV and YTS deliberately left on Any.
 
+## Seed criteria — leave the ratio blank
+
+Pinning the download client is half the job. The same indexer page carries Seed Ratio and Seed
+Time, and an *arr pushes whatever it finds there into qBittorrent as a per-torrent share limit.
+qBittorrent pauses the torrent the moment that limit is met, which ends the seed wherever the
+tracker's own threshold sits. Leave both fields blank on every private tracker so the torrent
+seeds until something reaps it deliberately.
+
+Yu-Scene warned three Lidarr grabs in August 2026 for exactly this. The YUSCENE indexer carried
+Seed Ratio 0.7, so qBittorrent stopped each torrent between 0.64 and 0.88, and one sat paused
+after 11 minutes of seeding.
+
+Changing the field fixes future grabs only. The limit is written into qBittorrent at grab time,
+so an already-running torrent needs its limit cleared by hand in the seedbox WebUI.
+
+Current state, verified 2026-08-24: Seed Ratio and Seed Time blank on IPTorrents, TorrentLeech
+and YUSCENE in all three arrs.
+
 ## The sync job
 
 `values.yaml` is a CronJob, not a Deployment (hence no `vpa.yaml`): every 10 minutes it runs
