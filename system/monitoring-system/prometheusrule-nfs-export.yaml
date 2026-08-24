@@ -1,0 +1,31 @@
+---
+# The blackbox probe on 2049 proves nfsd answers, not that it has anything to serve: with the
+# USB drive unmounted the export directory still exists — empty — and the handshake still
+# succeeds. NFSServerUnreachable stays green through that, so this is the only signal that
+# separates "nfsd is down" from "nfsd is serving nothing".
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: nfs-export
+  namespace: monitoring-system
+  labels:
+    release: monitoring-system
+spec:
+  groups:
+    - name: nfs-export
+      rules:
+        - alert: NfsExportDriveUnmounted
+          expr: absent(node_filesystem_size_bytes{mountpoint="/mnt/storage", fstype="xfs"})
+          # Rides out a node reboot, where the series is legitimately gone until the drive
+          # enumerates and node-exporter is scraped again.
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: worker-01 has no drive mounted at /mnt/storage
+            description: >-
+              The xfs mount backing every NFS export is missing on worker-01, so the media
+              library, every `nfs` PVC and the Longhorn backup target resolve to an empty
+              directory. Usually the USB enclosure lost power or dropped off the bus — check
+              `lsblk` and `dmesg` for the drive before anything else. This also fires if
+              worker-01's node-exporter stops being scraped.
