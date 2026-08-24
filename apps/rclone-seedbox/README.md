@@ -82,8 +82,10 @@ Changing a field fixes future grabs only. The limit is written into qBittorrent 
 torrents already running keep the old one until it is changed by hand in the seedbox WebUI.
 
 `altHUB` is in Prowlarr as well and belongs to none of this: it is a usenet indexer, so it has no
-seeding, ratio or hit-and-run rules to encode. It also has no download client. Both clients in
-every arr speak torrent, so an altHUB grab fails for want of a usenet client until one exists.
+seeding, ratio or hit-and-run rules to encode. It also has no download client, since both clients
+in every arr speak torrent, so its grabs failed for want of one. RSS, automatic search and
+interactive search are therefore off in all three arrs. Turn them back on once a usenet client
+exists; the indexer definition itself stays in place meanwhile.
 
 Current state, verified 2026-08-24, and matching the table: YUSCENE Seed Time 7800 and seedpool
 15120 in all three arrs, Sonarr's season-pack fields alongside them; ratio blank on all four
