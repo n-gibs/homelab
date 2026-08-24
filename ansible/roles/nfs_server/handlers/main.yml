@@ -2,3 +2,7 @@
 - name: Re-export NFS shares
   ansible.builtin.command: exportfs -ra
   become: true
+
+- name: Reload udev rules
+  ansible.builtin.command: udevadm control --reload-rules
+  become: true
