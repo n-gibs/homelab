@@ -29,6 +29,31 @@ controllers:
             # Memory only. No cpu limit: VPA preserves the request:limit ratio, so a
             # shrinking request drags the limit down with it and throttles the container.
             memory: 768Mi
+      # A jammed import queue is invisible to every pod-level signal: the container stays
+      # Ready and /api/v1/health reports nothing. This exposes it as a metric instead.
+      metrics:
+        # renovate: datasource=docker depName=ghcr.io/onedr0p/exportarr
+        image:
+          repository: ghcr.io/onedr0p/exportarr
+          tag: v2.3.0
+        args:
+          - lidarr
+        env:
+          PORT: "9707"
+          URL: http://localhost:8686
+          # envFrom can't be reused here -- exportarr wants API_KEY, and the secret
+          # holds it under the name Lidarr itself reads.
+          API_KEY:
+            valueFrom:
+              secretKeyRef:
+                name: arr-api-key
+                key: LIDARR__AUTH__APIKEY
+        resources:
+          requests:
+            cpu: 10m
+            memory: 64Mi
+          limits:
+            memory: 128Mi
 
 service:
   main:
@@ -36,6 +61,8 @@ service:
     ports:
       http:
         port: 8686
+      metrics:
+        port: 9707
 
 route:
   main:
