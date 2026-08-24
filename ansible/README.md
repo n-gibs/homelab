@@ -58,10 +58,11 @@ echo 'your-vault-password' > .vault_pass
 chmod 600 .vault_pass
 ```
 
-Edit vault with token:
+Create the vault from the example, then fill it in. `ansible/vault.yml` is
+gitignored — it holds the cluster join token, which must never reach a public repo.
 ```bash
+cp ansible/vault.yml.example ansible/vault.yml
 just vault-edit
-# set: vault_k3s_token: "your-token"
 ```
 
 ### 4. Run
