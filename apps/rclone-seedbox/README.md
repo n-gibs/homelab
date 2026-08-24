@@ -35,6 +35,7 @@ each other.
 | YUSCENE | 120h seedtime after completion, regardless of ratio | blank | `7800` (130h) |
 | TorrentLeech | per-torrent 1:1 **or** the seedtime for your user class | `1` | `14400` (10 days) |
 | IPTorrents | account ratio above 0.96, no per-torrent seedtime stated | `1` | blank |
+| seedpool | 10-day seedtime on every release, account ratio 1:1 | blank | `15120` (10.5 days) |
 
 Ratio satisfies TorrentLeech, so a limit of 1 discharges the obligation and stops the torrent.
 One that never reaches 1.0 never stops and banks seedtime instead, which is the other half of
@@ -56,6 +57,17 @@ IPTorrents polices the account, not the torrent. Their rules state a ratio oblig
 0.3. They state no per-torrent seedtime, so a ratio limit of 1 per torrent is both the reaping
 rule and the thing that feeds the account floor.
 
+seedpool is Yu-Scene's shape with a longer clock: 10 days of seedtime on every release,
+freeleech included, and no per-torrent ratio requirement at all. Its 1:1 is an account
+obligation. Torrents under 10% downloaded are exempt, a torrent 3 days offline is marked
+Unsatisfied, and enough Unsatisfieds cut your download slots to one. Fines clear them; so does
+finishing the seedtime.
+
+seedpool's freeleech is broad enough to matter for the ratio problem: all individual TV episodes,
+all individual anime episodes, all remuxes and all music packs. Upload counts and download does
+not, so grabs there raise the site ratio instead of lowering it. The 10-day seedtime still applies
+to every one of them.
+
 Yu-Scene accepts no ratio in place of the 120 hours, so a ratio on YUSCENE is a trap: it stops
 the torrent short of the obligation and earns the warning it looks like it should prevent. Their
 0.7 figure is the demotion floor for your account, unrelated to hit-and-run.
@@ -68,9 +80,13 @@ warnings disable downloads.
 Changing a field fixes future grabs only. The limit is written into qBittorrent at grab time, so
 torrents already running keep the old one until it is changed by hand in the seedbox WebUI.
 
-Current state, verified 2026-08-24: YUSCENE ratio blank in all three arrs; TorrentLeech and
-IPTorrents ratio cleared and pending restoration to 1; no Seed Time set anywhere yet. The table
-above is the target, not the running config.
+`altHUB` is in Prowlarr as well and belongs to none of this: it is a usenet indexer, so it has no
+seeding, ratio or hit-and-run rules to encode. It also has no download client. Both clients in
+every arr speak torrent, so an altHUB grab fails for want of a usenet client until one exists.
+
+Current state, verified 2026-08-24: seedpool pinned to Seedbox in all three arrs; YUSCENE ratio
+blank; TorrentLeech and IPTorrents ratio cleared and pending restoration to 1; no Seed Time set
+anywhere yet. The table above is the target, not the running config.
 
 ## The sync job
 
