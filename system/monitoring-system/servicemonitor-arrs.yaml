@@ -1,0 +1,30 @@
+---
+# One ServiceMonitor for every arr rather than one per app dir: the exportarr sidecars all
+# expose the same port name, so the only thing that varies is the namespace. A namespace
+# whose Service has no `metrics` port is simply not scraped, so this stays correct if an
+# arr drops its sidecar.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: arr-exporters
+  namespace: monitoring-system
+spec:
+  namespaceSelector:
+    matchNames:
+      - lidarr
+      - sonarr
+      - radarr
+  selector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values:
+          - lidarr
+          - sonarr
+          - radarr
+  endpoints:
+    # The Service port name, not the container's. Each scrape walks the arr's own API,
+    # so this is deliberately slower than the 30s default.
+    - port: metrics
+      path: /metrics
+      interval: 60s
