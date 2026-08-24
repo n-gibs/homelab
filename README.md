@@ -2,6 +2,22 @@
 
 k3s homelab on HP ProDesk Mini PCs. Ansible provisioning, ArgoCD GitOps.
 
+## Postmortems and design decisions
+
+Five writeups covering the failures and the decisions they forced. Each records the
+evidence behind a choice rather than instructions to repeat it.
+
+| Writeup | What it covers |
+|---------|----------------|
+| [DNS outage follow-ups](docs/archive/post-outage-followups.md) | The cluster lost DNS and nobody noticed for an hour. Six follow-ups, five closed: a dead-man's switch that sits outside the blast radius, CoreDNS HA, alert escalation, and two node faults found while investigating. |
+| [Choosing Longhorn](docs/archive/longhorn-evaluation.md) | Why replicated block storage beat migrating the arrs to Postgres, and why doing nothing was a baseline worth arguing against. |
+| [A drive idling at 61C](docs/archive/hdd-running-hot.md) | The 12TB disk ran 4C from its ceiling under no load. The fanless enclosure caused it, not the workload. |
+| [Rack-mounting that drive](docs/archive/hdd-rack-mount.md) | The shuck-and-mount runbook, staged so each part could be ordered before the step that needed it. |
+| [One server to 3-node HA](docs/archive/g6-migration.md) | Converting the control plane, and why worker-01 carries a label instead of a taint. |
+
+Storage, secrets and alerting each carry their own README next to the manifests. The
+[archive index](docs/archive/README.md) lists the shipped design specs behind each feature.
+
 ## Stack
 
 k3s + Cilium (VXLAN) + ArgoCD (GitOps) + Envoy Gateway + cert-manager + Infisical + Longhorn (replicated block storage) + CloudNativePG (Postgres) + Tailscale (in-cluster subnet router for remote access to services — not used for node SSH)
