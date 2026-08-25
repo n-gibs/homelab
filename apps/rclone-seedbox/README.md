@@ -87,9 +87,24 @@ in every arr speak torrent, so its grabs failed for want of one. RSS, automatic 
 interactive search are therefore off in all three arrs. Turn them back on once a usenet client
 exists; the indexer definition itself stays in place meanwhile.
 
-Current state, verified 2026-08-24, and matching the table: YUSCENE Seed Time 7800 and seedpool
-15120 in all three arrs, Sonarr's season-pack fields alongside them; ratio blank on all four
-trackers; every private torrent indexer pinned to the Seedbox client.
+Current state, read back from all three arrs on 2026-08-24. Pinning matches: every private
+torrent indexer points at the Seedbox client. Seed criteria do not.
+
+| Tracker | Ratio, live | Seed Time, live | Matches table |
+|---|---|---|---|
+| YUSCENE | blank | `7800` | yes, corrected 2026-08-24 |
+| TorrentLeech | `1` | blank | ratio only |
+| IPTorrents | `1` | blank | no, table wants ratio blank |
+| seedpool | blank | blank | no, table wants `15120` |
+
+YUSCENE held Seed Ratio `0.7` with Seed Time blank in all three arrs until 2026-08-24, the exact
+trap described above. Every YuScene grab in Lidarr and Sonarr history landed on the local
+qBittorrent, not the seedbox, and the local client removes completed downloads. That is where the
+hit-and-run warnings came from.
+
+Verify by reading the arrs, not by remembering the last edit. The three rows still unresolved
+carry an account-ratio condition, so fix them against the live TorrentLeech and IPTorrents ratios
+rather than the table alone.
 
 ## The sync job
 
