@@ -1,7 +1,5 @@
 ---
-# Covers the gap that let twelve Lidarr imports sit failed for ten days: the arrs were
-# monitored as pods, and a pod stays 1/1 Ready with 0 restarts through a jammed queue.
-# Only the three arrs that have an import queue -- Prowlarr and Bazarr have none.
+# exportarr is the only view of the arrs' queues; the media dashboard reads nothing else.
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
@@ -11,37 +9,10 @@ spec:
   groups:
     - name: arr-queues
       rules:
-        - alert: ArrImportQueueStuck
-          # The series only exists while something is in importFailed, so `> 0` cannot
-          # fire on an idle queue. 6h clears a slow download that imports on its own.
-          expr: |
-            sum by (namespace) (
-              lidarr_queue_total{download_state="importFailed"}
-              or sonarr_queue_total{download_state="importFailed"}
-              or radarr_queue_total{download_state="importFailed"}
-            ) > 0
-          for: 6h
-          labels:
-            severity: warning
-          annotations:
-            summary: "{{ $labels.namespace }} has {{ $value }} import(s) stuck in importFailed"
-            description: >-
-              One or more grabs finished downloading but could not be imported into the
-              library, and the arr will not retry them. The download client keeps seeding
-              and the album or episode stays monitored, so the indexer gets re-queried for
-              the same release every RSS cycle until someone clears it.
-              Read the queue's statusMessages via the app's `/api/*/queue` endpoint:
-              `Has missing tracks` means the selected MusicBrainz release has more tracks
-              than the download, `Has fewer tracks than existing release` means a longer
-              release is already in the library, and an unmonitored album is skipped
-              outright. None of those self-heal. Fix the release selection on the album,
-              or import it by hand from Wanted -> Manual Import, then remove the queue
-              item so the re-grab loop stops.
         - alert: ArrExporterDown
-          # A dead exporter reads exactly like a healthy queue, since the alert above keys
-          # off a series that is absent when all is well. Matched on endpoint, not job:
-          # the operator resolves `job` from the Service's jobLabel, which is inconsistent
-          # across this cluster's monitors, while `endpoint` is always the port name.
+          # Matched on endpoint, not job: the operator resolves `job` from the Service's
+          # jobLabel, which is inconsistent across this cluster's monitors, while
+          # `endpoint` is always the port name.
           expr: 'up{namespace=~"lidarr|sonarr|radarr", endpoint="metrics"} == 0'
           for: 30m
           labels:
@@ -49,8 +20,8 @@ spec:
           annotations:
             summary: "exportarr sidecar in {{ $labels.namespace }} is not being scraped"
             description: >-
-              Prometheus cannot reach the exportarr sidecar, which means
-              ArrImportQueueStuck is blind for this namespace rather than quiet. Usually
+              Prometheus cannot reach the exportarr sidecar, so the media dashboard's
+              queue and library panels go blank for this namespace. Usually
               the API key in the arr-api-key secret no longer matches the one the app is
               using, since the sidecar authenticates with the same value the app reads.
               Check with `kubectl -n {{ $labels.namespace }} logs
