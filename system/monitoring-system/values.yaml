@@ -269,13 +269,12 @@ alertmanager:
           group_wait: 0s
           group_interval: 1m
           repeat_interval: 5m
-        # Criticals re-notify hourly; delivery half of prometheusrule-alert-escalation.yaml.
         # Must stay ABOVE the warning|critical route — routes match in order and the broader
         # one would swallow it. group_by overrides the top-level ['namespace'] because
         # node-level alerts carry none and would all collapse into one repeat_interval timer.
         - receiver: 'ntfy'
           matchers: ['severity = "critical"']
-          group_by: ['alertname', 'escalated_alert', 'namespace']
+          group_by: ['alertname', 'namespace']
           repeat_interval: 1h
         - receiver: 'ntfy'
           matchers: ['severity =~ "warning|critical"']
