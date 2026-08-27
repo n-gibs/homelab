@@ -66,6 +66,17 @@ route:
     parentRefs:
       - name: homelab
         namespace: envoy-gateway-system
+    # Envoy's 15s default route timeout kills remote playback: off-LAN clients are
+    # transcoded, and Jellyfin holds an HLS segment request until ffmpeg reaches it.
+    rules:
+      - backendRefs:
+          - identifier: main
+        matches:
+          - path:
+              type: PathPrefix
+              value: /
+        timeouts:
+          request: 300s
 
 persistence:
   config:
