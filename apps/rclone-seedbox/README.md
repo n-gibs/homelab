@@ -109,10 +109,16 @@ alone cannot distinguish a real clear from one Prowlarr is about to overwrite.
 ## The sync job
 
 `values.yaml` is a CronJob, not a Deployment (hence no `vpa.yaml`): every 10 minutes it runs
-`rclone copy` from the seedbox's `.../qbittorrent/media` to `/data/downloads/seedbox` on NFS,
-pinned to worker-01 (the NFS server) and running as uid/gid 1000 so the *arrs can hardlink the
-result. The `ratio` category is deliberately not synced — those torrents exist to seed, not to
-import. `concurrencyPolicy: Forbid` plus the `--size-only` comparison are both load-bearing; the
+`rclone copy` from the seedbox's `.../qbittorrent` to `/data/downloads/seedbox` on NFS, pinned to
+worker-01 (the NFS server) and running as uid/gid 1000 so the *arrs can hardlink the result.
+
+The `--include` list is the contract, and `values.yaml` is the authority on it: `/music/**`,
+`/tv/**`, `/movies/**`, one category per arr. Neither `ratio` nor the legacy `media` category is
+copied. `ratio` is deliberate, since those torrents exist to seed rather than to import. `media`
+is history: it was the single shared category, and the destination still holds that era's files
+flat at the top of `/data/downloads/seedbox` alongside today's `tv/` and `music/`
+subdirectories. Anything still sitting in `media` on the seedbox is therefore **not** being
+copied, so check the destination before deleting one with files. `concurrencyPolicy: Forbid` plus the `--size-only` comparison are both load-bearing; the
 reasons are in the comments next to them. `just sync-seedbox` triggers a run out of band.
 
 ## Access
@@ -277,6 +283,36 @@ Uploaded / Size >= 1.05  AND  Seeding Time >= 907200
 
 10.5 days against their 10, same margin reasoning. seedpool's 1:1 is an account obligation rather
 than a per-torrent one, so the ratio half here is payback courtesy, not a requirement.
+
+### Holding torrents that still upload
+
+Deleting a torrent never moves an account ratio: uploaded and downloaded are historical counters,
+and removing a torrent refunds neither. So no reap threshold defends a ratio target. What a reap
+*can* cost is future upload, and only on a torrent that still has demand.
+
+The payback split across the 15 TorrentLeech torrents on 2026-08-27 shows how uneven that is:
+
+| Branch | n | Size | Uploaded | Payback |
+|---|---|---|---|---|
+| ratio | 4 | 12.74 GB | 13.67 GB | 1.07x |
+| time | 8 | 47.89 GB | 9.85 GB | 0.21x |
+| held | 3 | 30.94 GB | 9.42 GB | 0.30x |
+
+The time branch discharges the obligation on torrents that returned a fifth of their size, which
+is correct by the tracker rule and still throws away whatever demand remains. Both reapers should
+therefore carry an inactivity guard: delete only once the obligation is discharged **and** nothing
+has pulled from the torrent recently.
+
+```
+<existing conditions>  AND  <no upload activity for N days>
+```
+
+qBittorrent exposes `last_activity` per torrent, so the counter exists; pick the matching field
+from qui's query builder rather than assuming a name. A week is a reasonable N: long enough that a
+torrent with any real demand keeps itself alive, short enough that dead weight still clears.
+
+This is a refinement, not a prerequisite. Without it the reapers are obligation-correct and merely
+less patient than they could be.
 
 ### Supporting workflows
 
