@@ -20,26 +20,31 @@ An unpinned private tracker seeds on the local client, where `removeCompletedDow
 removes the torrent after import and the pod is not reliably up. That is a hit-and-run, and
 Yu-Scene issued one for two Underoath albums before the mapping was set.
 
-Current state, verified 2026-08-19: IPTorrents, TorrentLeech and YUSCENE pinned to Seedbox in all
-three arrs. Knaben, The Pirate Bay, EZTV and YTS deliberately left on Any.
+Current state, verified 2026-08-26: IPTorrents, TorrentLeech, YUSCENE and seedpool pinned to
+Seedbox in all three arrs. Knaben, The Pirate Bay, EZTV and YTS deliberately left on Any.
 
-## Seed criteria — one rule per tracker
+## Seed criteria — blank everywhere, qui owns the rules
 
-The indexer's Seed Ratio and Seed Time are not preferences. An *arr writes both into qBittorrent
-as a per-torrent share limit, and qBittorrent stops the torrent when the first of them lands. The
-fields therefore have to encode that tracker's own hit-and-run rule, and the rules disagree with
-each other.
+**Leave Seed Ratio and Seed Time blank on every indexer, and set tracker policy in qui instead.**
+An *arr writes both fields into qBittorrent as a per-torrent share limit, and qBittorrent 5.0.1
+ORs its three limits into one action, so whichever lands first stops the torrent. That is the
+wrong shape for every rule below: each tracker wants ratio *and* time together, which only qui
+can express. See [Seed reaping](#seed-reaping--qui).
 
-| Tracker | Their requirement | Seed Ratio | Seed Time |
-|---|---|---|---|
-| YUSCENE | 120h seedtime after completion, regardless of ratio | blank | `7800` (130h) |
-| TorrentLeech | per-torrent 1:1 **or** the seedtime for your user class | `1` | `14400` (10 days) |
-| IPTorrents | account ratio above 0.96, no per-torrent seedtime stated | blank while under 0.96 | blank |
-| seedpool | 10-day seedtime on every release, account ratio 1:1 | blank | `15120` (10.5 days) |
+**Set them in Prowlarr, not in the arrs.** Unlike the download client field above, seed criteria
+*do* sync: Prowlarr's `torrentBaseSettings.seedRatio` and `.seedTime` overwrite each arr's
+`seedCriteria.*` on the next application sync. Clearing all three arrs while Prowlarr still holds
+a value looks fixed and silently reverts, which is what happened between 2026-08-24 and
+2026-08-26.
 
-Ratio satisfies TorrentLeech, so a limit of 1 discharges the obligation and stops the torrent.
-One that never reaches 1.0 never stops and banks seedtime instead, which is the other half of
-their rule. Setting both fields is safe there because either condition satisfies them.
+The requirements themselves still have to be recorded somewhere, because qui's rules encode them:
+
+| Tracker | Their requirement |
+|---|---|
+| YUSCENE | ratio, or 5 days of seedtime for freeleech; account demotes below 0.7 |
+| TorrentLeech | per-torrent 1:1 **or** the seedtime for your user class |
+| IPTorrents | account ratio above 0.96, no per-torrent seedtime stated |
+| seedpool | 10-day seedtime on every release, account ratio 1:1 |
 
 TorrentLeech's seedtime falls with user class: 10 days at Registered, 8 at Power User, 7 at Super
 User, 6 at Extreme User, 4 at TL GOD, none for VIP. The 10-day figure above is the Registered
@@ -69,9 +74,11 @@ all individual anime episodes, all remuxes and all music packs. Upload counts an
 not, so grabs there raise the site ratio instead of lowering it. The 10-day seedtime still applies
 to every one of them.
 
-Yu-Scene accepts no ratio in place of the 120 hours, so a ratio on YUSCENE is a trap: it stops
-the torrent short of the obligation and earns the warning it looks like it should prevent. Their
-0.7 figure is the demotion floor for your account, unrelated to hit-and-run.
+Yu-Scene wants the ratio paid back; only freeleech discharges on time alone, after 5 days. The
+0.7 is a separate account demotion floor. A *share limit* of 0.7 is still wrong, and was the
+source of the August warnings: it stopped each torrent at 0.7, which neither pays back the ratio
+nor banks the freeleech clock. Deleting a torrent never moves the account ratio either way, since
+uploaded and downloaded are historical counters.
 
 Yu-Scene's enforcement, for the record: seedtime counts only from 100% completion, a pre-warning
 PM arrives after 3 days disconnected and a warning after 5, warnings stay active 30 days or until
@@ -87,24 +94,17 @@ in every arr speak torrent, so its grabs failed for want of one. RSS, automatic 
 interactive search are therefore off in all three arrs. Turn them back on once a usenet client
 exists; the indexer definition itself stays in place meanwhile.
 
-Current state, read back from all three arrs on 2026-08-24. Pinning matches: every private
-torrent indexer points at the Seedbox client. Seed criteria do not.
+Current state, read back from Prowlarr and all three arrs on 2026-08-26: **Seed Ratio and Seed
+Time blank everywhere**, on YUSCENE, TorrentLeech, IPTorrents and seedpool. Pinning matches too,
+every private torrent indexer points at the Seedbox client.
 
-| Tracker | Ratio, live | Seed Time, live | Matches table |
-|---|---|---|---|
-| YUSCENE | blank | `7800` | yes, corrected 2026-08-24 |
-| TorrentLeech | `1` | blank | ratio only |
-| IPTorrents | `1` | blank | no, table wants ratio blank |
-| seedpool | blank | blank | no, table wants `15120` |
+The August warnings came from two faults at once. YUSCENE held Seed Ratio `0.7`, and every YuScene
+grab in Lidarr and Sonarr history landed on the local qBittorrent rather than the seedbox, where
+completed downloads are removed after import. Pinning fixed the second in August; the first
+survived a round of arr-side clearing because Prowlarr held the value and re-synced it.
 
-YUSCENE held Seed Ratio `0.7` with Seed Time blank in all three arrs until 2026-08-24, the exact
-trap described above. Every YuScene grab in Lidarr and Sonarr history landed on the local
-qBittorrent, not the seedbox, and the local client removes completed downloads. That is where the
-hit-and-run warnings came from.
-
-Verify by reading the arrs, not by remembering the last edit. The three rows still unresolved
-carry an account-ratio condition, so fix them against the live TorrentLeech and IPTorrents ratios
-rather than the table alone.
+Verify by reading Prowlarr *and* the arrs, not by remembering the last edit. An arr-side read
+alone cannot distinguish a real clear from one Prowlarr is about to overwrite.
 
 ## The sync job
 
@@ -164,8 +164,8 @@ truth for what they should be; qui has an API if they ever need to be version-co
 
 ### Tracker requirements
 
-Both trackers publish an *overall site* ratio floor. Only TorrentLeech also publishes a
-per-torrent rule, and that is the one a deletion rule can actually violate.
+Every tracker here publishes an *overall site* ratio floor. TorrentLeech, Yu-Scene and seedpool
+also publish per-torrent rules, and those are the ones a deletion rule can actually violate.
 
 **IPTorrents**
 
@@ -254,6 +254,30 @@ Two details that matter:
 torrent is removed but the files stay so the other copy keeps seeding. Requires Local Filesystem
 Access to be on.
 
+**`yuscene-reap`** — tracker `yu-scene.net`, same action:
+
+```
+Uploaded / Size >= 1.05  AND  Seeding Time >= 475200
+```
+
+AND, because Yu-Scene wants the ratio paid back and only freeleech discharges on time alone. A
+torrent nobody ever downloads therefore never satisfies the ratio half and never reaps; that is
+accepted, and `freespace-guard` is what handles the disk consequence. Encoding the freeleech
+branch would need a `freeleech` tag on the torrent, which nothing applies today — qBittorrent has
+no freeleech field and the client currently carries no tags at all.
+
+`.net` suffix form does not work here: the announce host is `yu-scene.net`, with the hyphen. A
+pattern of `yuscene.net` matches nothing.
+
+**`seedpool-reap`** — tracker `.seedpool.org`, same action, not yet built:
+
+```
+Uploaded / Size >= 1.05  AND  Seeding Time >= 907200
+```
+
+10.5 days against their 10, same margin reasoning. seedpool's 1:1 is an account obligation rather
+than a per-torrent one, so the ratio half here is payback courtesy, not a requirement.
+
 ### Supporting workflows
 
 **`unreg-reap`** — tracker `*`, condition `Is Unregistered is true`, action **Delete (keep files)**.
@@ -290,6 +314,43 @@ Local Filesystem Access.
 Not used, and why: speed limits (no contention on a seedbox), category and move actions
 (seedit4.me already sorts into `media`/`ratio`), external programs, and qui's own notifications —
 anything worth paging about should go through the cluster's Alertmanager instead.
+
+### Live state and outstanding work
+
+Read back from qui's database on 2026-08-27. Three workflows exist; **none of them can delete
+anything today**, and the activity log holds 667 rows, every one an outcome of `dry-run`.
+
+| Workflow | Enabled | Dry run | Blocking fault |
+|---|---|---|---|
+| `tl-reap` | yes | **yes** | still in dry-run; pattern is correct |
+| `ipt-reap` | yes | **yes** | dry-run, and its pattern matches no host on the client |
+| `yuscene-reap` | yes | no | pattern `yuscene.net` never matches `yu-scene.net` |
+
+No `seedpool-reap`, no `unreg-reap`, no `freespace-guard`. `yuscene-reap` also conditions on
+`Ratio` rather than `Uploaded / Size`, which the account has live cross-seeds to distort.
+
+Announce hosts actually present on the client, which is what tracker patterns must match:
+
+```
+127.0.0.1.stackoverflow.tech    async.empirehost.me    routing.bgp.technology
+seedpool.org    tracker.tleechreload.org    tracker.torrentleech.org    yu-scene.net
+```
+
+No `iptorrents.*` host appears at all. The first three are unattributed and are the likely
+IPTorrents announce domains, given they carry 11 and 7 torrents; confirm on the site before
+writing a pattern against them.
+
+Outstanding, in order:
+
+1. `yuscene-reap`: tracker to `yu-scene.net`, field to `Uploaded / Size >= 1.05`, keep
+   `Seeding Time >= 475200`.
+2. `ipt-reap`: confirm IPTorrents' real announce hosts, fix the pattern.
+3. Take `tl-reap` and `ipt-reap` out of dry-run.
+4. Build `seedpool-reap`, then `freespace-guard` last in sort order.
+
+Nothing here is hit-and-run exposure: no torrent has ever been deleted and every one seeds
+unlimited, which satisfies any obligation on the table. The cost is that no disk is ever
+reclaimed and there is no emergency valve on a fixed quota.
 
 ### Building them
 
