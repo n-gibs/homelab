@@ -16,7 +16,7 @@ controllers:
         # renovate: datasource=docker depName=lscr.io/linuxserver/bazarr versioning=regex:^v(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)-ls(?<build>\d+)$
         image:
           repository: lscr.io/linuxserver/bazarr
-          tag: v1.6.0-ls357
+          tag: v1.6.0-ls361
         env:
           PUID: "1000"
           PGID: "1000"
