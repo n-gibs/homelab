@@ -1,4 +1,4 @@
 chartName: vpa
 chartRepo: https://charts.fairwinds.com/stable
-chartVersion: 5.0.0
+chartVersion: 5.0.1
 syncWave: "2"
