@@ -32,16 +32,16 @@ renovate:
           password: process.env.DOCKER_HUB_TOKEN,
         },
         {
-          // lscr.io proxies ghcr.io, whose anonymous rate limit 429s the
-          // `tags/list?n=10000` lookups -- reported as "no-result" on whichever
-          // arrs lost the race. Reuses RENOVATE_TOKEN; ghcr.io takes a GitHub PAT.
+          // ghcr.io's anonymous rate limit 429s the `tags/list?n=10000` lookups,
+          // reported as "no-result" on whichever image lost the race. Reuses
+          // RENOVATE_TOKEN; ghcr.io takes a GitHub PAT.
           hostType: 'docker',
-          matchHost: 'lscr.io',
+          matchHost: 'ghcr.io',
           username: 'n-gibs',
           password: process.env.RENOVATE_TOKEN,
-          // Auth alone does not stop the 429s: Renovate's default queue is 16 concurrent
-          // requests per host, and parallel tags/list lookups still trip ghcr.io's edge limit.
-          // A throttled run is slower; a throttled lookup reports "no-result" and skips silently.
+          // Auth alone does not stop the 429s: the default queue is 16 concurrent
+          // requests per host, enough to trip ghcr.io's edge limit on its own.
+          // A throttled run is slower; a throttled lookup skips silently.
           concurrentRequestLimit: 4,
           maxRequestsPerSecond: 5,
         },
