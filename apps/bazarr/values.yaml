@@ -13,7 +13,7 @@ controllers:
           effect: PreferNoSchedule
     containers:
       app:
-        # renovate: datasource=docker depName=lscr.io/linuxserver/bazarr versioning=regex:^v(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)-ls(?<build>\d+)$
+        # renovate: datasource=docker depName=ghcr.io/linuxserver/bazarr versioning=regex:^v(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)-ls(?<build>\d+)$
         image:
           repository: lscr.io/linuxserver/bazarr
           tag: v1.6.0-ls357
