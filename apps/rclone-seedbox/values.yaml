@@ -27,7 +27,7 @@ controllers:
       app:
         image:
           repository: rclone/rclone
-          tag: 1.75.0
+          tag: 1.75.1
         command:
           - rclone
         args:
