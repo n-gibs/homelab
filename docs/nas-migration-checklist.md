@@ -33,11 +33,13 @@ mirror once the data is copied and verified.
   means firewall rules between OPNsense interfaces and an extra CIDR in gluetun's
   `FIREWALL_OUTBOUND_SUBNETS`, or torrent I/O routes through Mullvad.
 
+- **`ansible/roles/nfs_client` goes away rather than getting repointed.** It mounts the share
+  on all three hosts at `/mnt/storage`, but nothing in the cluster consumes the host mount —
+  pods mount NFS directly. It exists for shell convenience, and Talos has no shell, so keeping
+  it only defers the deletion by one project. See "Talos, next" below.
+
 Still open:
 
-- **Do the nodes still mount it?** `ansible/roles/nfs_client` mounts the share on all three
-  hosts at `/mnt/storage`. Nothing in the cluster consumes the host mount — pods mount NFS
-  directly — so this role exists for shell convenience. Keep it (repoint) or delete it.
 - **Does `homelab.io/media=true` still mean anything?** Media apps pin to worker-01 with a
   nodeSelector because that is where the disk is. Once storage is off-node that reason is
   gone; the label then mostly means "the biggest node." Jellyfin should keep it for a
@@ -91,7 +93,8 @@ settings that mattered, in TrueNAS terms:
 
 `system/monitoring-system/prometheusrule-temperature.yaml` has a rule group for the USB drive fed
 by a `smart-temp-textfile.timer` unit in `ansible/roles/common`. The file already says to delete
-both when storage moves to a NAS — the NAS monitors its own disks. Also check
+both when storage moves to a NAS — but only configured TrueNAS alerting makes that true, see
+"Talos, next". Also check
 `system/monitoring-system/dashboard-media-stack.yaml` for panels keyed to the worker-01 mount.
 
 ## Sequence
@@ -124,6 +127,34 @@ both when storage moves to a NAS — the NAS monitors its own disks. Also check
   iGPU instead of worker-01's 12th-gen. The label is what expresses "the better encoder."
 - worker-01 loses its 12TB USB drive, its NFS server duties, and its special status. It is still
   the largest node; nothing else about it is load-bearing.
+
+## Talos, next
+
+The next project is k3s → Talos (`docs/talos-migration-audit.md`). That audit's verdict is
+"NAS first, Talos second": worker-01 running `nfs-kernel-server` is the migration's one hard
+blocker, and this move is what removes it. A few choices here are load-bearing for that.
+
+- **NFSv4 answers a Talos open question for free.** Audit verify-item #4 asks whether any arr
+  needs NFSv3 locking, which on Talos would mean adding the `nfs-utils` system extension to
+  the Image Factory schematic. Exporting v4-only settles it during this migration, months
+  before the schematic has to be written — v4 carries locking in-protocol, no `rpc.statd`.
+  If something does turn out to need v3, that is worth knowing now rather than mid-rebuild.
+- **Every backup must be on the NAS before a node is wiped.** Talos Phase 2 is a rebuild of all
+  three nodes, not a rolling migration — k3s and Talos control planes do not interoperate. The
+  arrs' own System → Backup, both CNPG `pg_dump`s, and the Longhorn backup target all currently
+  write to `/mnt/storage`, i.e. to the node being wiped. Once the NAS holds them that hazard is
+  gone, and it is the single largest reason to finish this project first.
+- **Don't join the NAS to the cluster.** An N305 with 16GB is tempting as a fourth node. It is
+  the box that has to survive the Talos rebuild with the data on it.
+- **The NAS becomes the out-of-band host.** Talos has no SSH. Something on `192.168.30.0/24`
+  needs to run `talosctl`, hold `secrets.yaml` (a cluster root CA bundle — never committed),
+  and verify a mount from outside the cluster. TrueNAS has a shell and stays up during the
+  rebuild.
+- **Deleting the SMART exporter deletes the disk observability with it.** The audit counts this
+  as a NAS-first win because the Talos nodes are left with only NVMe, which `hwmon` covers. True
+  only if TrueNAS is actually alerting on its own disks — its default is email, not Prometheus.
+  Set that up in the same pass as deleting `smart-temp-textfile`, or the 12TB's temperature and
+  head-parking go unwatched.
 
 ## Gotchas
 

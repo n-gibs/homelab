@@ -306,11 +306,18 @@ where your muscle memory doesn't work.
 
 ## Recommended plan
 
-**Phase 0 — prerequisite, do this regardless of Talos.**
+**Phase 0 — prerequisite, do this regardless of Talos. In progress.**
 Move `/mnt/storage` to a NAS. Update the NFS IP in `system/nfs-provisioner/values.yaml`, the 10
 app `type: nfs` mounts, and the 2 static PVs. Retire `nfs_server`, the SMART exporter, the udev
 APM rule, and the disk half of `prometheusrule-temperature.yaml` — all four already carry
 `TODO(NAS)`. This is worth doing on its own merits and removes the Talos blocker as a side effect.
+
+Hardware is arriving and the build is specified in `docs/nas-migration-checklist.md`: CWWK N305,
+TrueNAS SCALE, pool named `storage` so the export path stays `/mnt/storage`. Two items there
+feed back into this audit — the export is **NFSv4-only**, which settles verify-item #4 (no
+`nfs-utils` extension in the schematic) provided nothing turns out to need v3 locking; and
+TrueNAS must be alerting on its own disks before `smart-temp-textfile` is deleted, or §5's
+"NAS-first fixes the SMART loss" is only true on paper.
 
 **Phase 1 — prove it on one node.**
 Image Factory schematic (`i915` if you want Jellyfin QSV later; skip everything else initially).
