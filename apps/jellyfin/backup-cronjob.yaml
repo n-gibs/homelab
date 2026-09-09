@@ -90,6 +90,30 @@ spec:
                       else:
                           kept += 1
                   print(f"retained: {kept} archives")
+
+                  # 12.0 reset encoding.xml to software transcoding while the pod kept
+                  # reporting Ready, and nothing caught it. Asserted after the backup so a
+                  # failure here never costs the archive -- backoffLimit then buys two
+                  # extra 2MB archives per failing night, which is cheaper than missing it.
+                  enc = call("/System/Configuration/encoding")
+                  net = call("/System/Configuration/network")
+                  problems = []
+                  # Not pinned to "qsv": a move to the 10th-gen node means VA-API, and
+                  # only "off" is actually the regression.
+                  if enc.get("HardwareAccelerationType", "none") in ("none", ""):
+                      problems.append("hardware acceleration is off")
+                  if not enc.get("EnableHardwareEncoding"):
+                      problems.append("hardware encoding is disabled")
+                  # Empty is not a permissive default: no KnownProxies discards XFF, and no
+                  # LocalNetworkSubnets falls back to all of RFC1918, so every remote
+                  # session reads as LAN and the bitrate limit goes inert.
+                  if not net.get("KnownProxies"):
+                      problems.append("KnownProxies is empty")
+                  if not net.get("LocalNetworkSubnets"):
+                      problems.append("LocalNetworkSubnets is empty")
+                  if problems:
+                      sys.exit("config regressed: " + "; ".join(problems))
+                  print("config check: hardware transcoding and proxy trust intact")
               volumeMounts:
                 # The same directory Jellyfin writes into, so this job can size-check
                 # what it just created and prune what has aged out.
