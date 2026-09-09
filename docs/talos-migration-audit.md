@@ -353,19 +353,27 @@ node, and four CNPG clusters × 3 instances land all their instances on one disk
 rebalance when nodes arrive later. Order:
 
 1. New G9 → Talos, single node. Platform only: Cilium, ArgoCD, Longhorn, CoreDNS ownership.
-   This answers verify-items 1, 2 and 5 below on real hardware.
-2. worker-00 (G4) out of k3s and retired. k3s is now 2 members — quorum 2, tolerates zero
-   failures. Keep this window short.
-3. worker-02 (G6) wiped → Talos control plane #2. Talos is HA-capable and Longhorn goes
-   healthy; k3s drops to worker-01 alone. A single-member etcd is honest about its durability
-   in a way a 2-member one is not.
-4. Migrate apps k3s → Talos, biggest first. Per app: scale to zero on k3s, restore from its
-   own backup on the NAS, verify, move on.
-5. worker-01 (G9) wiped last → Talos control plane #3.
+   No apps. This answers verify-items 1, 2 and 5 below on real hardware, and k3s is untouched
+   at three nodes throughout.
+2. worker-02 (G6) wiped → Talos control plane #2. Longhorn can hold its two replicas and apps
+   have somewhere to land.
+3. Migrate apps k3s → Talos, biggest first. Per app: scale to zero on k3s, restore from its own
+   backup on the NAS, verify, move on.
+4. worker-00 (G4) retired and worker-01 (G9) wiped → Talos control plane #3.
 
-Step 3 puts every remaining workload on worker-01 alone (24GB against ~55GB of cluster total).
-Measure actual requests before committing to it — and note it only works because the NAS has
-already taken the data off that node.
+**Retire the G4 last, not first.** It is the node being replaced, but pulling it early is what
+forces every remaining workload onto worker-01 alone (24GB against ~55GB of cluster total).
+Leaving it in k3s through step 3 keeps two nodes and 40GB under the apps that haven't moved
+yet, and keeps `api_endpoint: 192.168.30.129` pointing at something that exists.
+
+Two constraints with no way around them at four boxes:
+
+- During step 3 both clusters sit at two etcd members. A 2-member etcd tolerates zero failures
+  and has more ways to lose quorum than a 1-member one — it is the worst point in the
+  migration. Keep it short and don't reboot anything optional.
+- Install the G6 with a **control-plane** config in step 2 even though that is what creates the
+  2-member window. Talos sets the node role at install; a worker cannot be promoted later
+  without a reinstall, so the alternative is wiping it twice.
 
 **What the new node changes elsewhere in this audit:**
 
