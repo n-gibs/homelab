@@ -1,3 +1,4 @@
+# renovate: datasource=docker depName=ghcr.io/gethomepage/homepage
 image:
   tag: v1.13.2
 
