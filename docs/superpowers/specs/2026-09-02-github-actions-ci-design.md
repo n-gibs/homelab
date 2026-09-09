@@ -107,7 +107,7 @@ ran is not a job that passed.
 
 `.yamllint.yaml` sets `key-duplicates` to error. That single rule is the one that
 would have caught the lost HTTPRoute. Line length off, truthy relaxed,
-`ansible/vault.yml` excluded.
+`ansible/group_vars/all/vault.yml` excluded.
 
 ### kubeconform
 
@@ -137,8 +137,8 @@ Python standard library plus PyYAML. Every finding is fatal and reports
 6. `apps/*/` contains `vpa.yaml`. Skip list, from the exceptions that exist today:
    `jellyfin`, `rclone-seedbox`, `recyclarr`.
 7. Nothing matching the gitignore secret list is tracked: `.vault_pass`,
-   `pub-cert.pem`, `config/`, `ansible/vault.yml`, `.secrets`, `.secrets.generated`.
-   (`ansible/vault.yml.example` is tracked and is fine.)
+   `pub-cert.pem`, `config/`, `ansible/group_vars/all/vault.yml`, `.secrets`, `.secrets.generated`.
+   (`ansible/group_vars/all/vault.yml.example` is tracked and is fine.)
 
 `scripts/test_check_conventions.py` builds a temporary directory tree and asserts
 each check fires and each passes clean. Plain asserts, no framework.

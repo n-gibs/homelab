@@ -58,12 +58,19 @@ echo 'your-vault-password' > .vault_pass
 chmod 600 .vault_pass
 ```
 
-Create the vault from the example, then fill it in. `ansible/vault.yml` is
+Create the vault from the example, then fill it in. `ansible/group_vars/all/vault.yml` is
 gitignored — it holds the cluster join token, which must never reach a public repo.
 ```bash
-cp ansible/vault.yml.example ansible/vault.yml
+cp ansible/group_vars/all/vault.yml.example ansible/group_vars/all/vault.yml
 just vault-edit
 ```
+
+The path matters. `group_vars/all/` is the only location Ansible loads these
+automatically. There is no `ansible.cfg` and `site.yml` has no `vars_files`, so a
+vault anywhere else is never read and every `vault_*` reference resolves to
+undefined. `vault_k3s_token` must match `/var/lib/rancher/k3s/server/token` on the
+running cluster; a mismatched token makes every server refuse its own etcd
+bootstrap data on the next restart.
 
 ### 4. Run
 
@@ -93,9 +100,10 @@ ansible/
 ├── inventory.yml          # Node inventory (server group — all 3 nodes are k3s server+worker)
 ├── site.yml               # Main playbook
 ├── requirements.yml       # k3s-ansible galaxy role
-├── vault.yml              # Encrypted secrets (committed)
-├── vault.yml.example      # Example vault structure
 ├── group_vars/
+│   ├── all/
+│   │   ├── vault.yml          # Encrypted secrets (gitignored)
+│   │   └── vault.yml.example  # Example vault structure
 │   └── k3s_cluster.yml    # k3s version, shared flags, token ref
 ├── host_vars/
 │   ├── worker-00.yml      # G4: drop control-plane taint (post-migration)

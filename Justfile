@@ -46,11 +46,11 @@ lint:
 
 # View encrypted vault contents
 vault-view:
-    ansible-vault view ansible/vault.yml --vault-password-file {{vault_pass}}
+    ansible-vault view ansible/group_vars/all/vault.yml --vault-password-file {{vault_pass}}
 
 # Edit encrypted vault
 vault-edit:
-    ansible-vault edit ansible/vault.yml --vault-password-file {{vault_pass}}
+    ansible-vault edit ansible/group_vars/all/vault.yml --vault-password-file {{vault_pass}}
 
 # ── Cluster Bootstrap ────────────────────────────────────────────────────────
 
