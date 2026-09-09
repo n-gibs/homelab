@@ -382,8 +382,49 @@ Two constraints with no way around them at four boxes:
   12th-gen replacing an 8th-gen, so scheduling pressure improves without more memory.
 - §6's Jellyfin note assumes one modern iGPU. Two 12th-gen G9s means `homelab.io/media` is no
   longer the only expression of "the better encoder" — revisit which node it points at.
-- The new node needs `homelab.io/ingress=true`; the announcer set and the Envoy proxy set must
-  stay identical (see CLAUDE.md).
+**Node labels need settling before the new G9 is installed**
+
+Two labels, and after worker-00 retires neither set is obviously right. Decide both explicitly —
+each fails silently when wrong.
+
+`homelab.io/quicksync=true` (replacing `homelab.io/media`, see the NAS checklist) goes on the
+two G9s and is consumed by Jellyfin alone.
+
+`homelab.io/ingress=true` is the harder one, because it is not a label but a **triple that must
+agree**:
+
+1. the set of nodes carrying the label,
+2. `envoyDeployment.replicas` in `system/envoy-gateway/envoyproxy.yaml`,
+3. the `nodeSelector` there and the one in `cilium-l2-announce.yaml`, which must be identical.
+
+`topologySpreadConstraints` with `maxSkew: 1` and `DoNotSchedule` places exactly one proxy per
+candidate node, so replicas must equal the node count. Under `externalTrafficPolicy: Local`, a
+node that announces the VIP without a local proxy is a blackhole — and a node with the label but
+no replica left to fill it is exactly that. Labelling the new G9 without bumping `replicas` to
+match is the failure mode to avoid.
+
+Options once worker-00 is gone:
+
+| Set | replicas | Trade |
+|---|---|---|
+| All three nodes | 3 | Widest failover, every node can announce. One more Envoy pod. |
+| Both G9s | 2 | Ingress set becomes identical to quicksync; the G6 can never serve ingress. |
+| worker-01 + worker-02 (today's set) | 2 | The new G9 gets no ingress role for no particular reason. |
+
+All three nodes is the default worth taking. The original reason to keep the set at two — the
+l2-announce comment's "not `homelab.io/media`, that would make worker-02 a scheduling target for
+apps whose data is on worker-01's disk" — dies with the NAS. Note it does **not** fix the
+documented rolling-update outage: Cilium moves the L2 lease on node failure, not pod failure, so
+an upgrade that takes down the announcer's proxy drops ingress at any replica count.
+
+Two Talos details that touch this:
+
+- `machine.nodeLabels` applies on **every boot**, unlike k3s's `--node-label`, which only applies
+  at kubelet registration. The CLAUDE.md warning about labelling an existing node by hand goes
+  away — this is a small, real win.
+- `cilium-l2-announce.yaml` matches interfaces `^enp2s0$` and `^eno1$`. Confirm what Talos names
+  the NICs on the new G9 and the G6 (verify-item #2) before relying on ingress there; a
+  non-matching interface means the node silently never announces.
 
 **Phase 3 — cleanup.**
 Delete `ansible/roles/{common,nfs_server,nfs_client}`, `autoinstall/`, the k3s justfile recipes,
