@@ -16,6 +16,7 @@ common_server_flags: >-
   --disable metrics-server
   --flannel-backend=none
   --disable-network-policy
+  --disable-kube-proxy
   --write-kubeconfig-mode=644
   --resolv-conf /run/systemd/resolve/resolv.conf
   --etcd-expose-metrics=true
