@@ -1,7 +1,7 @@
 # Ansible
 *.retry
 .vault_pass
-ansible/vault.yml
+ansible/group_vars/all/vault.yml
 
 # Local secrets (never commit)
 .secrets

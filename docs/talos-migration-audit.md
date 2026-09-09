@@ -270,7 +270,7 @@ DNS pain history is in this repo.
   `talosctl apply-config`. Simpler.
 - `justfile` recipes: `provision*`, `ping*`, `vault-*`, `lint`, `build-usb` all get replaced by
   a handful of `talosctl` recipes. `bootstrap*` and `seal` are unaffected.
-- Ansible Vault (`.vault_pass`, `ansible/vault.yml`) currently holds `vault_k3s_token`. Talos
+- Ansible Vault (`.vault_pass`, `ansible/group_vars/all/vault.yml`) currently holds `vault_k3s_token`. Talos
   secrets live in `secrets.yaml` from `talosctl gen secrets` — **that file is a root CA bundle
   for the cluster and must never be committed**. Plan where it lives (age/sops, or the same
   out-of-band path `.vault_pass` uses).
