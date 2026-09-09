@@ -116,15 +116,28 @@ both when storage moves to a NAS — but only configured TrueNAS alerting makes 
 - Config volumes stay off NFS. The arrs, Jellyfin, Navidrome, Cleanuparr and Nextcloud's `html`
   are on `longhorn`; the CNPG clusters are on `local-path`. The NAS changes neither reason:
   SQLite over NFS is still the deadlock, and NFS is still not a supported CNPG backing store.
-- Media apps no longer need the `homelab.io/media` nodeSelector to reach storage, and since the
-  Longhorn migration removed the node pin from their config volumes, dropping it genuinely
-  frees the whole set rather than the three it would have in August. Do it as a separate PR
-  after the storage move is proven stable, and drop the now-inert `tolerations:` blocks in the
-  same pass — the matching taint was removed on 2026-07-31.
-- **Jellyfin keeps the label**, for QuickSync rather than for storage. Both worker-01 and
-  worker-02 advertise `gpu.intel.com/i915`, so the resource request alone only rules out
-  worker-00 (i915 blacklisted) and would happily schedule Jellyfin onto worker-02's 10th-gen
-  iGPU instead of worker-01's 12th-gen. The label is what expresses "the better encoder."
+- **`homelab.io/media` gets replaced by `homelab.io/quicksync`, on Jellyfin only.** The label
+  currently means "the node with the disk" and attracts fourteen apps. Storage moving off-node
+  ends that, and the Longhorn migration already removed the node pin from their config volumes,
+  so dropping the nodeSelector genuinely frees the whole set rather than the three it would
+  have in August. Delete it everywhere except Jellyfin, and drop the eleven now-inert
+  `tolerations:` blocks in the same pass — the matching taint went on 2026-07-31.
+- **Jellyfin keeps a constraint, renamed for what it now means.** With worker-00 retired and a
+  second G9 arriving, the surviving question is not "which node has the media" but "keep
+  transcodes off the G6." Three reasons: Intel deprecated the MediaSDK runtime behind **QSV**
+  on Comet Lake and older, so worker-02's supported path is VA-API and Jellyfin's own advice is
+  to buy newer ([Jellyfin hardware selection](https://jellyfin.org/docs/general/administration/hardware-selection/));
+  Gen9 has no AV1 acceleration at all, so AV1 falls back to CPU there; and worker-02 never idles
+  below C3 (`intel_idle` falls back to ACPI `_CST`, no BIOS knob), making it the worst host for
+  sustained transcode load. `gpu.intel.com/i915: 1` alone can't express any of that — all three
+  remaining nodes advertise it. Label both G9s `homelab.io/quicksync=true` and point Jellyfin's
+  nodeSelector at that.
+  `homelab.io/media` used by one app chosen for encoder reasons is a name that lies, and the
+  rename is free while `ansible/host_vars` is being replaced by Talos machine configs anyway.
+  A hard nodeSelector across two nodes leaves Jellyfin Pending only if both G9s are down. If it
+  ever does land on the G6, hardware transcoding has to be set to VA-API rather than QSV — and
+  `encoding.xml` is currently reset to none by the 12.0 upgrade, so that is a fresh
+  configuration either way.
 - worker-01 loses its 12TB USB drive, its NFS server duties, and its special status. It is still
   the largest node; nothing else about it is load-bearing.
 
