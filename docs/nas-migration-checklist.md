@@ -1,35 +1,47 @@
 # NAS Migration Checklist
 
 What has to change in this repo when `/mnt/storage` stops being a USB drive on worker-01 and
-becomes a NAS. Written against the state of `main` on 2026-08-13.
+becomes a NAS.
 
-Throughout: `NAS_IP` is the NAS's address on `192.168.30.0/24`, `NAS_EXPORT` its NFS export
-path. Everything below assumes the NAS speaks NFSv4.1 and the export keeps the existing
-`downloads/ media/ photos/ nextcloud/ backups/ vaultwarden/` layout. If the layout changes,
-every path in the tables below changes with it and the arrs need their root folders re-pointed
-in their own UIs (not in git).
+Throughout: `NAS_IP` is the NAS's address on `192.168.30.0/24`.
 
-## Decide first
+## Hardware
 
-These three choices change the size of the migration.
+CWWK N305 mini-ITX (6x SATA, 2x i226-V 2.5G), 16GB DDR5, 256GB NVMe boot, PicoPSU-160-XT +
+192W adapter, 2U rack shelf. One new 12TB disk to start; worker-01's existing 12TB joins as a
+mirror once the data is copied and verified.
 
-0. **Which network segment it lands on.** The nodes sit on `192.168.30.0/24`, served by a
-   dedicated OPNsense interface. Plugged into the same switch as the nodes, the NAS picks up an
-   address on that subnet with no switch configuration — give it a static DHCP reservation in
-   OPNsense and use that as `NAS_IP`. Confirm from the lease table before doing anything else: a
-   NAS on a different subnet means firewall rules between OPNsense interfaces and an extra CIDR
-   in gluetun's `FIREWALL_OUTBOUND_SUBNETS`, or torrent I/O routes through Mullvad.
-1. **Export path layout.** Keeping `/mnt/storage/...` verbatim on the NAS means only the server
-   IP changes — a sed across ~25 files. Any other layout means touching every `path:` too and
-   reconfiguring the arrs, Jellyfin libraries, and qBittorrent's save paths by hand.
-2. **Do the nodes still mount it?** `ansible/roles/nfs_client` mounts the share on all three
-   hosts at `/mnt/storage`. Nothing in the cluster consumes the host mount — pods mount NFS
-   directly — so this role exists for shell convenience. Keep it (repoint) or delete it.
-3. **Does `homelab.io/media=true` still mean anything?** Media apps pin to worker-01 with a
-   nodeSelector because that is where the disk is. Once storage is off-node that reason is
-   gone; the label then mostly means "the biggest node." Either keep it as a capacity hint or
-   drop the nodeSelector blocks. Note this frees only the three apps with no `local-path`
-   volume, and Jellyfin should keep the label for a different reason — see "After" below.
+160W does not cover six drives spinning up at once. Fine for the two this build ends at.
+
+## Decisions
+
+- **OS: TrueNAS SCALE.** ZFS snapshots, scrubs and disk monitoring without building them.
+- **Pool name: `storage`.** TrueNAS mounts a pool at `/mnt/<poolname>`, so this gives
+  `/mnt/storage` verbatim and the repo change stays a sed on the IP alone. Any other pool name
+  costs every `path:` in the tables below plus re-pointing the arrs' root folders, Jellyfin's
+  libraries and qBittorrent's save paths by hand in their own UIs.
+- **One dataset, plain directories underneath.** `downloads/ media/ photos/ nextcloud/
+  backups/ vaultwarden/` stay directories at the pool root, so one NFS export covers them all.
+  Separate datasets would buy per-directory snapshots and quotas at the cost of NFSv4
+  submount handling and a share per dataset.
+- **Layout: single disk now, mirror later.** Copy to the new 12TB, verify, then wipe
+  worker-01's drive and `zpool attach` it. Do not attach before the verify — attaching wipes
+  the disk holding the only other copy.
+- **Network: same switch as the nodes.** The NAS picks up a `192.168.30.0/24` address with no
+  switch configuration; give it a static DHCP reservation in OPNsense and use that as
+  `NAS_IP`. Confirm from the lease table before anything else — a NAS on a different subnet
+  means firewall rules between OPNsense interfaces and an extra CIDR in gluetun's
+  `FIREWALL_OUTBOUND_SUBNETS`, or torrent I/O routes through Mullvad.
+
+Still open:
+
+- **Do the nodes still mount it?** `ansible/roles/nfs_client` mounts the share on all three
+  hosts at `/mnt/storage`. Nothing in the cluster consumes the host mount — pods mount NFS
+  directly — so this role exists for shell convenience. Keep it (repoint) or delete it.
+- **Does `homelab.io/media=true` still mean anything?** Media apps pin to worker-01 with a
+  nodeSelector because that is where the disk is. Once storage is off-node that reason is
+  gone; the label then mostly means "the biggest node." Jellyfin should keep it for a
+  different reason — see "After" below.
 
 ## Change: NFS server address
 
@@ -61,15 +73,19 @@ same `volumeName` before they come back.
 `ansible/roles/nfs_server` exists to make worker-01 an NFS server: it mounts the 12TB drive by
 UUID (`nfs_drive_uuid: 9701ed19-...`), exports it to `192.168.30.0/24` with `no_root_squash`, and
 opens 2049 in UFW. Once the NAS serves the share, delete the role and its play entry. Mirror the
-settings that mattered on the NAS side:
+settings that mattered, in TrueNAS terms:
 
-- Export to `192.168.30.0/24` only.
-- `no_root_squash` — qBittorrent's `fix-perms` initContainer runs `chmod -R 777 /data/downloads
-  /data/media` as uid 0 on every pod start and silently fails without it.
+- **Authorized networks: `192.168.30.0/24`** only, on the NFS share.
+- **Maproot User `root`, Maproot Group `root`** — this is TrueNAS's `no_root_squash`.
+  qBittorrent's `fix-perms` initContainer runs `chmod -R 777 /data/downloads /data/media` as
+  uid 0 on every pod start and silently fails without it.
+- **NFSv4 enabled** in Service → NFS. SCALE serves v3 by default and both static PVs carry
+  `mountOptions: [nfsvers=4.1]`, which fails with no useful error beyond a stuck pod.
 - Directories owned `nobody:nogroup`, mode 0755. Nextcloud's init container chowns its own
   subdir to 33:33 on start; Immich and the arrs run as 1000:1000 against 777 dirs.
-- Consider whether `sync` is still wanted. The current export is `sync` on a spinning USB disk,
-  which is a large part of why Nextcloud's ~15k-file PHP tree was moved to `local-path`.
+- Leave ZFS `sync=standard`. The USB export's `sync` on a spinning disk is a large part of why
+  Nextcloud's ~15k-file PHP tree left NFS; ZFS's ZIL handles this differently and the tree now
+  lives on `longhorn` regardless.
 
 ## Change: monitoring
 
@@ -94,28 +110,18 @@ both when storage moves to a NAS — the NAS monitors its own disks. Also check
 
 ## After
 
-- Every `local-path` PVC in the repo (the arrs' SQLite configs, Nextcloud's `html`, the CNPG
-  clusters) stays on `local-path`. The NAS does not change the SQLite-over-NFS problem or make
-  NFS a supported CNPG backing store. The `CLAUDE.md` rationale that says "`nfs` was never giving
-  these volumes a second node, since worker-01 *is* the NFS server" **does** become wrong though,
-  and should be rewritten — after the migration NFS genuinely is off-host.
-- Media apps no longer need the `homelab.io/media` nodeSelector to reach storage — but removing
-  it frees fewer of them than it looks. Seven of the ten labelled apps (sonarr, radarr, lidarr,
-  bazarr, prowlarr, navidrome, jellyfin) keep their SQLite config on a bound `local-path` PV,
-  whose node affinity pins the pod regardless of any label. The NAS does not change that: SQLite
-  over NFS is still the deadlock that put them there. Only **qbittorrent, unpackerr, and
-  rclone-seedbox** — the three with no `local-path` volume — actually become schedulable
-  elsewhere. Worth doing (qBittorrent plus gluetun is not a small pod), but it is a modest
-  rebalance, not a cluster-wide one. Do it as a separate PR after the storage move is proven
-  stable, and drop the now-inert `tolerations:` blocks in the same pass — the matching taint was
-  removed on 2026-07-31.
+- Config volumes stay off NFS. The arrs, Jellyfin, Navidrome, Cleanuparr and Nextcloud's `html`
+  are on `longhorn`; the CNPG clusters are on `local-path`. The NAS changes neither reason:
+  SQLite over NFS is still the deadlock, and NFS is still not a supported CNPG backing store.
+- Media apps no longer need the `homelab.io/media` nodeSelector to reach storage, and since the
+  Longhorn migration removed the node pin from their config volumes, dropping it genuinely
+  frees the whole set rather than the three it would have in August. Do it as a separate PR
+  after the storage move is proven stable, and drop the now-inert `tolerations:` blocks in the
+  same pass — the matching taint was removed on 2026-07-31.
 - **Jellyfin keeps the label**, for QuickSync rather than for storage. Both worker-01 and
   worker-02 advertise `gpu.intel.com/i915`, so the resource request alone only rules out
   worker-00 (i915 blacklisted) and would happily schedule Jellyfin onto worker-02's 10th-gen
   iGPU instead of worker-01's 12th-gen. The label is what expresses "the better encoder."
-  Note it is not what actually pins the pod: `jellyfin-config-local` is a bound `local-path`
-  PV, and its node affinity is the real constraint. Keep the label pointed at the node that PV
-  lives on — repointing it elsewhere leaves the pod Pending, not migrated.
 - worker-01 loses its 12TB USB drive, its NFS server duties, and its special status. It is still
   the largest node; nothing else about it is load-bearing.
 
@@ -130,5 +136,8 @@ both when storage moves to a NAS — the NAS monitors its own disks. Also check
   address in `192.168.30.0/24`, so NFS traffic to the NAS bypasses the VPN without a change. If
   the NAS lands on a different subnet, that list needs the new CIDR or torrent I/O goes through
   Mullvad.
-- If the NAS exports NFSv3 only, the `mountOptions: [nfsvers=4.1]` on both static PVs will fail
-  to mount with no useful error beyond a stuck pod.
+- Do not let TrueNAS name the pool anything but `storage`. It is renameable only by
+  export/import, and every path in this repo assumes `/mnt/storage`.
+- Attaching worker-01's 12TB as a mirror destroys everything on it. It is the only other copy
+  until the attach completes and resilvers, so verify the new disk first — a full `rsync -n`
+  pass, not a spot check.
