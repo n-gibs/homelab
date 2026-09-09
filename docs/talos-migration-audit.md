@@ -306,25 +306,125 @@ where your muscle memory doesn't work.
 
 ## Recommended plan
 
-**Phase 0 — prerequisite, do this regardless of Talos.**
+**Phase 0 — prerequisite, do this regardless of Talos. In progress.**
 Move `/mnt/storage` to a NAS. Update the NFS IP in `system/nfs-provisioner/values.yaml`, the 10
 app `type: nfs` mounts, and the 2 static PVs. Retire `nfs_server`, the SMART exporter, the udev
 APM rule, and the disk half of `prometheusrule-temperature.yaml` — all four already carry
 `TODO(NAS)`. This is worth doing on its own merits and removes the Talos blocker as a side effect.
 
-**Phase 1 — prove it on one node.**
-Image Factory schematic (`i915` if you want Jellyfin QSV later; skip everything else initially).
-Take worker-02 (the G6, least loaded, no media label) out, reinstall as Talos, join it to the
-existing k3s cluster — **this does not work**, so instead: build a throwaway single-node Talos
-VM or spare box, deploy Cilium + local-path + ArgoCD against it pointed at a branch, and confirm
-the Cilium values, the local-path extraMount, and the CoreDNS ownership question. Cheap, and it
-answers the three "verify before assuming" items in this audit.
+Hardware is arriving and the build is specified in `docs/nas-migration-checklist.md`: CWWK N305,
+TrueNAS SCALE, pool named `storage` so the export path stays `/mnt/storage`. Two items there
+feed back into this audit — the export is **NFSv4-only**, which settles verify-item #4 (no
+`nfs-utils` extension in the schematic) provided nothing turns out to need v3 locking; and
+TrueNAS must be alerting on its own disks before `smart-temp-textfile` is deleted, or §5's
+"NAS-first fixes the SMART loss" is only true on paper.
 
-**Phase 2 — cluster rebuild, not rolling migration.**
-k3s and Talos control planes don't interoperate. Snapshot every local-path volume to the NAS
-(the arrs' own System → Backup, `pg_dump` for both CNPG clusters, Vaultwarden's PVC), then
-rebuild all three nodes as Talos and let ArgoCD reconcile from `main`. With the NAS already
-holding bulk data and backups, this is a few hours, not a weekend.
+**Phases 1 and 2 — superseded by the fourth-node plan below.** They assumed three boxes and a
+throwaway test target. A second G9 removes both constraints.
+
+### The fourth-node plan (2026-09-09)
+
+A second G9 (i5-12500T, 16GB, 512GB NVMe) is arriving to replace worker-00, the G4. That is a
+better migration than Phases 1–2 above: the new box is Phase 1's test target *and* the first
+node of the real cluster, so the bake period is free and there is a rollback the whole way.
+
+**It is not a join.** Talos control-plane nodes run their own etcd behind Talos-generated PKI;
+there is no path that adds one to k3s's embedded etcd. The new G9 starts a *second cluster*,
+the two run side by side against the same NAS, and apps cut over one at a time. (A Talos
+*worker* can technically join k3s with its CA and a bootstrap token — don't. It ends with the
+new cluster's identity rooted in the CA of the thing being deleted.)
+
+**Four resources both clusters will claim.** All four are silent failures, not errors:
+
+| Resource | Collision | Fix |
+|---|---|---|
+| `system/external-dns` | `txtOwnerId: homelab` with `policy: sync` in both clusters. Each treats the other's records as its own orphans and deletes them. | Give the Talos cluster a distinct `txtOwnerId` before it ever syncs. |
+| Cilium L2 VIP | Both would ARP for `192.168.30.200`. | The pool is `192.168.30.200/29`, so `.201`–`.207` are free. Allocate a second VIP; collapse to `.200` at cutover. |
+| `platform/tailscale` Connector | Both advertise `192.168.30.0/24`. | Don't deploy it on Talos until cutover. |
+| cert-manager | Two ACME accounts, same wildcard. Let's Encrypt allows 5 duplicate certificates per week. | Staging issuer on Talos until cutover. |
+
+**The API endpoint is on the node being retired.** `api_endpoint: 192.168.30.129` in
+`ansible/group_vars/k3s_cluster.yml` is worker-00's own address, not a VIP — every other node's
+server URL points at the G4. Pulling it first strands the remaining two. Give the Talos cluster
+a control-plane VIP from the start (`machine.network.interfaces[].vip`) so this doesn't recur.
+
+**Don't migrate apps onto a one-node cluster.** Longhorn at 2 replicas sits Degraded with one
+node, and four CNPG clusters × 3 instances land all their instances on one disk with no
+rebalance when nodes arrive later. Order:
+
+1. New G9 → Talos, single node. Platform only: Cilium, ArgoCD, Longhorn, CoreDNS ownership.
+   No apps. This answers verify-items 1, 2 and 5 below on real hardware, and k3s is untouched
+   at three nodes throughout.
+2. worker-02 (G6) wiped → Talos control plane #2. Longhorn can hold its two replicas and apps
+   have somewhere to land.
+3. Migrate apps k3s → Talos, biggest first. Per app: scale to zero on k3s, restore from its own
+   backup on the NAS, verify, move on.
+4. worker-00 (G4) retired and worker-01 (G9) wiped → Talos control plane #3.
+
+**Retire the G4 last, not first.** It is the node being replaced, but pulling it early is what
+forces every remaining workload onto worker-01 alone (24GB against ~55GB of cluster total).
+Leaving it in k3s through step 3 keeps two nodes and 40GB under the apps that haven't moved
+yet, and keeps `api_endpoint: 192.168.30.129` pointing at something that exists.
+
+Two constraints with no way around them at four boxes:
+
+- During step 3 both clusters sit at two etcd members. A 2-member etcd tolerates zero failures
+  and has more ways to lose quorum than a 1-member one — it is the worst point in the
+  migration. Keep it short and don't reboot anything optional.
+- Install the G6 with a **control-plane** config in step 2 even though that is what creates the
+  2-member window. Talos sets the node role at install; a worker cannot be promoted later
+  without a reinstall, so the alternative is wiping it twice.
+
+**What the new node changes elsewhere in this audit:**
+
+- §1's control-plane taint inconsistency dies with worker-00, as does the i915-blacklisted node
+  and the requestless-container density hotspot. Cluster RAM goes 16/24/16 → 16/24/16 with a
+  12th-gen replacing an 8th-gen, so scheduling pressure improves without more memory.
+- §6's Jellyfin note assumes one modern iGPU. Two 12th-gen G9s means `homelab.io/media` is no
+  longer the only expression of "the better encoder" — revisit which node it points at.
+**Node labels need settling before the new G9 is installed**
+
+Two labels, and after worker-00 retires neither set is obviously right. Decide both explicitly —
+each fails silently when wrong.
+
+`homelab.io/quicksync=true` (replacing `homelab.io/media`, see the NAS checklist) goes on the
+two G9s and is consumed by Jellyfin alone.
+
+`homelab.io/ingress=true` is the harder one, because it is not a label but a **triple that must
+agree**:
+
+1. the set of nodes carrying the label,
+2. `envoyDeployment.replicas` in `system/envoy-gateway/envoyproxy.yaml`,
+3. the `nodeSelector` there and the one in `cilium-l2-announce.yaml`, which must be identical.
+
+`topologySpreadConstraints` with `maxSkew: 1` and `DoNotSchedule` places exactly one proxy per
+candidate node, so replicas must equal the node count. Under `externalTrafficPolicy: Local`, a
+node that announces the VIP without a local proxy is a blackhole — and a node with the label but
+no replica left to fill it is exactly that. Labelling the new G9 without bumping `replicas` to
+match is the failure mode to avoid.
+
+Options once worker-00 is gone:
+
+| Set | replicas | Trade |
+|---|---|---|
+| All three nodes | 3 | Widest failover, every node can announce. One more Envoy pod. |
+| Both G9s | 2 | Ingress set becomes identical to quicksync; the G6 can never serve ingress. |
+| worker-01 + worker-02 (today's set) | 2 | The new G9 gets no ingress role for no particular reason. |
+
+All three nodes is the default worth taking. The original reason to keep the set at two — the
+l2-announce comment's "not `homelab.io/media`, that would make worker-02 a scheduling target for
+apps whose data is on worker-01's disk" — dies with the NAS. Note it does **not** fix the
+documented rolling-update outage: Cilium moves the L2 lease on node failure, not pod failure, so
+an upgrade that takes down the announcer's proxy drops ingress at any replica count.
+
+Two Talos details that touch this:
+
+- `machine.nodeLabels` applies on **every boot**, unlike k3s's `--node-label`, which only applies
+  at kubelet registration. The CLAUDE.md warning about labelling an existing node by hand goes
+  away — this is a small, real win.
+- `cilium-l2-announce.yaml` matches interfaces `^enp2s0$` and `^eno1$`. Confirm what Talos names
+  the NICs on the new G9 and the G6 (verify-item #2) before relying on ingress there; a
+  non-matching interface means the node silently never announces.
 
 **Phase 3 — cleanup.**
 Delete `ansible/roles/{common,nfs_server,nfs_client}`, `autoinstall/`, the k3s justfile recipes,
