@@ -11,10 +11,10 @@ controllers:
         supplementalGroups: [991, 44]
     containers:
       app:
-        # renovate: datasource=docker depName=ghcr.io/linuxserver/jellyfin versioning=regex:^(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)ubu(?<build>\d+)-ls(?<revision>\d+)$
+        # renovate: datasource=docker depName=ghcr.io/linuxserver/jellyfin versioning=regex:^(?<major>\d+)\.(?<minor>\d+)(\.(?<patch>\d+))?ubu(?<build>\d+)-ls(?<revision>\d+)$
         image:
           repository: lscr.io/linuxserver/jellyfin
-          tag: 10.11.11ubu2604-ls43
+          tag: 12.0ubu2604-ls48
         env:
           PUID: "1000"
           PGID: "1000"
@@ -57,7 +57,8 @@ route:
       gethomepage.dev/widget.url: "http://jellyfin.jellyfin.svc.cluster.local:8096"
       # Outer tpl escape: Homepage substitutes the placeholder at runtime, Helm must not touch it.
       gethomepage.dev/widget.key: '{{ "{{HOMEPAGE_VAR_JELLYFIN_API_KEY}}" }}'
-      # No `version` — that's for Jellyfin >= 10.12; we run 10.11.x, which wants v1 (default).
+      # 12.0 is the release formerly numbered 10.12, so the widget needs v2.
+      gethomepage.dev/widget.version: "2"
       gethomepage.dev/widget.enableBlocks: "true"
     enabled: true
     kind: HTTPRoute
