@@ -18,6 +18,9 @@ evidence behind a choice rather than instructions to repeat it.
 Storage, secrets and alerting each carry their own README next to the manifests. The
 [archive index](docs/archive/README.md) lists the shipped design specs behind each feature.
 
+In-flight projects are tracked in [Linear](https://linear.app/nik-homelab) (team `HOM`), one
+issue per step. The reasoning behind each stays in `docs/`.
+
 ## Stack
 
 k3s + Cilium (VXLAN) + ArgoCD (GitOps) + Envoy Gateway + cert-manager + Infisical + Longhorn (replicated block storage) + CloudNativePG (Postgres) + Tailscale (in-cluster subnet router for remote access to services — not used for node SSH)

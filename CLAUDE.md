@@ -243,6 +243,17 @@ registry row.
 Infisical itself — the bootstrap `ENCRYPTION_KEY` and the operator's machine
 identity. See `secrets/README.md`.
 
+## Project Tracking
+
+Linear holds project state and sequencing. Git holds the reasoning. Workspace `nik-homelab`,
+team `Homelab` (`HOM`), reached through the Linear MCP server.
+
+- Multi-step work (a migration, a hardware build, an app with prerequisites) gets a Linear
+  project with one issue per step. One-off fixes get a commit.
+- Write the *why* in `docs/<name>.md` and link it from the project description. An issue
+  carries state and order, not analysis.
+- **Move an issue to Done when the change is live, not when it merges.**
+
 ## Common Commands
 
 ```bash
