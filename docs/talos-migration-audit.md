@@ -324,9 +324,10 @@ throwaway test target. A second G9 removes both constraints.
 
 ### The fourth-node plan (2026-09-09)
 
-A second G9 (i5-12500T, 16GB, 512GB NVMe) is arriving to replace worker-00, the G4. That is a
-better migration than Phases 1–2 above: the new box is Phase 1's test target *and* the first
-node of the real cluster, so the bake period is free and there is a rollback the whole way.
+A second G9 (i5-12500T, 512GB NVMe, 8GB as shipped and going to 16GB before install) is
+arriving to replace worker-00, the G4. That is a better migration than Phases 1–2 above: the
+new box is Phase 1's test target *and* the first node of the real cluster, so the bake period
+is free and there is a rollback the whole way.
 
 **It is not a join.** Talos control-plane nodes run their own etcd behind Talos-generated PKI;
 there is no path that adds one to k3s's embedded etcd. The new G9 starts a *second cluster*,
