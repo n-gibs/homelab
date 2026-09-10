@@ -8,7 +8,7 @@ Throughout: `NAS_IP` is the NAS's address on `192.168.30.0/24`.
 ## Hardware
 
 CWWK N305 mini-ITX (6x SATA, 2x i226-V 2.5G), 16GB DDR5, 256GB NVMe boot, PicoPSU-160-XT +
-192W adapter, 2U rack shelf. One new 12TB disk to start; worker-01's existing 12TB joins as a
+192W adapter, 10" rack case. One new 12TB disk to start; worker-01's existing 12TB joins as a
 mirror once the data is copied and verified.
 
 160W does not cover six drives spinning up at once. Fine for the two this build ends at.
