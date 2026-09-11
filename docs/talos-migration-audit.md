@@ -268,6 +268,27 @@ DNS pain history is in this repo.
   and most of `common` are covered above.
 - `autoinstall/` (Ubuntu USB) → Talos Image Factory schematic (pinning your extension set) +
   `talosctl apply-config`. Simpler.
+
+**The extension set**, confirmed against the catalog on 2026-09-11:
+
+| Extension | Tier | Why |
+|---|---|---|
+| `siderolabs/iscsi-tools` | core | Longhorn V1 volumes need `iscsiadm` on the host. This is what replaces `roles/common`'s `iscsid` enable (§4). |
+| `siderolabs/util-linux-tools` | contrib | Longhorn's other documented requirement. Contrib tier, but it is what the official Longhorn-on-Talos guide names. |
+| `siderolabs/i915` | core | `/dev/dri` for QSV on the G9s (§6). Bake it in now even though nothing transcodes today: the set is compiled into the boot asset, so adding one later costs an image rebuild and a node upgrade. |
+| `siderolabs/intel-ucode` | core | Microcode, which Ubuntu supplies today for free. |
+
+Deliberately excluded: `nfsd` (the NAS owns the export, §2), `nfs-utils` (TrueNAS exports
+NFSv4-only and the v4 client is in-kernel), `nvme-cli` (the 12TB is USB, §5), `mdadm` (now a
+deprecated no-op) and `tailscale` (it runs in-cluster as a subnet router, not as a host service).
+
+No NIC firmware extension is needed on the G9. worker-01 reports `Intel Ethernet Connection (17)
+I219-LM [8086:1a1c]` driving `eno1` on in-tree `e1000e`. Re-check with `lspci -nn | grep -i
+ethernet` on the new G9 before building the schematic, since HP ships variants inside one model
+line (the two G9s already differ on RAM).
+
+Pin digests, never tags:
+`crane export ghcr.io/siderolabs/extensions:v<version> | tar x -O image-digests | grep <name>`.
 - `justfile` recipes: `provision*`, `ping*`, `vault-*`, `lint`, `build-usb` all get replaced by
   a handful of `talosctl` recipes. `bootstrap*` and `seal` are unaffected.
 - Ansible Vault (`.vault_pass`, `ansible/group_vars/all/vault.yml`) currently holds `vault_k3s_token`. Talos
@@ -445,6 +466,9 @@ Claims in this audit I could not confirm from the repo or docs alone:
 
 1. Whether the Cilium conflist/tmpfs boot race reproduces on Talos (§4) — test on Phase 1 node.
 2. Interface names Talos assigns on the ProDesk G4/G6/G9, for `l2announcements.interfacePattern`.
+   **Partly settled 2026-09-11:** worker-01 (G9) presents its single I219-LM as `eno1` under
+   Ubuntu, alongside an unused `wlp0s20f3`. Talos uses the same predictable-naming scheme, so
+   `eno1` is the expectation rather than the confirmation. Read it off the node in step 1.
 3. `/dev/net/tun` availability and whether gluetun's `tun0` binding works unchanged (§6).
 4. Whether any arr needs NFSv3 locking (→ `nfs-utils` extension) or NFSv4 suffices.
 5. Talos's CoreDNS vs `system/coredns/` ownership of the `kube-dns` Service (§6).
