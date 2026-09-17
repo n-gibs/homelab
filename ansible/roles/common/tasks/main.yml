@@ -447,6 +447,7 @@
     src: 192.168.30.0/24
   loop:
     - "4240"      # cilium-health host probes
+    - "4244"      # hubble peer: relay dials every agent's node IP, not a service VIP
     - "9962"      # cilium-agent metrics
     - "9963"      # cilium-operator metrics
     - "9965"      # hubble metrics
