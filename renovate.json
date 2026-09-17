@@ -6,6 +6,8 @@
   "timezone": "America/Los_Angeles",
   "schedule": ["every weekend"],
   "labels": ["dependencies"],
+  "description": "Default prHourlyLimit of 2 starves the queue: only the four weekend cron runs can open PRs, so majors (sorted last) never win a slot.",
+  "prHourlyLimit": 6,
   "packageRules": [
     {
       "matchManagers": ["ansible-galaxy"],
