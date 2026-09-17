@@ -5,9 +5,9 @@ kind: Kustomization
 
 resources:
   # DaemonSet, plus the nodeSelector keeping it on NFD-labelled GPU nodes.
-  - https://github.com/intel/intel-device-plugins-for-kubernetes/deployments/gpu_plugin/overlays/nfd_labeled_nodes?ref=v0.36.0
+  - https://github.com/intel/intel-device-plugins-for-kubernetes/deployments/gpu_plugin/overlays/nfd_labeled_nodes?ref=v0.37.0
   # NodeFeatureRules producing that label.
-  - https://github.com/intel/intel-device-plugins-for-kubernetes/deployments/nfd/overlays/node-feature-rules?ref=v0.36.0
+  - https://github.com/intel/intel-device-plugins-for-kubernetes/deployments/nfd/overlays/node-feature-rules?ref=v0.37.0
 
 images:
   - name: intel/intel-gpu-plugin
