@@ -1,4 +1,4 @@
 chartName: external-dns
 chartRepo: https://kubernetes-sigs.github.io/external-dns/
-chartVersion: 1.21.1
+chartVersion: 1.22.0
 syncWave: "3"
