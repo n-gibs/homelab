@@ -43,10 +43,18 @@ prometheus:
   enabled: true
   metricsService: true
 
+# The chart's own dashboards, left in kube-system: the Grafana sidecar watches NAMESPACE=ALL,
+# so they need no namespace that a from-scratch bootstrap hasn't created yet. Plain ConfigMaps,
+# so unlike the ServiceMonitors above they carry no CRD dependency.
+dashboards:
+  enabled: true
+
 operator:
   replicas: 1
   prometheus:
     metricsService: true
+  dashboards:
+    enabled: true
 
 socketLB:
   enabled: true
@@ -64,6 +72,10 @@ hubble:
     enabled:
       - drop:sourceContext=namespace;destinationContext=namespace
       - dns
+    # The flow, TCP and HTTP panels of this dashboard stay empty by design — those metric
+    # families are the ones excluded above.
+    dashboards:
+      enabled: true
   relay:
     enabled: true
     hostNetwork: true
