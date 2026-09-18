@@ -134,10 +134,22 @@ config:
         style: row
         columns: 1
         icon: mdi-calendar
+      Arr:
+        style: row
+        columns: 3
+        icon: mdi-download-box
       Media:
         style: row
         columns: 3
         icon: mdi-play-circle
+      Downloads:
+        style: row
+        columns: 2
+        icon: mdi-cloud-download
+      Personal:
+        style: row
+        columns: 2
+        icon: mdi-account-lock
       Infrastructure:
         style: row
         columns: 3
@@ -187,7 +199,7 @@ config:
         target: _blank
 
   services:
-    - Media:
+    - Arr:
         - Sonarr:
             href: https://sonarr.nik-homelab.dev
             description: TV shows
@@ -212,6 +224,7 @@ config:
               type: lidarr
               url: http://lidarr.lidarr.svc.cluster.local:8686
               key: "{{HOMEPAGE_VAR_LIDARR_API_KEY}}"
+    - Media:
         - Navidrome:
             href: https://navidrome.nik-homelab.dev
             description: Music streaming
@@ -222,6 +235,7 @@ config:
               user: "{{HOMEPAGE_VAR_NAVIDROME_USER}}"
               token: "{{HOMEPAGE_VAR_NAVIDROME_TOKEN}}"
               salt: "{{HOMEPAGE_VAR_NAVIDROME_SALT}}"
+    - Downloads:
         # Defined here rather than by HTTPRoute annotation: the widget needs WebUI
         # credentials, and annotations are plaintext in git and skip HOMEPAGE_VAR
         # substitution. namespace/app restore the status dot discovery gave for free.
@@ -279,15 +293,15 @@ config:
               timezone: America/Los_Angeles
               integrations:
                 - type: sonarr
-                  service_group: Media
+                  service_group: Arr
                   service_name: Sonarr
                   color: teal
                 - type: radarr
-                  service_group: Media
+                  service_group: Arr
                   service_name: Radarr
                   color: amber
                 - type: lidarr
-                  service_group: Media
+                  service_group: Arr
                   service_name: Lidarr
                   color: purple
     - Infrastructure:
