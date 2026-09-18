@@ -125,35 +125,34 @@ config:
     # with background filters, so frosted cards means no dimming. This image is dark enough.
     background: https://images.unsplash.com/photo-1496715976403-7e36dc43f17b?auto=format&fit=crop&w=2560&q=80
     cardBlur: sm
-    # Only place group icons and column counts can be set. Homepage takes group display
-    # order from key order here, but the chart renders this map through toYaml, which sorts
-    # keys — so order is alphabetical and not controllable from values.yaml. Calendar gets
-    # its own single-column group so the agenda renders full width; it sorts last anyway.
+    # List form, not a map: the chart renders this through toYaml, which sorts map keys
+    # but leaves list order alone. Display order is this order. Calendar gets its own
+    # single-column group so the agenda renders full width.
     layout:
-      Upcoming:
-        style: row
-        columns: 1
-        icon: mdi-calendar
-      Arr:
-        style: row
-        columns: 3
-        icon: mdi-download-box
-      Media:
-        style: row
-        columns: 3
-        icon: mdi-play-circle
-      Downloads:
-        style: row
-        columns: 2
-        icon: mdi-cloud-download
-      Personal:
-        style: row
-        columns: 2
-        icon: mdi-account-lock
-      Infrastructure:
-        style: row
-        columns: 3
-        icon: mdi-server
+      - Arr:
+          style: row
+          columns: 3
+          icon: mdi-download-box
+      - Media:
+          style: row
+          columns: 3
+          icon: mdi-play-circle
+      - Downloads:
+          style: row
+          columns: 2
+          icon: mdi-cloud-download
+      - Personal:
+          style: row
+          columns: 2
+          icon: mdi-account-lock
+      - Infrastructure:
+          style: row
+          columns: 3
+          icon: mdi-server
+      - Upcoming:
+          style: row
+          columns: 1
+          icon: mdi-calendar
 
     providers:
       longhorn:
