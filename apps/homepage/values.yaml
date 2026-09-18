@@ -149,6 +149,10 @@ config:
           style: row
           columns: 3
           icon: mdi-server
+      - Helparrs:
+          style: row
+          columns: 3
+          icon: mdi-tools
       # Bookmarks are reference links, not status — icons only, so each is one strip
       # rather than a card column tall enough to rival the widget groups.
       - Network:
