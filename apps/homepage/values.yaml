@@ -371,3 +371,6 @@ config:
             - abbr: HC
               icon: healthchecks.png
               href: https://healthchecks.io/projects/
+        - Seedit4.me:
+            - abbr: S4M
+              href: https://my.seedit4.me/boxes/43232
