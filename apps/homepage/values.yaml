@@ -353,7 +353,7 @@ config:
         - Linear:
             - abbr: LN
               icon: linear.png
-              href: https://linear.app/nik-homelab/team/HOM/all
+              href: https://linear.app/nik-homelab/team/HOM/projects/all
     - Cloud:
         - Tailscale:
             - abbr: TS
