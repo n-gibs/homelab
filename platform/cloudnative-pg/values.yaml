@@ -1,6 +1,11 @@
 crds:
   create: true
 
+# The Grafana sidecar runs NAMESPACE=ALL, so the ConfigMap is fine where the release puts it.
+monitoring:
+  grafanaDashboard:
+    create: true
+
 resources:
   requests:
     cpu: 50m

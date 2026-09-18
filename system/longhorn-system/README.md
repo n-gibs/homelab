@@ -248,3 +248,7 @@ individually upgraded. The control plane and the data plane can silently disagre
 Panel 6 (scrape health) exists because a dead scrape is invisible: a dashboard fed by one
 renders identically to a healthy idle cluster. Below 3 targets up means the rest of the
 dashboard is stale, not quiet.
+
+`dashboard-upstream.yaml` is Longhorn's own dashboard, vendored from grafana.com 17626 and
+kept unedited apart from the datasource input. It covers the breadth the hand-built one
+deliberately skips. Re-vendor it rather than editing it in place.
