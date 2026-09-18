@@ -45,6 +45,17 @@ renovate:
           concurrentRequestLimit: 4,
           maxRequestsPerSecond: 5,
         },
+        {
+          // lscr.io is ghcr.io behind a redirect, so it shares the same rate
+          // limit but had none of the throttling above. Unthrottled, it 429s
+          // the ghcr.io lookups running alongside it.
+          hostType: 'docker',
+          matchHost: 'lscr.io',
+          username: 'n-gibs',
+          password: process.env.RENOVATE_TOKEN,
+          concurrentRequestLimit: 4,
+          maxRequestsPerSecond: 5,
+        },
       ],
     };
 
