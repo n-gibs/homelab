@@ -163,7 +163,7 @@ data:
           "id": 5,
           "type": "stat",
           "title": "Overdue by",
-          "description": "How far past its scheduled time the most overdue CronJob is. Healthy is a negative number, meaning the next run is still ahead; positive means a scheduling tick was missed and CronJobOverdue is counting down to fire.",
+          "description": "How far past its scheduled time the most overdue CronJob is. Healthy is a negative number, meaning the next run is still ahead; positive means a scheduling tick was missed, and CronJobOverdue counts down to fire only if no run is Active \u2014 under concurrencyPolicy Forbid a slow run stalls this clock without being a fault.",
           "gridPos": { "h": 4, "w": 12, "x": 12, "y": 8 },
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
           "fieldConfig": {

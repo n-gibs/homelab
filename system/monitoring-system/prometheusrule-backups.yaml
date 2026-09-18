@@ -38,9 +38,13 @@ spec:
 
         # next_schedule_time is always in the future while the controller is healthy, so any
         # positive value means a scheduling tick was missed regardless of the job's period.
-        # 1h plus for: 1h tolerates a long-running job briefly holding the clock back.
+        # The unless is what makes that true: under concurrencyPolicy Forbid a merely slow run
+        # also stalls the clock, which is the job working, not the controller failing.
         - alert: CronJobOverdue
-          expr: time() - kube_cronjob_next_schedule_time > 3600
+          expr: >-
+            (time() - kube_cronjob_next_schedule_time > 3600)
+            unless on(namespace, cronjob)
+            (kube_cronjob_status_active > 0)
           for: 1h
           labels:
             severity: warning
@@ -49,11 +53,11 @@ spec:
               CronJob {{ $labels.namespace }}/{{ $labels.cronjob }} is
               {{ $value | humanizeDuration }} past its scheduled run
             description: >-
-              The scheduled time came and went without a run being created, which points at
-              the CronJob controller rather than the job itself — the job never started, so
-              there are no pod logs to read. Check for a `startingDeadlineSeconds` miss, a
-              `concurrencyPolicy: Forbid` job still stuck Active
-              (`kubectl -n {{ $labels.namespace }} get jobs`), or control-plane trouble.
+              The scheduled time came and went with no run created and none already running,
+              which points at the CronJob controller rather than the job itself — the job never
+              started, so there are no pod logs to read. Check for a `startingDeadlineSeconds`
+              miss or control-plane trouble. A run still Active is deliberately not this alert:
+              it suppresses here and CronJobNotSucceeding catches it at 26h if it never ends.
               Fires far sooner than CronJobNotSucceeding for the */5 and */10 jobs.
 
         # Suspension is a deliberate act that leaves no trace afterwards. Easy to set while
