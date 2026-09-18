@@ -125,23 +125,51 @@ config:
     # with background filters, so frosted cards means no dimming. This image is dark enough.
     background: https://images.unsplash.com/photo-1496715976403-7e36dc43f17b?auto=format&fit=crop&w=2560&q=80
     cardBlur: sm
-    # Only place group icons and column counts can be set. Homepage takes group display
-    # order from key order here, but the chart renders this map through toYaml, which sorts
-    # keys — so order is alphabetical and not controllable from values.yaml. Calendar gets
-    # its own single-column group so the agenda renders full width; it sorts last anyway.
+    # List form, not a map: the chart renders this through toYaml, which sorts map keys
+    # but leaves list order alone. Display order is this order. Calendar gets its own
+    # single-column group so the agenda renders full width.
     layout:
-      Upcoming:
-        style: row
-        columns: 1
-        icon: mdi-calendar
-      Media:
-        style: row
-        columns: 3
-        icon: mdi-play-circle
-      Infrastructure:
-        style: row
-        columns: 3
-        icon: mdi-server
+      - Arr:
+          style: row
+          columns: 3
+          icon: mdi-download-box
+      - Media:
+          style: row
+          columns: 3
+          icon: mdi-play-circle
+      - Downloads:
+          style: row
+          columns: 2
+          icon: mdi-cloud-download
+      - Personal:
+          style: row
+          columns: 2
+          icon: mdi-account-lock
+      - Infrastructure:
+          style: row
+          columns: 3
+          icon: mdi-server
+      # Bookmarks are reference links, not status — icons only, so each is one strip
+      # rather than a card column tall enough to rival the widget groups.
+      - Network:
+          style: row
+          columns: 2
+          iconsOnly: true
+          icon: mdi-lan
+      - Cloud:
+          style: row
+          columns: 5
+          iconsOnly: true
+          icon: mdi-cloud-outline
+      - Code:
+          style: row
+          columns: 3
+          iconsOnly: true
+          icon: mdi-source-branch
+      - Upcoming:
+          style: row
+          columns: 1
+          icon: mdi-calendar
 
     providers:
       longhorn:
@@ -187,7 +215,7 @@ config:
         target: _blank
 
   services:
-    - Media:
+    - Arr:
         - Sonarr:
             href: https://sonarr.nik-homelab.dev
             description: TV shows
@@ -212,6 +240,7 @@ config:
               type: lidarr
               url: http://lidarr.lidarr.svc.cluster.local:8686
               key: "{{HOMEPAGE_VAR_LIDARR_API_KEY}}"
+    - Media:
         - Navidrome:
             href: https://navidrome.nik-homelab.dev
             description: Music streaming
@@ -222,6 +251,7 @@ config:
               user: "{{HOMEPAGE_VAR_NAVIDROME_USER}}"
               token: "{{HOMEPAGE_VAR_NAVIDROME_TOKEN}}"
               salt: "{{HOMEPAGE_VAR_NAVIDROME_SALT}}"
+    - Downloads:
         # Defined here rather than by HTTPRoute annotation: the widget needs WebUI
         # credentials, and annotations are plaintext in git and skip HOMEPAGE_VAR
         # substitution. namespace/app restore the status dot discovery gave for free.
@@ -279,15 +309,15 @@ config:
               timezone: America/Los_Angeles
               integrations:
                 - type: sonarr
-                  service_group: Media
+                  service_group: Arr
                   service_name: Sonarr
                   color: teal
                 - type: radarr
-                  service_group: Media
+                  service_group: Arr
                   service_name: Radarr
                   color: amber
                 - type: lidarr
-                  service_group: Media
+                  service_group: Arr
                   service_name: Lidarr
                   color: purple
     - Infrastructure:
@@ -337,9 +367,11 @@ config:
     - Network:
         - OPNsense:
             - abbr: FW
+              icon: opnsense.png
               href: https://192.168.10.1
         - TrueNAS:
             - abbr: NAS
+              icon: truenas.png
               href: https://192.168.30.144
     - Code:
         - Homelab:

@@ -201,7 +201,7 @@ httpRoute:
     gethomepage.dev/enabled: "true"
     gethomepage.dev/name: "Nextcloud"
     gethomepage.dev/description: "Documents & file sync"
-    gethomepage.dev/group: "Infrastructure"
+    gethomepage.dev/group: "Personal"
     gethomepage.dev/icon: "nextcloud.png"
     gethomepage.dev/href: "https://nextcloud.nik-homelab.dev"
     gethomepage.dev/widget.type: "nextcloud"

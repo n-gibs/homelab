@@ -58,7 +58,7 @@ route:
       gethomepage.dev/enabled: "true"
       gethomepage.dev/name: "Vaultwarden"
       gethomepage.dev/description: "Password manager"
-      gethomepage.dev/group: "Infrastructure"
+      gethomepage.dev/group: "Personal"
       gethomepage.dev/icon: "bitwarden.png"
       gethomepage.dev/href: "https://vault.nik-homelab.dev"
     enabled: true

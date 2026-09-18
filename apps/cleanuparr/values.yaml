@@ -42,7 +42,7 @@ route:
       gethomepage.dev/enabled: "true"
       gethomepage.dev/name: "Cleanuparr"
       gethomepage.dev/description: "Download cleanup & malware blocking"
-      gethomepage.dev/group: "Media"
+      gethomepage.dev/group: "Arr"
       gethomepage.dev/icon: "cleanuparr.png"
       gethomepage.dev/href: "https://cleanuparr.nik-homelab.dev"
     enabled: true
