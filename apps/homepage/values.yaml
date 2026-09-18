@@ -149,6 +149,23 @@ config:
           style: row
           columns: 3
           icon: mdi-server
+      # Bookmarks are reference links, not status — icons only, so each is one strip
+      # rather than a card column tall enough to rival the widget groups.
+      - Network:
+          style: row
+          columns: 2
+          iconsOnly: true
+          icon: mdi-lan
+      - Cloud:
+          style: row
+          columns: 5
+          iconsOnly: true
+          icon: mdi-cloud-outline
+      - Code:
+          style: row
+          columns: 3
+          iconsOnly: true
+          icon: mdi-source-branch
       - Upcoming:
           style: row
           columns: 1
@@ -350,9 +367,11 @@ config:
     - Network:
         - OPNsense:
             - abbr: FW
+              icon: opnsense.png
               href: https://192.168.10.1
         - TrueNAS:
             - abbr: NAS
+              icon: truenas.png
               href: https://192.168.30.144
     - Code:
         - Homelab:
