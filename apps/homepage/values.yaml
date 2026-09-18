@@ -333,4 +333,41 @@ config:
                 format: number
                 suffix: "C to limit"
 
-  bookmarks: []
+  bookmarks:
+    - Network:
+        - OPNsense:
+            - abbr: FW
+              href: https://192.168.10.1
+        - TrueNAS:
+            - abbr: NAS
+              href: https://192.168.30.144
+    - Code:
+        - Homelab:
+            - abbr: HL
+              icon: github.png
+              href: https://github.com/n-gibs/homelab
+        - Renovate:
+            - abbr: RN
+              icon: renovate.png
+              href: https://github.com/n-gibs/homelab/issues/6
+        - Linear:
+            - abbr: LN
+              icon: linear.png
+              href: https://linear.app/nik-homelab/team/HOM/all
+    - Cloud:
+        - Tailscale:
+            - abbr: TS
+              icon: tailscale.png
+              href: https://login.tailscale.com/admin/machines
+        - Cloudflare:
+            - abbr: CF
+              icon: cloudflare.png
+              href: https://dash.cloudflare.com
+        - Mullvad:
+            - abbr: MV
+              icon: mullvad.png
+              href: https://mullvad.net/en/account
+        - Healthchecks:
+            - abbr: HC
+              icon: healthchecks.png
+              href: https://healthchecks.io/projects/
