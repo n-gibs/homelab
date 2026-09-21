@@ -15,7 +15,7 @@ controllers:
         # unaffected: its own values section pins its image explicitly.
         # renovate: datasource=docker depName=ghcr.io/immich-app/immich-server
         image:
-          tag: v3.1.0
+          tag: v3.2.2
         env:
           DB_HOSTNAME: immich-database-rw
           DB_USERNAME: app
