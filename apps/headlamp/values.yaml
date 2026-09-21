@@ -1,0 +1,38 @@
+# Read-only UI, no login: the gateway VIP is RFC1918, so the network is the
+# boundary. Widening either of these without the other is the mistake to avoid.
+clusterRoleBinding:
+  clusterRoleName: view
+
+config:
+  unsafeUseServiceAccountToken: true
+  oidc:
+    # Defaults to true and creates an empty `oidc` Secret even when unused.
+    secret:
+      create: false
+
+# The chart ships resources: {}, and a requestless container is invisible to
+# the scheduler. No CPU limit: VPA preserves request:limit and would throttle.
+resources:
+  requests:
+    cpu: 10m
+    memory: 64Mi
+  limits:
+    memory: 256Mi
+
+ingress:
+  enabled: false
+
+httpRoute:
+  enabled: true
+  hostnames:
+    - headlamp.nik-homelab.dev
+  parentRefs:
+    - name: homelab
+      namespace: envoy-gateway-system
+  annotations:
+    gethomepage.dev/enabled: "true"
+    gethomepage.dev/name: "Headlamp"
+    gethomepage.dev/description: "Kubernetes cluster UI"
+    gethomepage.dev/group: "Infrastructure"
+    gethomepage.dev/icon: "headlamp.png"
+    gethomepage.dev/href: "https://headlamp.nik-homelab.dev"
