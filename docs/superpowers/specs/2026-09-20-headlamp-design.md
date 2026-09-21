@@ -49,11 +49,16 @@ deploying Dex or Authentik first. That is its own project.
 
 Read-only, but built-in `view` alone is not enough.
 
-`view` was queried against this cluster rather than assumed. It covers the core group, `apps`,
-`batch`, and `cert-manager.io`, which labels its CRDs for aggregation. It covers nothing else.
+`view` was queried against this cluster rather than assumed. Within the core group it covers
+namespaced objects only: configmaps, endpoints, pods, pods/log, services, serviceaccounts,
+persistentvolumeclaims, replicationcontrollers, resourcequotas, limitranges, bindings,
+namespaces and events. It also covers `apps`, `batch`, and `cert-manager.io`, which labels its
+CRDs for aggregation. It covers nothing else.
 Denied under `view`: `argoproj.io`, `longhorn.io`, `postgresql.cnpg.io`,
 `gateway.networking.k8s.io`, `monitoring.coreos.com`, `autoscaling.k8s.io`, `cilium.io`, plus
-`persistentvolumes`, `storageclasses` and `customresourcedefinitions`.
+`storageclasses`, `customresourcedefinitions`, and the cluster-scoped core resources `nodes`,
+`persistentvolumes` and `componentstatuses`. The core group is not fully covered by `view`, and
+`headlamp-read` grants those three cluster-scoped core resources explicitly.
 
 That is every CRD-backed object in this cluster. Headlamp on plain `view` would render a
 generic Kubernetes dashboard with the homelab-specific half missing: no Applications, no
@@ -62,10 +67,11 @@ Longhorn volumes, no Postgres clusters, no HTTPRoutes, no VPAs, and an empty Sto
 So bind two roles:
 
 1. **Built-in `view`**, through the chart's own ClusterRoleBinding
-   (`clusterRoleBinding.clusterRoleName: view`). This covers the core group and withholds
-   Secrets.
+   (`clusterRoleBinding.clusterRoleName: view`). This covers the namespaced core group and
+   withholds Secrets, along with the cluster-scoped core resources listed above.
 2. **A custom `headlamp-read` ClusterRole**, in `apps/headlamp/rbac.yaml`, granting
-   `get`/`list`/`watch` on `*` across the 40 non-core API groups present in the cluster.
+   `get`/`list`/`watch` on `*` across the 40 non-core API groups present in the cluster, plus a
+   second rule adding `nodes`, `persistentvolumes` and `componentstatuses` from the core group.
 
 The split works because **Secrets exist only in the core group**. Wildcarding every non-core
 group therefore exposes no Secret, while making every CRD visible.
@@ -239,11 +245,16 @@ rules:
       - tailscale.com
     resources: ["*"]
     verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["nodes", "persistentvolumes", "componentstatuses"]
+    verbs: ["get", "list", "watch"]
 ```
 
-The core-group gaps `view` leaves behind, `persistentvolumes` among them, are cluster-scoped
-storage objects. Add them as a second rule against `apiGroups: [""]` with
-`resources: ["persistentvolumes"]` so the Storage section renders.
+The core-group gaps `view` leaves behind are cluster-scoped: `nodes` (needed for the
+`metrics.k8s.io` node metrics the non-core rule already grants), `persistentvolumes` (needed
+for the Storage section), and `componentstatuses` (deprecated but still a live API resource on
+this cluster). Add them as a second rule against `apiGroups: [""]` with
+`resources: ["nodes", "persistentvolumes", "componentstatuses"]`.
 
 ### `apps/headlamp/vpa.yaml`
 
@@ -285,6 +296,13 @@ After merge, with the Application synced:
    screen is genuinely unknown: the chart passes `-unsafe-use-service-account-token` and the
    values doc says the flag "disables per-user authentication," but no upstream doc confirms
    the UI skips the sign-in view outright. This step settles it.
+
+   Also check, via browser devtools or page source, whether the ServiceAccount token itself is
+   retrievable from the page. `-unsafe-use-service-account-token` likely exposes it to the
+   browser, and a token lifted from the page would work from outside the RFC1918 network
+   boundary this design otherwise relies on as the only access control. The blast radius stays
+   read-only either way, so this is not a privilege-escalation risk, but it is a second, wider
+   access path worth recording as a known answer rather than an unstated assumption.
 7. Opening a Secret returns a permission error. This proves `view` took effect rather than
    the chart's `cluster-admin` default.
 8. An ArgoCD Application and a Longhorn volume both render. This proves `headlamp-read`
