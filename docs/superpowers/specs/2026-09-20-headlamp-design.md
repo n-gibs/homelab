@@ -68,7 +68,8 @@ So bind two roles:
 
 1. **Built-in `view`**, through the chart's own ClusterRoleBinding
    (`clusterRoleBinding.clusterRoleName: view`). This covers the namespaced core group and
-   withholds Secrets, along with the cluster-scoped core resources listed above.
+   withholds Secrets. The cluster-scoped core resources listed above are not covered by
+   `view`; `headlamp-read` grants them separately.
 2. **A custom `headlamp-read` ClusterRole**, in `apps/headlamp/rbac.yaml`, granting
    `get`/`list`/`watch` on `*` across the 40 non-core API groups present in the cluster, plus a
    second rule adding `nodes`, `persistentvolumes` and `componentstatuses` from the core group.
