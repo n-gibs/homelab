@@ -45,13 +45,36 @@ No other part of this design moves.
 OIDC was considered and rejected. The cluster runs no identity provider, so it would mean
 deploying Dex or Authentik first. That is its own project.
 
-## RBAC: built-in `view`
+## RBAC: `view` plus a non-core read role
 
-`clusterRoleBinding.clusterRoleName: view` instead of the chart default `cluster-admin`.
+Read-only, but built-in `view` alone is not enough.
 
-What `view` grants: read on pods, deployments, nodes, events, ConfigMaps, and pod logs.
+`view` was queried against this cluster rather than assumed. It covers the core group, `apps`,
+`batch`, and `cert-manager.io`, which labels its CRDs for aggregation. It covers nothing else.
+Denied under `view`: `argoproj.io`, `longhorn.io`, `postgresql.cnpg.io`,
+`gateway.networking.k8s.io`, `monitoring.coreos.com`, `autoscaling.k8s.io`, `cilium.io`, plus
+`persistentvolumes`, `storageclasses` and `customresourcedefinitions`.
 
-What it withholds: Secrets, and every write verb. No edit, no delete, no scale, no exec, no
+That is every CRD-backed object in this cluster. Headlamp on plain `view` would render a
+generic Kubernetes dashboard with the homelab-specific half missing: no Applications, no
+Longhorn volumes, no Postgres clusters, no HTTPRoutes, no VPAs, and an empty Storage section.
+
+So bind two roles:
+
+1. **Built-in `view`**, through the chart's own ClusterRoleBinding
+   (`clusterRoleBinding.clusterRoleName: view`). This covers the core group and withholds
+   Secrets.
+2. **A custom `headlamp-read` ClusterRole**, in `apps/headlamp/rbac.yaml`, granting
+   `get`/`list`/`watch` on `*` across the 40 non-core API groups present in the cluster.
+
+The split works because **Secrets exist only in the core group**. Wildcarding every non-core
+group therefore exposes no Secret, while making every CRD visible.
+
+Two group names look alarming and are not. `bitnami.com` is SealedSecrets, whose contents are
+encrypted at rest. `secrets.infisical.com` is the InfisicalSecret CR, which holds a path
+reference rather than a value.
+
+What stays withheld: Secrets, and every write verb. No edit, no delete, no scale, no exec, no
 port-forward. Every change to this cluster continues to go through git and ArgoCD, which is
 the premise the repo is built on.
 
@@ -61,9 +84,13 @@ Two consequences worth knowing before the first time they surprise someone:
 - ConfigMaps are readable. Anything sensitive parked in a ConfigMap rather than a Secret is
   visible to anyone who loads the page.
 
+**Maintenance cost, stated plainly:** a new operator's CRDs stay invisible in Headlamp until
+its API group is added to `headlamp-read`. The failure is silent. It looks like an empty
+section, not an error. Add the group when you add the operator.
+
 If Headlamp later needs to serve incident work rather than inspection, add a narrow custom
-ClusterRole for pod deletion and rollout restart on top of `view`. Do not widen to `edit`,
-which carries Secret read.
+ClusterRole for pod deletion and rollout restart. Do not widen to `edit`, which carries
+Secret read.
 
 ## Chart
 
@@ -81,8 +108,11 @@ chartVersion: 0.45.0
 Chart version and app version move in lockstep (0.45.0 for both), and the chart resolves an
 empty `image.tag` to its `appVersion`. Leave the tag unset. Renovate bumps `chartVersion` in
 `app.yaml` and the image follows. This deviates from the `/add-app` checklist item that says
-to pin an image tag; pinning one here would create a second thing to bump that can drift out
-of step with the chart.
+to pin an image tag.
+
+The chart README makes the deviation the safer call. Helm preserves an explicitly set
+`image.tag` across upgrades, so a pinned tag lets the release report a new chart version
+while still running the old container. Leaving the tag empty removes that failure mode.
 
 ## Rendered object names
 
@@ -102,6 +132,9 @@ at `view`. The name is the chart's, not a description of the grant.
 
 ## Files
 
+`apps/headlamp/` holds `app.yaml`, `values.yaml`, `rbac.yaml` and `vpa.yaml`. One line changes
+outside it, in `system/blackbox-exporter/probes.yaml`.
+
 ### `apps/headlamp/values.yaml`
 
 Key settings, with the reasoning that belongs in the file kept to the non-obvious items:
@@ -115,6 +148,15 @@ config:
   oidc:
     secret:
       create: false
+
+# The chart ships resources: {}. A requestless container is invisible to the
+# scheduler, which is what overloaded worker-00.
+resources:
+  requests:
+    cpu: 10m
+    memory: 64Mi
+  limits:
+    memory: 256Mi
 
 ingress:
   enabled: false
@@ -137,6 +179,69 @@ httpRoute:
 
 `config.oidc.secret.create` defaults to true and produces an empty `oidc` Secret in the
 namespace even when OIDC is unused. Set it false.
+
+### `apps/headlamp/rbac.yaml`
+
+A `ClusterRole` named `headlamp-read` and a `ClusterRoleBinding` tying it to the
+`headlamp` ServiceAccount in namespace `headlamp`. The chart's own binding covers `view`
+separately, so this file carries only the non-core half.
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: headlamp-read
+# Secrets live only in the core group, which `view` covers and this role omits.
+# Wildcarding every non-core group is therefore read-everything-but-Secrets.
+rules:
+  - apiGroups:
+      - acme.cert-manager.io
+      - admissionregistration.k8s.io
+      - apiextensions.k8s.io
+      - apiregistration.k8s.io
+      - apps
+      - argoproj.io
+      - authentication.k8s.io
+      - authorization.k8s.io
+      - autoscaling
+      - autoscaling.k8s.io
+      - batch
+      - bitnami.com
+      - cert-manager.io
+      - certificates.k8s.io
+      - cilium.io
+      - coordination.k8s.io
+      - discovery.k8s.io
+      - events.k8s.io
+      - externaldns.k8s.io
+      - flowcontrol.apiserver.k8s.io
+      - gateway.envoyproxy.io
+      - gateway.networking.k8s.io
+      - gateway.networking.x-k8s.io
+      - helm.cattle.io
+      - k3s.cattle.io
+      - longhorn.io
+      - metrics.k8s.io
+      - monitoring.coreos.com
+      - monitoring.grafana.com
+      - networking.k8s.io
+      - nfd.k8s-sigs.io
+      - node.k8s.io
+      - policy
+      - postgresql.cnpg.io
+      - rbac.authorization.k8s.io
+      - resource.k8s.io
+      - scheduling.k8s.io
+      - secrets.infisical.com
+      - storage.k8s.io
+      - tailscale.com
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
+```
+
+The core-group gaps `view` leaves behind, `persistentvolumes` among them, are cluster-scoped
+storage objects. Add them as a second rule against `apiGroups: [""]` with
+`resources: ["persistentvolumes"]` so the Storage section renders.
 
 ### `apps/headlamp/vpa.yaml`
 
@@ -169,14 +274,20 @@ Before merge:
    ClusterRoleBinding names `view`.
 2. The rendered output contains an HTTPRoute and no Ingress.
 3. No `oidc` Secret in the rendered output.
+4. The container carries resource requests rather than `resources: {}`.
 
 After merge, with the Application synced:
 
-4. `kubectl get application headlamp -n argocd` reports Synced and Healthy.
-5. `https://headlamp.nik-homelab.dev` loads without a login prompt and lists namespaces.
-6. Opening a Secret in the UI returns a permission error. This is the check that proves
-   `view` took effect rather than the chart default.
-7. The blackbox probe reports `probe_success 1` for the new target.
+5. `kubectl get application headlamp -n argocd` reports Synced and Healthy.
+6. `https://headlamp.nik-homelab.dev` loads and lists namespaces. Whether it presents a login
+   screen is genuinely unknown: the chart passes `-unsafe-use-service-account-token` and the
+   values doc says the flag "disables per-user authentication," but no upstream doc confirms
+   the UI skips the sign-in view outright. This step settles it.
+7. Opening a Secret returns a permission error. This proves `view` took effect rather than
+   the chart's `cluster-admin` default.
+8. An ArgoCD Application and a Longhorn volume both render. This proves `headlamp-read`
+   bound, and it is the check that plain `view` would fail.
+9. The blackbox probe reports `probe_success 1` for the new target.
 
 ## Rollback
 
