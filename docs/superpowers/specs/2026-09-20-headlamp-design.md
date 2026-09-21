@@ -82,7 +82,9 @@ Two consequences worth knowing before the first time they surprise someone:
 
 - Reading pod logs works. Opening a shell in a container does not.
 - ConfigMaps are readable. Anything sensitive parked in a ConfigMap rather than a Secret is
-  visible to anyone who loads the page.
+  visible to anyone who loads the page. Every live ConfigMap was scanned before this shipped:
+  19 keys look credential-shaped, and each one holds a variable name or a health-check script
+  rather than a value. That was true at deploy time and nothing enforces it afterwards.
 
 **Maintenance cost, stated plainly:** a new operator's CRDs stay invisible in Headlamp until
 its API group is added to `headlamp-read`. The failure is silent. It looks like an empty
