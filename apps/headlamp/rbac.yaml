@@ -49,10 +49,11 @@ rules:
       - tailscale.com
     resources: ["*"]
     verbs: ["get", "list", "watch"]
-  # Cluster-scoped storage objects `view` withholds. Without these the Storage
-  # section renders empty.
+  # Cluster-scoped core objects `view` withholds. Without `nodes`, metrics.k8s.io's
+  # node metrics (granted above) have nothing to render against; without
+  # `persistentvolumes`, the Storage section renders empty.
   - apiGroups: [""]
-    resources: ["persistentvolumes"]
+    resources: ["nodes", "persistentvolumes", "componentstatuses"]
     verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
