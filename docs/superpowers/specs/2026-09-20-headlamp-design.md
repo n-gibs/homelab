@@ -310,6 +310,28 @@ After merge, with the Application synced:
    bound, and it is the check that plain `view` would fail.
 9. The blackbox probe reports `probe_success 1` for the new target.
 
+## Verified live, 2026-09-21
+
+Both behaviours the design could not settle before deploying are now answered, and the answer
+reframes the exposure.
+
+**No login, confirmed.** An unauthenticated `curl` from the LAN reached
+`/clusters/main/api/v1/namespaces` and got 44 namespaces back.
+
+**The ServiceAccount token is not handed to the browser.** No `Set-Cookie`, no `Authorization`
+header, no JWT in the served HTML, and `/config` reports `auth_type: ""`. The backend holds the
+token and proxies with it server side, so a token cannot be lifted from the page and replayed
+from outside the network. This was the sharper of the two risks and it does not apply. Not
+proven exhaustively: the JavaScript bundle and runtime XHRs were not audited.
+
+**The RBAC boundary holds through the real path.** `/clusters/main/api/v1/secrets` returns 403
+Forbidden from the API server, naming `system:serviceaccount:headlamp:headlamp`.
+
+**What this actually is.** Not just a web UI. Headlamp publishes an unauthenticated, read-only
+Kubernetes API proxy at `headlamp.nik-homelab.dev` that anyone on the LAN or the tailnet can
+drive with `curl`, no browser involved. The blast radius is exactly the RBAC above. Treat the
+hostname as a cluster read endpoint, not as a dashboard.
+
 ## Rollback
 
 Delete `apps/headlamp/` and revert the `probes.yaml` line. ArgoCD prunes the namespace and
