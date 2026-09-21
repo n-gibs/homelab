@@ -1,0 +1,70 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: headlamp-read
+# Secrets exist only in the core group, which the chart's `view` binding covers
+# and this role omits. Wildcarding non-core groups reads everything but Secrets.
+# A new operator's CRDs stay invisible until its group is added here.
+rules:
+  - apiGroups:
+      - acme.cert-manager.io
+      - admissionregistration.k8s.io
+      - apiextensions.k8s.io
+      - apiregistration.k8s.io
+      - apps
+      - argoproj.io
+      - authentication.k8s.io
+      - authorization.k8s.io
+      - autoscaling
+      - autoscaling.k8s.io
+      - batch
+      - bitnami.com
+      - cert-manager.io
+      - certificates.k8s.io
+      - cilium.io
+      - coordination.k8s.io
+      - discovery.k8s.io
+      - events.k8s.io
+      - externaldns.k8s.io
+      - flowcontrol.apiserver.k8s.io
+      - gateway.envoyproxy.io
+      - gateway.networking.k8s.io
+      - gateway.networking.x-k8s.io
+      - helm.cattle.io
+      - k3s.cattle.io
+      - longhorn.io
+      - metrics.k8s.io
+      - monitoring.coreos.com
+      - monitoring.grafana.com
+      - networking.k8s.io
+      - nfd.k8s-sigs.io
+      - node.k8s.io
+      - policy
+      - postgresql.cnpg.io
+      - rbac.authorization.k8s.io
+      - resource.k8s.io
+      - scheduling.k8s.io
+      - secrets.infisical.com
+      - storage.k8s.io
+      - tailscale.com
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
+  # Cluster-scoped core objects `view` withholds. Without `nodes`, metrics.k8s.io's
+  # node metrics (granted above) have nothing to render against; without
+  # `persistentvolumes`, the Storage section renders empty.
+  - apiGroups: [""]
+    resources: ["nodes", "persistentvolumes", "componentstatuses"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: headlamp-read
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: headlamp-read
+subjects:
+  - kind: ServiceAccount
+    name: headlamp
+    namespace: headlamp

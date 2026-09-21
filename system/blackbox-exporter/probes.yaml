@@ -29,6 +29,7 @@ spec:
         - https://argocd.nik-homelab.dev
         - https://bazarr.nik-homelab.dev
         - https://cleanuparr.nik-homelab.dev
+        - https://headlamp.nik-homelab.dev
         - https://home.nik-homelab.dev
         - https://infisical.nik-homelab.dev
         - https://lidarr.nik-homelab.dev
