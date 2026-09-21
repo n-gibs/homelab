@@ -86,6 +86,15 @@ alloy:
       loki.process "pods" {
         forward_to = [loki.write.local.receiver]
 
+        // loki.source.kubernetes re-tails a container from the start of its log, so quiet
+        // pods replay their startup lines forever. Past Loki's reject_old_samples_max_age
+        // (= retention_period, 168h) that 400s and Alloy drops the whole batch, live lines
+        // included. Dropping here keeps the batch, and loki_write_dropped_entries_total real.
+        stage.drop {
+          older_than          = "167h"
+          drop_counter_reason = "older_than_loki_retention"
+        }
+
         stage.match {
           selector = "{app=~\"sonarr|radarr|lidarr|prowlarr\"}"
 
