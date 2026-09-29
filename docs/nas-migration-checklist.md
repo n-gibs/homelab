@@ -75,14 +75,15 @@ Consumers that go through the StorageClass need no *git* edit: `apps/vaultwarden
 `apps/recyclarr/values.yaml`, the four `pg-backup.yaml` PVCs, `system/loki/values.yaml`,
 `system/monitoring-system/values.yaml`. **They still need their live PVs recreated.** The
 provisioner bakes `server` and `path` into each PV at creation time, and `spec.nfs` is immutable,
-so changing its values only affects PVs created afterwards. That is 24 dynamic PVs plus the two
-static ones (immich, nextcloud), 26 in all: `kubectl get pv -o
-custom-columns=NAME:.metadata.name,SERVER:.spec.nfs.server` lists them.
+so changing its values only affects PVs created afterwards. That is 8 bound dynamic PVs (Loki,
+qbittorrent, recyclarr, vaultwarden-data and the four `*-db-backup` volumes) plus the two static
+ones (immich, nextcloud), 10 in all. The 16 `Released` NFS PVs are prune leftovers: delete them
+before the rsync rather than recreating them.
 
 Every one is `Retain`, so the data survives. Per PV, with its consumers at zero: delete the PVC,
 delete the PV, recreate the PV with the new server and `/mnt/storage/data/...` path and no
-`claimRef.uid`, then let ArgoCD (or the StatefulSet, for Loki and Prometheus) recreate the PVC
-bound by `volumeName`. Script this for the cutover rather than doing 26 by hand.
+`claimRef.uid`, then let ArgoCD (or the StatefulSet, for Loki) recreate the PVC bound by
+`volumeName`. Script this for the cutover rather than doing 10 by hand.
 
 ## Change: the NFS server role
 
@@ -120,7 +121,7 @@ both when storage moves to a NAS — but only configured TrueNAS alerting makes 
    Navidrome, Immich, Nextcloud, Vaultwarden, Loki, Prometheus. Simplest via ArgoCD by suspending
    auto-sync and scaling deployments, not by deleting Applications.
 4. Final rsync delta.
-5. Recreate all 26 NFS PVs against the NAS (see above), then merge the repo changes to `main`
+5. Recreate all 10 NFS PVs against the NAS (see above), then merge the repo changes to `main`
    and let ArgoCD sync.
 6. Bring apps back in dependency order: storage-facing infra (Loki, Prometheus) first, then media.
 7. Verify writes land on the NAS, not on a stale local mount — an empty `/mnt/storage` on a node
