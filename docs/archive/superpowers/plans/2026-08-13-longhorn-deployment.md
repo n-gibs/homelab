@@ -2,21 +2,10 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-> **Status: migration complete 2026-08-13.** All eight volumes are on Longhorn and verified. The
-> only open item is **Task 16** (retiring the eight retained `local-path` PVC blocks), gated to
-> **2026-08-27** — two weeks from the last Merge B, matching the `apps/vaultwarden/data-pvc.yaml`
-> precedent. This file moves to `docs/archive/superpowers/plans/` once Task 16 runs; until then it
-> stays here per the archive convention (no open-item docs in `docs/archive/`).
->
-> **Correction for whoever runs Task 16: the old `local-path` PVs are `reclaimPolicy: Delete`, not
-> `Retain`.** Task 16 Steps 3–4 below assume `Retain` and describe reclaiming `Released` PVs
-> afterwards — there will be no `Released` PVs to reclaim. Deleting a `*-config-local` PVC block
-> from git, or letting ArgoCD prune it, destroys the underlying data immediately, with no second
-> layer. The two weeks of git history is the only rollback, not the outer of two as Step 3 implies.
-> **Verify every volume has a completed backup in the Longhorn backupstore
-> (`kubectl -n longhorn-system get backups.longhorn.io`) before deleting anything** — Step 2 already
-> says this, but treat it as the load-bearing check, not a formality, given Step 3/4 no longer have
-> a `Released`-PV fallback behind them.
+> **Status: complete.** Migration done 2026-08-13. Task 16 ran 2026-09-28/29: nine old
+> `local-path` PVCs pruned in #244, `cleanuparr-config-local` last, after its backup CronJob was
+> repointed (#243). Task 16 Steps 3–4 below assume `Retain`; the old PVs were `Delete`, so the
+> prune itself freed the disk and there were no `Released` PVs to reclaim.
 
 **Goal:** Replace `local-path` with Longhorn for eight volumes, so a node failure stops meaning a
 hand restore from the newest backup archive.

@@ -8,7 +8,7 @@
 
 **Tech Stack:** k3s, ArgoCD (auto-sync, `prune: true`, `selfHeal: true`), CloudNativePG, bjw-s `app-template` 5.0.1, pgloader 3.6.x, `vaultwarden/server:1.37.1`, PostgreSQL 18.
 
-**Spec:** `docs/superpowers/specs/2026-08-11-vaultwarden-postgres-design.md`
+**Spec:** `docs/archive/superpowers/specs/2026-08-11-vaultwarden-postgres-design.md`
 
 ## Global Constraints
 
