@@ -32,6 +32,17 @@ spec:
             runAsUser: 1000
             runAsGroup: 1000
             fsGroup: 1000
+          # The scheduler doesn't enforce RWO: on any other node this pod hangs on a
+          # Multi-Attach error. Required, since preferred can still pick another node. If
+          # Cleanuparr is down the job stays Pending; CronJobNotSucceeding covers both cases.
+          affinity:
+            podAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                - labelSelector:
+                    matchLabels:
+                      app.kubernetes.io/name: cleanuparr
+                      app.kubernetes.io/controller: main
+                  topologyKey: kubernetes.io/hostname
           containers:
             - name: sqlite-backup
               image: python:3.13-alpine
@@ -125,11 +136,11 @@ spec:
                   memory: 512Mi
           volumes:
             # ReadWriteOnce is a per-NODE constraint, not per-pod, so this pod may mount the
-            # volume while Cleanuparr has it. (ReadWriteOncePod would forbid it; that is not
-            # the access mode in use.)
+            # volume while Cleanuparr has it, given the podAffinity above. (ReadWriteOncePod
+            # would forbid it; that is not the access mode in use.)
             - name: config
               persistentVolumeClaim:
-                claimName: cleanuparr-config-local
+                claimName: cleanuparr-config
             - name: data
               nfs:
                 server: 192.168.30.194
