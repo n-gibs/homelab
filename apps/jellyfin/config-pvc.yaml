@@ -1,21 +1,6 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: jellyfin-config-local
-  namespace: jellyfin
-  # No sync-wave annotation -- see the local-path note in CLAUDE.md. Superseded by
-  # jellyfin-config below; scheduled for deletion.
-spec:
-  accessModes:
-    - ReadWriteOnce
-  storageClassName: local-path
-  resources:
-    requests:
-      storage: 20Gi
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
   name: jellyfin-config
   namespace: jellyfin
 spec:
