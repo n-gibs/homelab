@@ -1,6 +1,6 @@
 nfs:
-  server: 192.168.30.194
-  path: /mnt/storage
+  server: 192.168.30.144
+  path: /mnt/storage/data
 
 # Shipped requestless. 7-day peak was 1m / 31Mi — it does almost nothing, but a container
 # with no request is invisible to the scheduler and counts as free capacity on whichever

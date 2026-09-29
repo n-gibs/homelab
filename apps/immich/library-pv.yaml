@@ -14,8 +14,8 @@ spec:
   mountOptions:
     - nfsvers=4.1
   nfs:
-    server: 192.168.30.194
-    path: /mnt/storage/photos
+    server: 192.168.30.144
+    path: /mnt/storage/data/photos
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim

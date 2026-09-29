@@ -41,7 +41,7 @@ preUpgradeChecker:
 # not a second host. No credential secret: it's an unauthenticated NFS export. Repointing
 # at the NAS later is this one line.
 defaultBackupStore:
-  backupTarget: nfs://192.168.30.194:/mnt/storage/longhorn-backups
+  backupTarget: nfs://192.168.30.144:/mnt/storage/data/longhorn-backups
 
 persistence:
   # Never the cluster default. local-path stays default and nfs stays in use; a silent

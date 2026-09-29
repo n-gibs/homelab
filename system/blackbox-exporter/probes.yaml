@@ -75,4 +75,4 @@ spec:
   targets:
     staticConfig:
       static:
-        - 192.168.30.194:2049
+        - 192.168.30.144:2049

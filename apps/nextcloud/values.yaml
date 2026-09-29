@@ -2,7 +2,7 @@ nextcloud:
   host: nextcloud.nik-homelab.dev          # also templates NEXTCLOUD_TRUSTED_DOMAINS
   # Top-level, not the default /var/www/html/data — that would nest the NFS data
   # volume inside the local-path app-tree volume. Files still land at
-  # /mnt/storage/nextcloud/data.
+  # /mnt/storage/data/nextcloud/data on the NAS.
   datadir: /nc-data
   existingSecret:
     enabled: true

@@ -185,8 +185,8 @@ controllers:
 persistence:
   data:
     type: nfs
-    server: 192.168.30.194
-    path: /mnt/storage
+    server: 192.168.30.144
+    path: /mnt/storage/data
     globalMounts:
       - path: /data
 ```

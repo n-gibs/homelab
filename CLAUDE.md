@@ -5,7 +5,7 @@
 | Node | Hardware | CPU | RAM | Storage | Role |
 |------|----------|-----|-----|---------|------|
 | worker-00 | HP ProDesk Mini G4 | i3-8100T (8th gen, 4C/4T) | 16GB | 128GB NVMe | k3s server + worker (schedulable) |
-| worker-01 | HP ProDesk Mini G9 | i5-12500T (12th gen, 6C/12T) | 24GB | 512GB NVMe + 12TB USB HDD | k3s server + worker, NFS server, media workloads (`homelab.io/media=true`), preferred ingress announcer (`homelab.io/ingress=true`), no taint |
+| worker-01 | HP ProDesk Mini G9 | i5-12500T (12th gen, 6C/12T) | 24GB | 512GB NVMe + 12TB USB HDD | k3s server + worker, media workloads (`homelab.io/media=true`), preferred ingress announcer (`homelab.io/ingress=true`), no taint |
 | worker-02 | HP ProDesk Mini G6 | i5-10500T (10th gen, 6C/12T) | 16GB | 256GB NVMe | k3s server + worker (schedulable), failover ingress announcer (`homelab.io/ingress=true`) |
 
 worker-01 is the largest node on every axis; worker-00 is the smallest (4 cores, no HT) and hits
@@ -26,7 +26,7 @@ Cluster lives on its own dedicated interface and subnet on an OPNsense firewall.
 - Subnet: `192.168.30.0/24` (VLAN, separate OPNsense interface)
 - Pod CIDR: `10.42.0.0/16`, Service CIDR: `10.43.0.0/16`
 - Public DNS: `*.nik-homelab.dev` via Cloudflare + external-dns
-- NFS server: `192.168.30.194` (worker-01), share at `/mnt/storage`
+- NFS server: `192.168.30.144` (TrueNAS), export `/mnt/storage/data`
 
 Any firewall rules, network policies, or IP references must use the `192.168.30.0/24` subnet. Do not assume cluster nodes are on the default network.
 
@@ -147,13 +147,13 @@ Media apps mount the shared NFS data volume directly:
 ```yaml
   data:
     type: nfs
-    server: 192.168.30.194
-    path: /mnt/storage
+    server: 192.168.30.144
+    path: /mnt/storage/data
     globalMounts:
       - path: /data
 ```
 
-NFS path layout on worker-01:
+NFS path layout on the NAS, as the pods see it under `/data`:
 - `/data/downloads` — qBittorrent download dir
 - `/data/media/tv` — Sonarr managed library
 - `/data/media/movies` — Radarr managed library

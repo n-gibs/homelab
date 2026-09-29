@@ -129,5 +129,5 @@ spec:
           volumes:
             - name: backups
               nfs:
-                server: 192.168.30.194
-                path: /mnt/storage/backups/jellyfin
+                server: 192.168.30.144
+                path: /mnt/storage/data/backups/jellyfin

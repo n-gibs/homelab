@@ -52,7 +52,7 @@ Observability is kube-prometheus-stack (`system/monitoring-system`) plus Loki + 
 | Hostname | Hardware | CPU | RAM | Storage | Role | IP |
 |----------|----------|-----|-----|---------|------|-----|
 | worker-00 | HP ProDesk Mini G4 | i3-8100T (8th gen, 4C/4T) | 16GB | 128GB NVMe | k3s server + worker (schedulable) | 192.168.30.129 |
-| worker-01 | HP ProDesk Mini G9 | i5-12500T (12th gen, 6C/12T) | 24GB | 512GB NVMe + 12TB USB HDD | k3s server + worker, NFS server, media workloads (label, no taint) | 192.168.30.194 |
+| worker-01 | HP ProDesk Mini G9 | i5-12500T (12th gen, 6C/12T) | 24GB | 512GB NVMe + 12TB USB HDD | k3s server + worker, media workloads (label, no taint) | 192.168.30.194 |
 | worker-02 | HP ProDesk Mini G6 | i5-10500T (10th gen, 6C/12T) | 16GB | 256GB NVMe | k3s server + worker (schedulable) | 192.168.30.136 |
 
 worker-01 is the largest node in the cluster on every axis, which is why media lands there and why
@@ -64,10 +64,10 @@ All 3 nodes are k3s server+worker (HA etcd control plane) and all 3 are normal s
 **Planned: move the 12TB drive to a dedicated NAS.** Today the 12TB USB disk hangs off worker-01,
 which makes that one node both the NFS server and the busiest workload host — a single point of
 failure for every `nfs` PVC. Moving it to a NAS separates storage from compute: the NFS server
-address stops being a node IP and worker-01 becomes an ordinary (if large) media node. Nothing in
-this repo assumes the move yet — `192.168.30.194` is still hardcoded as the NFS server in media app
-values and in `system/nfs-provisioner/`, so that's the surface to change when it happens. This no
-longer bears on the arrs' config volumes — see below.
+address stops being a node IP and worker-01 becomes an ordinary (if large) media node. The NAS is
+up at `192.168.30.144`, exporting `/mnt/storage/data`; the cutover is tracked in
+[`docs/nas-migration-checklist.md`](docs/nas-migration-checklist.md). This no longer bears on the
+arrs' config volumes — see below.
 
 Scheduling changes with it. Today 14 apps carry a hard `nodeSelector` on `homelab.io/media=true`,
 which pins them to worker-01 whether or not they need it. Once storage is off the node, only
