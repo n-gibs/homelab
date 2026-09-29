@@ -31,6 +31,8 @@ repo is what says whether something shipped.
 | [Nextcloud](superpowers/plans/2026-07-31-nextcloud-deployment.md) | `apps/nextcloud` |
 | [Seedbox integration](superpowers/plans/2026-08-04-seedbox-integration.md) | `apps/rclone-seedbox`, `just wire-seedbox` |
 | [Self-hosted Renovate](superpowers/plans/2026-08-06-selfhosted-renovate.md) | `platform/renovate` |
+| [Vaultwarden on Postgres](superpowers/plans/2026-08-11-vaultwarden-postgres.md) | `apps/vaultwarden` (CNPG); old SQLite PVC pruned 2026-09-28 (#244) |
+| [Longhorn](superpowers/plans/2026-08-13-longhorn-deployment.md) | `system/longhorn-system`; old `local-path` PVCs pruned 2026-09-28/29 |
 
 Cleanuparr stays in `docs/superpowers/` rather than here: it is deployed, but Tasks 8–10 (the
 Malware Blocker, Queue Cleaner and seeding-cleanup phases) are UI config that hasn't been done.
