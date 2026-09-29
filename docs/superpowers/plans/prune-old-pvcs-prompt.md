@@ -14,8 +14,8 @@ Three separate populations, and they do not behave the same way:
 | Part | What | Count | Reclaim policy | Deleting it means |
 |---|---|---|---|---|
 | 1 | Longhorn/CNPG migration leftovers | 9 PVCs | **Delete** | remove the PVC block from git; ArgoCD destroys the data immediately |
-| 2 | Prometheus TSDB on NFS | 1 PV | **Retain** | `kubectl delete pv` **and** `rm -rf` the directory on worker-01 |
-| 3 | Released NFS PVs from the 2026-08-06 arr migration | 15 PVs | **Retain** | same as part 2 — object plus directory |
+| 2 | Prometheus TSDB on NFS | 1 PV | **Retain** | `kubectl delete pv` **and** `rm -rf` the directory on worker-01 — **done 2026-09-28** |
+| 3 | Released NFS PVs from the 2026-08-06 arr migration | 15 PVs | **Retain** | same as part 2 — object plus directory — **done 2026-09-28** |
 
 Parts 2 and 3 are the inverse of part 1: there the PVC delete is the point of no return, here
 `kubectl delete pv` frees nothing on disk at all and quietly leaves the bytes behind forever.
@@ -128,6 +128,8 @@ the archive convention forbids docs with open items. Delete this prompt file.
 
 ## Part 2 — the Prometheus TSDB PV (gate 2026-08-28)
 
+**Done 2026-09-28.** Both halves: directory removed on worker-01 (11.0GB) and PV object deleted.
+
 `pvc-9dbb49b1-67bc-4e50-9cde-31a9db461985`, 20Gi, `Released`, `Retain`, holding **11GB** at
 `worker-01:/mnt/storage/monitoring-system/prometheus-…-prometheus-0`. It is the rollback for
 PR #56, the NFS-to-longhorn TSDB move, and it is the alerting path's own history.
@@ -145,6 +147,9 @@ Then both halves: `kubectl delete pv` releases the object, and the directory on 
 to go separately. Say which you did.
 
 ## Part 3 — 15 Released NFS PVs from the 2026-08-06 arr migration (ungated)
+
+**Done 2026-09-28.** All 15 directories removed on worker-01 (2.2GB) and PV objects deleted.
+Parts 2 and 3 together freed 13.2GB; `kubectl get pv` shows no Released PVs.
 
 These predate everything above: they are what the arrs left on NFS when SQLite-on-NFS was
 abandoned. All 15 are `Released` + `Retain`, none is referenced anywhere in git, and none has
