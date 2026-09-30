@@ -17,11 +17,3 @@
   ansible.builtin.command: update-grub
   changed_when: true
   become: true
-
-# Reload only. No `udevadm trigger` — re-triggering a block device that is mounted and
-# serving NFS to the whole cluster is not worth it to apply a setting that the next
-# add/change event will apply anyway.
-- name: Reload udev rules
-  ansible.builtin.command: udevadm control --reload-rules
-  changed_when: true
-  become: true
