@@ -86,7 +86,6 @@ just deps          # install galaxy dependencies
 just ping          # test all nodes
 just provision     # full provisioning run
 just provision-common  # only the common role (base hardening), --tags common
-just provision-nfs     # only the NFS server/client roles, --tags nfs
 just dry-run       # check mode, no changes
 just lint          # run ansible-lint
 just vault-view    # inspect vault contents
@@ -111,8 +110,6 @@ ansible/
 │   └── worker-02.yml      # G6: ingress label, schedulable
 └── roles/
     ├── common/               # SSH hardening, UFW, unattended-upgrades
-    ├── nfs_server/            # NFS export of 12TB drive on worker-01
-    ├── nfs_client/            # NFS mount on worker-00 and worker-02
     └── cert_manager_issuers/  # Apply ClusterIssuer manifests
 ```
 
