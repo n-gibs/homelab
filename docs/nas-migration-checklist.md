@@ -113,11 +113,16 @@ settings that mattered, in TrueNAS terms:
 
 ## Change: monitoring
 
-`system/monitoring-system/prometheusrule-temperature.yaml` has a rule group for the USB drive fed
-by a `smart-temp-textfile.timer` unit in `ansible/roles/common`. The file already says to delete
-both when storage moves to a NAS — but only configured TrueNAS alerting makes that true, see
-"Talos, next". Also check
-`system/monitoring-system/dashboard-media-stack.yaml` for panels keyed to the worker-01 mount.
+TrueNAS alerts on its own disks and pool (HOM-13): Drive Health Management polls SMART every 90
+minutes and alerts above each drive's rated maximum temperature. 25.10 has no webhook alert type,
+so its **Slack** type posts `{"text": ...}` to an ntfy.sh topic with `?tpl=yes&m={{.text}}`. The
+topic name is the credential and lives only in TrueNAS. SMART self-tests are TrueNAS cron jobs.
+
+That made the USB drive's monitoring deletable: the `smart-temp-textfile` exporter and APM udev
+rule in `ansible/roles/common`, the disk rule group in `prometheusrule-temperature.yaml`, and
+`prometheusrule-nfs-export.yaml`. Merge that deletion **before** unmounting the drive in HOM-12:
+`NfsExportDriveUnmounted` (critical) and `DiskTemperatureMetricsMissing` fire on the series going
+absent. The media dashboard's capacity panels now read the NAS through kubelet's NFS PVC stats.
 
 ## Sequence
 

@@ -183,39 +183,6 @@ An audit (`.claude/scripts/inotify-audit.py`) found no leak: the only growth ter
 which kubelet caps at 110 per node, so 1024 is real headroom at the measured ~2.2 fds per pod.
 `max_user_watches` is nowhere near its limit and was raised only for symmetry.
 
-### USB drive head parking
-
-worker-01's 12TB WD ships at APM 128, which parks the heads ~50 times an hour on a drive that is
-0.02% busy: 9% of its 600k load-cycle rating in five weeks. APM 254 stops it outright with no
-temperature penalty.
-
-The rule fires on udev `add`/`change` rather than a boot-time unit, because APM is volatile and
-resets whenever the drive loses power, which on USB includes bus re-enumeration with the node
-still up.
-
-It uses `smartctl` rather than `idle3ctl` or `hdparm`: the WD120EDGZ is an Ultrastar He12
-white-label with no idle3 timer, so unload is APM alone, and APM over SAT needs no vendor commands
-aimed at the disk backing every NFS PVC in the cluster.
-
-It matches on vendor and model rather than serial. The shucked drive hangs off a generic SATA-USB
-bridge that fabricates an unstable identity, with `ID_SERIAL_SHORT` and `ID_WWN` both
-`5000000000000001` and the by-id link re-randomised per enumeration. The SCSI INQUIRY strings are
-the only bridge-independent fields left, and worker-01 has exactly one USB disk.
-
-Both this rule and the SMART textfile exporter exist for that one drive. Once `/mnt/storage` moves
-to a NAS the nodes have only NVMe left, hwmon covers it, and both should be deleted rather than
-left emitting nothing. The disk half of
-`system/monitoring-system/prometheusrule-temperature.yaml` goes with them.
-
-### SMART temperature exporter
-
-CPU and NVMe temperatures already reach Prometheus free through node-exporter's hwmon collector.
-USB-attached drives have no hwmon entry, since `drivetemp` binds to SATA hosts rather than
-usb-storage, so worker-01's 12TB WD is invisible to it. That drive is the only spinning disk and
-the hottest sensor in the cluster, at 61C against a 65C spec maximum. Feeding it through the
-textfile collector beats adding a second exporter, and it emits nothing on a node with no
-SMART-readable non-NVMe disk.
-
 ### NVMe APST on worker-02
 
 The WD PC SN740 in worker-02 stops answering shortly after boot if it picks its own power state.

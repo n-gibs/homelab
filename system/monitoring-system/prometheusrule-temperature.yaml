@@ -28,14 +28,6 @@ spec:
               ),
               "sensor_name", "$1 CPU", "nodename", "(.*)"
             )
-            or
-            label_replace(
-              max by (nodename) (
-                node_smart_temperature_celsius
-                  * on(instance) group_left(nodename) node_uname_info
-              ),
-              "sensor_name", "$1 HDD", "nodename", "(.*)"
-            )
 
         # Read by the Homepage widget. Degrees of headroom, not raw temperature: one absolute
         # number means nothing on a glanceable list when a disk dies 40 degrees below a CPU.
@@ -61,16 +53,6 @@ spec:
                 ) * on(instance) group_left(nodename) node_uname_info
               ),
               "sensor_name", "$1 NVMe", "nodename", "(.*)"
-            )
-            or
-            label_replace(
-              min by (nodename) (
-                (
-                  node_smart_temperature_limit_celsius
-                    - on(instance, device) node_smart_temperature_celsius
-                ) * on(instance) group_left(nodename) node_uname_info
-              ),
-              "sensor_name", "$1 HDD", "nodename", "(.*)"
             )
 
     - name: temperature-cpu-nvme
@@ -121,95 +103,3 @@ spec:
               hardware throttles hard or cuts power. Expect the node to drop out of the
               cluster if this continues. All three nodes are etcd members, so losing a
               second one costs quorum.
-
-    # TODO(NAS): this whole group exists for worker-01's 12TB USB drive, the cluster's only
-    # spinning disk. When /mnt/storage moves to a NAS, delete the group along with the
-    # smart-temp-textfile exporter in ansible/roles/common — the NAS watches its own disks,
-    # and these rules would sit here matching no series.
-    - name: temperature-disk
-      rules:
-        # Fed by smart-temp-textfile.timer on the host, not hwmon — USB drives get no hwmon
-        # entry, so this is the only path to a temperature for worker-01's 12TB WD.
-        - alert: DiskTemperatureAboveSpec
-          expr: >-
-            (
-              node_smart_temperature_celsius
-                >= on(instance, device)
-              node_smart_temperature_limit_celsius
-            ) * on(instance) group_left(nodename) node_uname_info
-          for: 15m
-          labels:
-            severity: warning
-          annotations:
-            summary: >-
-              {{ $labels.nodename }} disk {{ $labels.device }} is {{ $value | printf "%.0f" }}C,
-              above its rated maximum
-            description: >-
-              {{ $labels.device }} ({{ $labels.model }}) on {{ $labels.nodename }} has run
-              at or above its vendor-specified maximum operating temperature for 15m,
-              currently {{ $value | printf "%.0f" }}C. Running a helium drive past spec
-              shortens its life well before it fails outright, and this disk backs
-              /mnt/storage — every NFS PVC and the whole media library. Improve airflow
-              around the enclosure; there is no software fix.
-
-        - alert: DiskTemperatureCritical
-          expr: >-
-            (
-              node_smart_temperature_celsius
-                >= on(instance, device)
-              (node_smart_temperature_limit_celsius + 5)
-            ) * on(instance) group_left(nodename) node_uname_info
-          for: 5m
-          labels:
-            severity: critical
-          annotations:
-            summary: >-
-              {{ $labels.nodename }} disk {{ $labels.device }} is {{ $value | printf "%.0f" }}C
-            description: >-
-              {{ $labels.device }} ({{ $labels.model }}) on {{ $labels.nodename }} is
-              {{ $value | printf "%.0f" }}C, more than 5C past its rated maximum. Move data
-              off or power the enclosure down.
-
-        # Without this the disk alerts above fail silent: if the timer stops, the series
-        # disappears and both expressions go permanently empty. worker-01 owns the only
-        # non-NVMe disk, so absent() is equivalent to "worker-01's feed is broken" without
-        # hardcoding a node. 30m tolerates a reboot or an Ansible run.
-        - alert: DiskTemperatureMetricsMissing
-          expr: absent(node_smart_temperature_celsius)
-          for: 30m
-          labels:
-            severity: warning
-          annotations:
-            summary: No SMART drive temperatures are being reported
-            description: >-
-              node_smart_temperature_celsius has been absent for 30m, so the disk
-              temperature alerts cannot fire and worker-01's 12TB drive is unmonitored.
-              Check smart-temp-textfile.timer on worker-01 and that node-exporter still
-              has --collector.textfile.directory pointed at
-              /host/root/var/lib/node_exporter/textfile_collector.
-
-        # Wear, not heat. A udev rule in ansible/roles/common pins the USB drive's APM so its
-        # heads stop parking; this alert exists because that rule keys on the bridge's
-        # ID_VENDOR/ID_MODEL and can stop matching silently. The threshold sits clear of both
-        # states, and the slow window tolerates the legitimate parks a reboot or re-plug causes.
-        - alert: DiskHeadParkingResumed
-          expr: >-
-            (
-              rate(node_smart_load_cycle_count[1h]) * 3600 > 10
-            ) * on(instance) group_left(nodename) node_uname_info
-          for: 1h
-          labels:
-            severity: warning
-          annotations:
-            summary: >-
-              {{ $labels.nodename }} disk {{ $labels.device }} is parking its heads
-              {{ $value | printf "%.0f" }} times an hour again
-            description: >-
-              {{ $labels.device }} on {{ $labels.nodename }} is back to loading and
-              unloading its heads {{ $value | printf "%.0f" }} times an hour, which burns a
-              600k-cycle rating in roughly 14 months. APM has reverted to a power-saving
-              level. Confirm `smartctl --get=apm /dev/sda` reads 254, and that
-              /etc/udev/rules.d/60-wd-elements-apm.rules still matches the drive —
-              `udevadm info --query=property --name=/dev/sda | grep -E 'ID_VENDOR|ID_MODEL'`.
-              A new USB bridge reports its own vendor/model strings, so re-enclosing the
-              drive means the rule needs the new pair.
