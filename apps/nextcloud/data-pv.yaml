@@ -14,8 +14,8 @@ spec:
   mountOptions:
     - nfsvers=4.1
   nfs:
-    server: 192.168.30.194
-    path: /mnt/storage/nextcloud
+    server: 192.168.30.144
+    path: /mnt/storage/data/nextcloud
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -24,7 +24,7 @@ metadata:
   namespace: nextcloud
   annotations:
     argocd.argoproj.io/sync-wave: "-1"
-  # TODO: /mnt/storage/nextcloud has no off-host backup. Documents here may be the
+  # TODO: /mnt/storage/data/nextcloud has no off-host backup. Documents here may be the
   # only copy. Covered by the planned /mnt/storage backup project, which also owns
   # photos/ and media/. Until then the desktop sync client is the second copy.
 spec:

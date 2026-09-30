@@ -62,7 +62,7 @@ CronJob `infisical-db-backup` (namespace `infisical`) runs daily at 03:00,
 `pg_dump -Fc` from image `ghcr.io/cloudnative-pg/postgresql:18-standard-trixie`,
 retention via `find -mtime +14 -delete`. It writes to PVC `infisical-db-backup`
 (1Gi, RWX, `nfs` StorageClass), which the nfs-subdir provisioner lands at
-`192.168.30.194:/mnt/storage/infisical/infisical-db-backup/` — namespace/pvc-name.
+`192.168.30.144:/mnt/storage/data/infisical/infisical-db-backup/` — namespace/pvc-name.
 Filenames are `infisical-<YYYYmmdd-HHMMSS>.dump`.
 
 `BackupCronJobMissing` (`system/monitoring-system/prometheusrule-backups.yaml`)
@@ -164,8 +164,8 @@ spec:
       emptyDir: {}
     - name: backup
       nfs:
-        server: 192.168.30.194
-        path: /mnt/storage/infisical/infisical-db-backup
+        server: 192.168.30.144
+        path: /mnt/storage/data/infisical/infisical-db-backup
         readOnly: true
 ```
 

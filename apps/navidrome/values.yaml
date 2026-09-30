@@ -75,14 +75,14 @@ persistence:
   # needs its own writable mount rather than a subdirectory of it.
   backups:
     type: nfs
-    server: 192.168.30.194
-    path: /mnt/storage/backups/navidrome
+    server: 192.168.30.144
+    path: /mnt/storage/data/backups/navidrome
     globalMounts:
       - path: /backups
   data:
     type: nfs
-    server: 192.168.30.194
-    path: /mnt/storage
+    server: 192.168.30.144
+    path: /mnt/storage/data
     globalMounts:
       - path: /data
         readOnly: true

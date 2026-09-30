@@ -86,7 +86,7 @@ persistence:
   # is owned by uid 1000, which is what the container runs as.
   backups:
     type: nfs
-    server: 192.168.30.194
-    path: /mnt/storage/backups
+    server: 192.168.30.144
+    path: /mnt/storage/data/backups
     globalMounts:
       - path: /data/backups

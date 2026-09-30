@@ -3,7 +3,8 @@
 What has to change in this repo when `/mnt/storage` stops being a USB drive on worker-01 and
 becomes a NAS.
 
-Throughout: `NAS_IP` is the NAS's address on `192.168.30.0/24`.
+`NAS_IP` is `192.168.30.144` (DHCP reservation in OPNsense). The export is
+`192.168.30.144:/mnt/storage/data`.
 
 ## Hardware
 
@@ -16,13 +17,15 @@ mirror once the data is copied and verified.
 ## Decisions
 
 - **OS: TrueNAS SCALE.** ZFS snapshots, scrubs and disk monitoring without building them.
-- **Pool name: `storage`.** TrueNAS mounts a pool at `/mnt/<poolname>`, so this gives
-  `/mnt/storage` verbatim and the repo change stays a sed on the IP alone. Any other pool name
-  costs every `path:` in the tables below plus re-pointing the arrs' root folders, Jellyfin's
-  libraries and qBittorrent's save paths by hand in their own UIs.
-- **One dataset, plain directories underneath.** `downloads/ media/ photos/ nextcloud/
-  backups/ vaultwarden/` stay directories at the pool root, so one NFS export covers them all.
-  Separate datasets would buy per-directory snapshots and quotas at the cost of NFSv4
+- **Pool `storage`, export from the child dataset `storage/data`.** TrueNAS warns against
+  sharing a pool's root dataset, and a child leaves room for siblings that must not sit in the
+  cluster's share (Talos's `secrets.yaml`, below). The cost is only the server-side `path:`:
+  `/mnt/storage` becomes `/mnt/storage/data`, on the same lines the IP change already touches.
+  The arrs' root folders, Jellyfin's libraries and qBittorrent's save paths are container paths
+  (`/data/...`) and do not change.
+- **One exported dataset, plain directories underneath.** `downloads/ media/ photos/ nextcloud/
+  backups/ vaultwarden/` stay directories inside `storage/data`, so one NFS export covers them
+  all. Separate datasets would buy per-directory snapshots and quotas at the cost of NFSv4
   submount handling and a share per dataset.
 - **Layout: single disk now, mirror later.** Copy to the new 12TB, verify, then wipe
   worker-01's drive and `zpool attach` it. Do not attach before the verify — attaching wipes
@@ -47,28 +50,40 @@ Still open:
 
 ## Change: NFS server address
 
-`192.168.30.194` → `NAS_IP` everywhere it means "the storage server". Note that the same IP is
-also worker-01's node address in `ansible/inventory.yml` and must **not** change there.
+`192.168.30.194` → `192.168.30.144`, and server-side `/mnt/storage` → `/mnt/storage/data`,
+everywhere they mean "the storage server". The same IP is also worker-01's node address in
+`ansible/inventory.yml` and `system/monitoring-system/scrapeconfig-etcd.yaml` and must **not**
+change there. Done on branch `feat/hom-10-nas-repoint` (HOM-10).
 
 | File | What it is |
 |---|---|
 | `system/nfs-provisioner/values.yaml` | `nfs.server` / `nfs.path` for the `nfs` StorageClass. Everything using `storageClass: nfs` follows this one value. |
-| `ansible/roles/nfs_client/defaults/main.yml` | `nfs_server_host`, `nfs_server_export` |
 | `apps/immich/library-pv.yaml` | static PV → `/mnt/storage/photos` |
 | `apps/nextcloud/data-pv.yaml` | static PV → `/mnt/storage/nextcloud` |
-| `apps/{sonarr,radarr,lidarr,bazarr,prowlarr,qbittorrent,unpackerr,jellyfin,navidrome,rclone-seedbox}/values.yaml` | inline `type: nfs` data volume |
+| `apps/{sonarr,radarr,lidarr,bazarr,prowlarr,qbittorrent,unpackerr,jellyfin,navidrome,rclone-seedbox}/values.yaml` | inline `type: nfs` data volume; prowlarr, jellyfin and navidrome also mount `backups/` |
+| `system/longhorn-system/values.yaml` | `backupTarget`, now a directory inside the single export |
+| `system/blackbox-exporter/{probes,prometheusrule}.yaml` | the `:2049` probe and `NFSServerUnreachable` |
 | `apps/jellyfin/backup-cronjob.yaml` | inline NFS volume → `/mnt/storage/backups/jellyfin` |
 | `apps/cleanuparr/backup-cronjob.yaml` | inline NFS volume → `/mnt/storage` |
 | `CLAUDE.md`, `.claude/commands/add-app.md`, `README.md`, `system/infisical/README.md` | documented patterns new apps get copied from — update or the next app regresses |
 
-Consumers that need **no** edit because they go through the StorageClass: `apps/vaultwarden/data-pvc-nfs.yaml`,
-`apps/recyclarr/values.yaml`, the four `pg-backup.yaml` PVCs (immich, nextcloud, vaultwarden,
-infisical), `system/loki/values.yaml`, `system/monitoring-system/values.yaml`.
+`ansible/roles/nfs_client` is deliberately left pointing at worker-01. It mounts at
+`/mnt/storage` on every host, which on worker-01 is the local disk's mountpoint; it is deleted
+in HOM-14 rather than repointed.
 
-The static PVs (immich, nextcloud) are the awkward ones: `spec.nfs.server` is immutable. Changing
-it means deleting and recreating the PV/PVC pair. `persistentVolumeReclaimPolicy: Retain` means
-the data survives that, but the pods must be scaled to zero first and the PVC recreated with the
-same `volumeName` before they come back.
+Consumers that go through the StorageClass need no *git* edit: `apps/vaultwarden/data-pvc-nfs.yaml`,
+`apps/recyclarr/values.yaml`, the four `pg-backup.yaml` PVCs, `system/loki/values.yaml`,
+`system/monitoring-system/values.yaml`. **They still need their live PVs recreated.** The
+provisioner bakes `server` and `path` into each PV at creation time, and `spec.nfs` is immutable,
+so changing its values only affects PVs created afterwards. That is 8 bound dynamic PVs (Loki,
+qbittorrent, recyclarr, vaultwarden-data and the four `*-db-backup` volumes) plus the two static
+ones (immich, nextcloud), 10 in all. The 16 `Released` NFS PVs are prune leftovers: delete them
+before the rsync rather than recreating them.
+
+Every one is `Retain`, so the data survives. Per PV, with its consumers at zero: delete the PVC,
+delete the PV, recreate the PV with the new server and `/mnt/storage/data/...` path and no
+`claimRef.uid`, then let ArgoCD (or the StatefulSet, for Loki) recreate the PVC bound by
+`volumeName`. Script this for the cutover rather than doing 10 by hand.
 
 ## Change: the NFS server role
 
@@ -106,7 +121,8 @@ both when storage moves to a NAS — but only configured TrueNAS alerting makes 
    Navidrome, Immich, Nextcloud, Vaultwarden, Loki, Prometheus. Simplest via ArgoCD by suspending
    auto-sync and scaling deployments, not by deleting Applications.
 4. Final rsync delta.
-5. Merge the repo changes to `main`, let ArgoCD sync. Recreate the two static PVs by hand.
+5. Recreate all 10 NFS PVs against the NAS (see above), then merge the repo changes to `main`
+   and let ArgoCD sync.
 6. Bring apps back in dependency order: storage-facing infra (Loki, Prometheus) first, then media.
 7. Verify writes land on the NAS, not on a stale local mount — an empty `/mnt/storage` on a node
    with a failed mount looks identical to a working one until something writes into it.
@@ -171,17 +187,17 @@ blocker, and this move is what removes it. A few choices here are load-bearing f
 
 ## Gotchas
 
-- `apps/vaultwarden/data-pvc-nfs.yaml` documents its recovery path as
-  `192.168.30.194:/mnt/storage/vaultwarden/vaultwarden-db-backup`. That comment is the restore
-  runbook — update it or the next restore looks in the wrong place.
 - The Vaultwarden data-PVC deletion gated to 2026-08-26 is unrelated but touches the same volume;
   don't interleave the two.
 - qBittorrent's gluetun `FIREWALL_OUTBOUND_SUBNETS: 10.0.0.0/8,192.168.0.0/16` already covers any
   address in `192.168.30.0/24`, so NFS traffic to the NAS bypasses the VPN without a change. If
   the NAS lands on a different subnet, that list needs the new CIDR or torrent I/O goes through
   Mullvad.
-- Do not let TrueNAS name the pool anything but `storage`. It is renameable only by
-  export/import, and every path in this repo assumes `/mnt/storage`.
+- The pool is renameable only by export/import, and every path in this repo now assumes
+  `/mnt/storage/data`. Leave both names alone.
+- `system/monitoring-system/prometheusrule-nfs-export.yaml` and the media dashboard's capacity
+  panels read worker-01's local XFS mount. They stay correct until that disk is wiped for the
+  mirror (HOM-12), and go with the SMART exporter in HOM-13.
 - Attaching worker-01's 12TB as a mirror destroys everything on it. It is the only other copy
   until the attach completes and resilvers, so verify the new disk first — a full `rsync -n`
   pass, not a spot check.

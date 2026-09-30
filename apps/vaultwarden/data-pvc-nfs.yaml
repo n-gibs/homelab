@@ -4,7 +4,7 @@
 # no vault data is lost.
 
 # Backed up nightly by vaultwarden-db-backup to
-# /mnt/storage/vaultwarden/vaultwarden-db-backup, alongside the pg_dump.
+# 192.168.30.144:/mnt/storage/data/vaultwarden/vaultwarden-db-backup, alongside the pg_dump.
 
 apiVersion: v1
 kind: PersistentVolumeClaim

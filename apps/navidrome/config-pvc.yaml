@@ -8,7 +8,7 @@ spec:
     - ReadWriteOnce
   # navidrome.db is SQLite in WAL mode -- longhorn per the CLAUDE.md storage rule.
   # Backup: ND_BACKUP_* in values.yaml, a VACUUM INTO snapshot onto NFS at
-  # /mnt/storage/backups/navidrome. It protects play counts, ratings and playlists,
+  # /mnt/storage/data/backups/navidrome. It protects play counts, ratings and playlists,
   # none of which are reconstructible from the music files. Restore by copying it back.
   storageClassName: longhorn
   resources:

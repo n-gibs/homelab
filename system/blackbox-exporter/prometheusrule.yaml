@@ -49,18 +49,18 @@ spec:
 
         # 3m, under EndpointDown's 5m, so it beats the app-level cascade it explains.
         - alert: NFSServerUnreachable
-          expr: probe_success{instance="192.168.30.194:2049"} == 0
+          expr: probe_success{instance="192.168.30.144:2049"} == 0
           for: 3m
           labels:
             severity: critical
           annotations:
-            summary: worker-01 is not answering on the NFS port
+            summary: The NAS is not answering on the NFS port
             description: >-
-              nfsd on 192.168.30.194:2049 has refused a TCP handshake for three minutes, so
-              /mnt/storage is gone: the media library, every `nfs` PVC, all five
+              nfsd on 192.168.30.144:2049 has refused a TCP handshake for three minutes, so
+              the NAS export is gone: the media library, every `nfs` PVC, all five
               *-db-backup destinations and the Longhorn backup target. App alerts will
-              follow — this is their cause. Check the node, then `systemctl status
-              nfs-server`. Longhorn volumes are unaffected.
+              follow — this is their cause. Check the NAS web UI, then System → Services
+              → NFS. Longhorn volumes are unaffected.
 
         - alert: BlackboxMetricsMissing
           expr: absent(probe_success)

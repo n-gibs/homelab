@@ -98,7 +98,7 @@ baseline half of the comparison.
 ## Backups
 
 `RecurringJob daily-backup`, 04:30, retain 7, group `default`, target
-`nfs://192.168.30.194:/mnt/storage/longhorn-backups`. Longhorn renders this as
+`nfs://192.168.30.144:/mnt/storage/data/longhorn-backups`. Longhorn renders this as
 **one** Kubernetes CronJob named after the RecurringJob — not one per volume — so
 `kubectl -n longhorn-system get cronjob daily-backup` covers all eight.
 
@@ -113,23 +113,15 @@ kubectl -n longhorn-system get backups.longhorn.io
 Anything not `Completed` is a failed backup that the Job's own status will not
 tell you about.
 
-The NFS export needed a dedicated `/mnt/storage/longhorn-backups` line, for two
-reasons discovered the hard way:
+On the NAS the target is a plain directory inside the one `/mnt/storage/data`
+export, which maps root to root. Longhorn mounts it from inside its manager pods,
+so the source address the NAS sees is whatever Cilium masquerades the pod to —
+the node IP, inside the export's `192.168.30.0/24`.
 
-- **Reachability**: a pod on worker-01 connecting to `192.168.30.194` (its own
-  node) is not masqueraded by Cilium, so the source address stays a pod IP. The
-  export and the host firewall both need to permit the pod CIDR
-  (`10.42.0.0/16`), not just the LAN subnet — the arrs' NFS `data` mount never hit
-  this because those pods aren't scheduled on worker-01 exclusively.
-- **Squash mode must agree with the parent export.** `/mnt/storage` (the main
-  share) is `no_root_squash`. The backup directory line was first written as
-  `all_squash` to scope pod access away from the 12TB share — but NFSv4 clients
-  can resolve through the parent export regardless, so squashing was not
-  actually uniform: some clients landed as `root`, others as `nobody`, and a
-  root-owned `drwx------` directory then blocked a squashed client's own `mkdir`.
-  Both lines are now `no_root_squash`, matching the parent. Pod access is still
-  scoped to `/mnt/storage/longhorn-backups` only — the fix was the squash mode,
-  not the scope.
+When the export lived on worker-01 it needed its own export line: a pod on
+worker-01 reaching its own node is not masqueraded, and a nested export whose
+squash mode disagrees with its parent gives NFSv4 clients inconsistent identities.
+Neither applies to an off-node NAS with a single export; `git log` has the detail.
 
 ## UI
 

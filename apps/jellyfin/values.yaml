@@ -93,14 +93,14 @@ persistence:
   # volume they protect, without making the rest of /data writable.
   backups:
     type: nfs
-    server: 192.168.30.194
-    path: /mnt/storage/backups/jellyfin
+    server: 192.168.30.144
+    path: /mnt/storage/data/backups/jellyfin
     globalMounts:
       - path: /config/data/data/backups
   data:
     type: nfs
-    server: 192.168.30.194
-    path: /mnt/storage
+    server: 192.168.30.144
+    path: /mnt/storage/data
     globalMounts:
       - path: /data
         readOnly: true
