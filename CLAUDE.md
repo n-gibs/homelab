@@ -5,7 +5,7 @@
 | Node | Hardware | CPU | RAM | Storage | Role |
 |------|----------|-----|-----|---------|------|
 | worker-00 | HP ProDesk Mini G4 | i3-8100T (8th gen, 4C/4T) | 16GB | 128GB NVMe | k3s server + worker (schedulable) |
-| worker-01 | HP ProDesk Mini G9 | i5-12500T (12th gen, 6C/12T) | 24GB | 512GB NVMe + 12TB USB HDD | k3s server + worker, media workloads (`homelab.io/media=true`), preferred ingress announcer (`homelab.io/ingress=true`), no taint |
+| worker-01 | HP ProDesk Mini G9 | i5-12500T (12th gen, 6C/12T) | 24GB | 512GB NVMe | k3s server + worker, media workloads (`homelab.io/media=true`), preferred ingress announcer (`homelab.io/ingress=true`), no taint |
 | worker-02 | HP ProDesk Mini G6 | i5-10500T (10th gen, 6C/12T) | 16GB | 256GB NVMe | k3s server + worker (schedulable), failover ingress announcer (`homelab.io/ingress=true`) |
 
 worker-01 is the largest node on every axis; worker-00 is the smallest (4 cores, no HT) and hits
