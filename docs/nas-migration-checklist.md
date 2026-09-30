@@ -81,9 +81,15 @@ ones (immich, nextcloud), 10 in all. The 16 `Released` NFS PVs are prune leftove
 before the rsync rather than recreating them.
 
 Every one is `Retain`, so the data survives. Per PV, with its consumers at zero: delete the PVC,
-delete the PV, recreate the PV with the new server and `/mnt/storage/data/...` path and no
-`claimRef.uid`, then let ArgoCD (or the StatefulSet, for Loki) recreate the PVC bound by
-`volumeName`. Script this for the cutover rather than doing 10 by hand.
+delete the PV, recreate the PV with the new server and `/mnt/storage/data/...` path and a
+`claimRef` of namespace and name only, then let ArgoCD (or the StatefulSet, for Loki) recreate
+the PVC. The dynamic PVCs carry no `volumeName`; the pre-bound `claimRef` is what makes them bind
+to the recreated PV instead of provisioning a fresh one. The two static PVs come from git as-is.
+Script this for the cutover rather than doing 10 by hand.
+
+Delete finished Job pods before deleting the PVCs. A `Succeeded` pod that mounted a claim still
+holds its `pvc-protection` finalizer, and the PVC sits in `Terminating` until the pod is gone. The
+db-backup CronJobs, `nextcloud-cron` and `recyclarr` all leave pods like this behind.
 
 ## Change: the NFS server role
 
@@ -118,12 +124,16 @@ both when storage moves to a NAS — but only configured TrueNAS alerting makes 
 2. Copy data. `rsync -aHAX --numeric-ids` from worker-01's `/mnt/storage`, run twice — once live,
    once after the apps are stopped, to catch the delta.
 3. Scale to zero everything holding NFS state: the arrs, qBittorrent, unpackerr, Jellyfin,
-   Navidrome, Immich, Nextcloud, Vaultwarden, Loki, Prometheus. Simplest via ArgoCD by suspending
-   auto-sync and scaling deployments, not by deleting Applications.
-4. Final rsync delta.
+   Navidrome, Immich, Nextcloud, Vaultwarden and Loki, and suspend every CronJob that mounts NFS.
+   Prometheus is on `longhorn` and stays up. Simplest via ArgoCD by suspending auto-sync and
+   scaling deployments, not by deleting Applications. Build the list from the live cluster, not
+   from this doc.
+4. Final rsync delta, with `--delete`. Loki compaction and backup rotation remove files on the
+   source after the first pass copies them.
 5. Recreate all 10 NFS PVs against the NAS (see above), then merge the repo changes to `main`
    and let ArgoCD sync.
-6. Bring apps back in dependency order: storage-facing infra (Loki, Prometheus) first, then media.
+6. Bring apps back in dependency order: storage-facing infra (Loki) first, then media. Unsuspend
+   the CronJobs explicitly; ArgoCD's selfHeal leaves `spec.suspend` alone.
 7. Verify writes land on the NAS, not on a stale local mount — an empty `/mnt/storage` on a node
    with a failed mount looks identical to a working one until something writes into it.
 
