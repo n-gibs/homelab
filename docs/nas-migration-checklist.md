@@ -67,9 +67,10 @@ change there. Done on branch `feat/hom-10-nas-repoint` (HOM-10).
 | `apps/cleanuparr/backup-cronjob.yaml` | inline NFS volume → `/mnt/storage` |
 | `CLAUDE.md`, `.claude/commands/add-app.md`, `README.md`, `system/infisical/README.md` | documented patterns new apps get copied from — update or the next app regresses |
 
-`ansible/roles/nfs_client` is deliberately left pointing at worker-01. It mounts at
-`/mnt/storage` on every host, which on worker-01 is the local disk's mountpoint; it is deleted
-in HOM-14 rather than repointed.
+`ansible/roles/nfs_client` and `nfs_server` are deleted in HOM-14 rather than repointed. Deleting
+a role leaves its state on the hosts (fstab entries, `/etc/exports`, the udev rule, UFW rules for
+2049), so that is cleaned up by hand when worker-01's drive comes out in HOM-12. `nfs-common`
+stays: the `common` role installs it, and kubelet needs `mount.nfs` for every NFS pod volume.
 
 Consumers that go through the StorageClass need no *git* edit: `apps/vaultwarden/data-pvc-nfs.yaml`,
 `apps/recyclarr/values.yaml`, the four `pg-backup.yaml` PVCs, `system/loki/values.yaml`,

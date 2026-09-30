@@ -30,10 +30,6 @@ provision:
 provision-common:
     ansible-playbook -i {{inventory}} {{playbook}} --vault-password-file {{vault_pass}} --tags common
 
-# Run only NFS roles
-provision-nfs:
-    ansible-playbook -i {{inventory}} {{playbook}} --vault-password-file {{vault_pass}} --tags nfs
-
 # Dry-run (check mode)
 dry-run:
     ansible-playbook -i {{inventory}} {{playbook}} --vault-password-file {{vault_pass}} --check
