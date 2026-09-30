@@ -28,39 +28,41 @@ configMaps:
   config:
     data:
       recyclarr.yml: |
+        # Instance names must be unique across services: Recyclarr 8 silently skips duplicates.
+        # Sizes and upgrade settings are deliberately unmanaged; see HOM-38 before adding them.
         sonarr:
-          main:
+          sonarr:
             base_url: http://sonarr.sonarr.svc.cluster.local:8989
             api_key: !env_var SONARR_API_KEY
-            quality_definition:
-              type: series
             quality_profiles:
               - name: Any
                 reset_unmatched_scores:
                   enabled: true
-                upgrade:
-                  allowed: true
-                  until_quality: Bluray-1080p
-                  until_score: 10000
                 min_format_score: 0
                 score_set: default
+            # Full-disc images can't be imported, so the grab fails and leaves its RARs and ISO
+            # behind. -10000 against min_format_score 0 rejects them outright.
+            custom_formats:
+              - trash_ids:
+                  - 85c61753df5da1fb2aab6f2a47426b09 # BR-DISK
+                assign_scores_to:
+                  - name: Any
 
         radarr:
-          main:
+          radarr:
             base_url: http://radarr.radarr.svc.cluster.local:7878
             api_key: !env_var RADARR_API_KEY
-            quality_definition:
-              type: movie
             quality_profiles:
               - name: Any
                 reset_unmatched_scores:
                   enabled: true
-                upgrade:
-                  allowed: true
-                  until_quality: Bluray-1080p
-                  until_score: 10000
                 min_format_score: 0
                 score_set: default
+            custom_formats:
+              - trash_ids:
+                  - ed38b889b31be83fda192888e2286d83 # BR-DISK
+                assign_scores_to:
+                  - name: Any
 
 persistence:
   config:
