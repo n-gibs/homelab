@@ -143,6 +143,124 @@ absent. The media dashboard's capacity panels now read the NAS through kubelet's
 7. Verify writes land on the NAS, not on a stale local mount — an empty `/mnt/storage` on a node
    with a failed mount looks identical to a working one until something writes into it.
 
+## Mirror: worker-01's 12TB joins the pool (HOM-12)
+
+`zpool attach` wipes the WD, which until then is the only other copy. Nothing below starts until
+both gates pass.
+
+**Gates.** First, a full `rsync -n -c` checksum pass from worker-01 (`/var/log/nas-checksum.txt`).
+The apps run on the NAS throughout, so it will report differences and may exit 23. Neither fails
+the gate on its own. The boundary is the end of the final delta copy, **15:53:42 UTC on
+2026-09-30**: every app was stopped until #242 merged at 16:21, so anything newer on the NAS is an
+app's own write. Check two things:
+
+```bash
+# 1. Every changed file (c checksum, s size, p permissions) changed after the final delta.
+#    Sort by ctime: qBittorrent's fix-perms chmods without touching mtime.
+cut=$(date -d '2026-09-30 15:53:42 UTC' +%s)
+sudo grep -v -E '^(exit=|rsync)' /var/log/nas-checksum.txt | awk '$1 ~ /^..c|^...s|^.....p/' |
+  while IFS= read -r l; do c=$(sudo stat -c %Z "/mnt/nas/${l#* }" 2>/dev/null || echo 0)
+    [[ "$c" -gt "$cut" ]] && echo after || echo "BEFORE $l"; done | sort | uniq -c
+
+# 2. Everything missing on the NAS sits where apps delete their own files.
+sudo grep -E '^(>f\+{9}|cd\+{9})' /var/log/nas-checksum.txt |
+  awk '{ split($2, a, "/"); print a[1] "/" a[2] }' | sort | uniq -c
+```
+
+The first must print only `after`. The second may list only app-managed paths: Longhorn's
+backupstore (block pruning), Loki (compaction), the `*-db-backup` volumes and `photos/backups`
+(rotation), and app caches. Anything under `media/`, `downloads/`, `nextcloud/` or the photo
+library fails the gate. Exit 23 passes only when every `rsync:` error line is `No such file or
+directory` under one of those same paths.
+
+Second, a clean scrub of `storage` (TrueNAS, Storage, the pool's Scrub action; `zpool status
+storage` shows 0 errors).
+
+**Window.** Keep clear of 03:00–04:30 UTC (database and Longhorn backups) and ~06:00 UTC
+(unattended-upgrades re-execs systemd and restarts transient units).
+
+### 1. Retire the drive's monitoring
+
+Merge the HOM-13 PR first. `NfsExportDriveUnmounted` is critical and fires 10 minutes after the
+mount disappears; `DiskTemperatureMetricsMissing` follows at 30. Confirm ArgoCD synced it:
+`kubectl -n monitoring-system get prometheusrule nfs-export` returns NotFound.
+
+### 2. Detach everything from worker-01's export
+
+Clients before the server. These are hard NFS mounts: once nfsd stops, anything still mounted
+blocks the process that touches it.
+
+```bash
+# Longhorn keeps the old backup target mounted in every manager pod after the URL changed
+for p in $(kubectl -n longhorn-system get pods -l app=longhorn-manager -o name); do
+  kubectl -n longhorn-system exec "${p#pod/}" -c longhorn-manager -- \
+    umount -l /var/lib/longhorn-backupstore-mounts/192_168_30_194/mnt/storage/longhorn-backups
+done
+
+# worker-00 and worker-02: the nfs_client mount (the role is gone, its fstab line is not)
+for h in 192.168.30.129 192.168.30.136; do
+  ssh homelab@$h 'sudo umount -l /mnt/storage; sudo sed -i "\#^192.168.30.194:/mnt/storage #d" /etc/fstab; sudo systemctl daemon-reload'
+done
+```
+
+Then on worker-01 (`ssh homelab@192.168.30.194`). The first command must print nothing:
+
+```bash
+sudo find /proc/[0-9]*/cwd /proc/[0-9]*/fd -maxdepth 1 -lname '/mnt/storage*' 2>/dev/null
+sudo umount /mnt/nas
+sudo systemctl disable --now nfs-kernel-server smart-temp-textfile.timer
+for src in 192.168.30.0/24 10.42.0.0/16; do for p in tcp udp; do
+  sudo ufw delete allow from "$src" to any port 2049 proto "$p"; done; done
+sudo rm -f /etc/systemd/system/smart-temp-textfile.{service,timer} /usr/local/bin/smart-temp-textfile \
+  /var/lib/node_exporter/textfile_collector/smart_temp.prom \
+  /etc/udev/rules.d/60-wd-elements-apm.rules /etc/udev/rules.d/99-nfs-storage.rules
+sudo systemctl stop mnt-storage.automount
+sudo umount /mnt/storage
+sudo sed -i '\#^UUID=9701ed19-d894-496c-8594-1d671d789b8e #d' /etc/fstab
+sudo systemctl daemon-reload
+lsblk -o NAME,MOUNTPOINTS /dev/sda   # no mountpoint left
+```
+
+Stop the automount unit before unmounting: `x-systemd.automount` otherwise remounts the drive on
+the next access. Unplug the enclosure once `lsblk` shows no mountpoint.
+
+### 3. Quiesce, move the disk, bring back
+
+Installing the disk means powering the NAS off, which stalls every NFS mount. Quiesce exactly as
+in Sequence step 3, then silence the NAS-down alert for the window:
+
+```bash
+kubectl -n monitoring-system exec alertmanager-monitoring-system-kube-pro-alertmanager-0 -c alertmanager -- \
+  amtool silence add alertname=NFSServerUnreachable --duration=1h \
+  --comment="HOM-12 NAS power-off" --alertmanager.url=http://localhost:9093
+```
+
+Shut the NAS down from the TrueNAS UI, take the WD120EDGZ out of its USB enclosure, and connect
+it to a free SATA port. It is a white-label drive: if TrueNAS does not see it, the likely cause is
+the 3.3V power-disable pin, fixed with Kapton tape over SATA power pin 3 or a Molex-to-SATA
+adapter. Power on and confirm the disk under Storage, Disks. Then bring the apps back as in
+Sequence steps 6 and 7, including the CronJob unsuspend.
+
+### 4. Attach and resilver
+
+In TrueNAS: Storage, the `storage` pool, Manage Devices, select the data vdev's disk, and use
+**Extend** to add the WD, which turns the single disk into a mirror. This is the step that wipes
+the WD. In System, Shell, `zpool status storage` shows `mirror-0` resilvering; expect a few hours
+for ~3.3 TB. Scrub again once it finishes.
+
+### 5. After the resilver
+
+- **Head parking.** The WD120EDGZ is an Ultrastar He12 white-label that ships at APM 128 and
+  parks its heads ~50 times an hour when idle, burning its 600k load-cycle rating in about 14
+  months. APM 254 stops it with no temperature cost. On worker-01 a udev rule set it; on the NAS,
+  use the disk's Advanced Power Management setting if 25.10 offers it, otherwise a Post Init
+  script running `smartctl --set=apm,254 /dev/disk/by-id/<the WD's ata- link>`. Confirm SMART
+  attribute 193 (`Load_Cycle_Count`) stays flat across a day.
+- **SMART self-tests.** Add both disks to the cron jobs from HOM-13: weekly short, monthly long,
+  by `/dev/disk/by-id` path, scheduled away from the scrub.
+- **Linear.** HOM-12 Done when the resilver and scrub are clean. HOM-13 and HOM-14 are Done once
+  step 2's host cleanup is complete.
+
 ## After
 
 - Config volumes stay off NFS. The arrs, Jellyfin, Navidrome, Cleanuparr and Nextcloud's `html`
