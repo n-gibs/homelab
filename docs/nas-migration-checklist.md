@@ -214,15 +214,14 @@ for src in 192.168.30.0/24 10.42.0.0/16; do for p in tcp udp; do
 sudo rm -f /etc/systemd/system/smart-temp-textfile.{service,timer} /usr/local/bin/smart-temp-textfile \
   /var/lib/node_exporter/textfile_collector/smart_temp.prom \
   /etc/udev/rules.d/60-wd-elements-apm.rules /etc/udev/rules.d/99-nfs-storage.rules
-sudo systemctl stop mnt-storage.automount
-sudo umount /mnt/storage
+sudo systemctl stop mnt-storage.automount   # also unmounts the drive
 sudo sed -i '\#^UUID=9701ed19-d894-496c-8594-1d671d789b8e #d' /etc/fstab
 sudo systemctl daemon-reload
 lsblk -o NAME,MOUNTPOINTS /dev/sda   # no mountpoint left
 ```
 
-Stop the automount unit before unmounting: `x-systemd.automount` otherwise remounts the drive on
-the next access. Unplug the enclosure once `lsblk` shows no mountpoint.
+Stopping the automount unit unmounts the drive too, so there is no separate `umount`: under
+`set -e` it fails with "not mounted". Unplug the enclosure once `lsblk` shows no mountpoint.
 
 ### 3. Quiesce, move the disk, bring back
 
