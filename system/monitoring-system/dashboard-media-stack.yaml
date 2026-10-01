@@ -111,7 +111,7 @@ data:
           "id": 3,
           "type": "gauge",
           "title": "Library disk used",
-          "description": "The 12TB USB drive on worker-01 that backs /mnt/storage, read from the local xfs mount rather than a PVC.",
+          "description": "The NAS dataset behind every NFS volume. Kubelet reports it through any mounted NFS PVC, so this reads whichever of those four has a running consumer.",
           "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
           "fieldConfig": {
@@ -136,7 +136,7 @@ data:
             {
               "refId": "A",
               "datasource": { "type": "prometheus", "uid": "${datasource}" },
-              "expr": "100 * (1 - max(node_filesystem_avail_bytes{mountpoint=\"/mnt/storage\", fstype=\"xfs\"}) / max(node_filesystem_size_bytes{mountpoint=\"/mnt/storage\", fstype=\"xfs\"}))"
+              "expr": "100 * (1 - max(kubelet_volume_stats_available_bytes{persistentvolumeclaim=~\"immich-library|nextcloud-data|qbittorrent|storage-loki-0\"}) / max(kubelet_volume_stats_capacity_bytes{persistentvolumeclaim=~\"immich-library|nextcloud-data|qbittorrent|storage-loki-0\"}))"
             }
           ]
         },
@@ -144,7 +144,7 @@ data:
           "id": 4,
           "type": "stat",
           "title": "Library free",
-          "description": "Bytes still available on /mnt/storage.",
+          "description": "Bytes still available on the NAS dataset.",
           "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
           "fieldConfig": {
@@ -167,7 +167,7 @@ data:
             {
               "refId": "A",
               "datasource": { "type": "prometheus", "uid": "${datasource}" },
-              "expr": "max(node_filesystem_avail_bytes{mountpoint=\"/mnt/storage\", fstype=\"xfs\"})"
+              "expr": "max(kubelet_volume_stats_available_bytes{persistentvolumeclaim=~\"immich-library|nextcloud-data|qbittorrent|storage-loki-0\"})"
             }
           ]
         },
@@ -235,13 +235,13 @@ data:
             {
               "refId": "A",
               "datasource": { "type": "prometheus", "uid": "${datasource}" },
-              "expr": "max(node_filesystem_avail_bytes{mountpoint=\"/mnt/storage\", fstype=\"xfs\"})",
+              "expr": "max(kubelet_volume_stats_available_bytes{persistentvolumeclaim=~\"immich-library|nextcloud-data|qbittorrent|storage-loki-0\"})",
               "legendFormat": "free"
             },
             {
               "refId": "B",
               "datasource": { "type": "prometheus", "uid": "${datasource}" },
-              "expr": "predict_linear(max(node_filesystem_avail_bytes{mountpoint=\"/mnt/storage\", fstype=\"xfs\"})[7d:10m], 30*86400)",
+              "expr": "predict_linear(max(kubelet_volume_stats_available_bytes{persistentvolumeclaim=~\"immich-library|nextcloud-data|qbittorrent|storage-loki-0\"})[7d:10m], 30*86400)",
               "legendFormat": "projected (30d)"
             }
           ]
