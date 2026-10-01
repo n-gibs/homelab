@@ -148,21 +148,30 @@ absent. The media dashboard's capacity panels now read the NAS through kubelet's
 `zpool attach` wipes the WD, which until then is the only other copy. Nothing below starts until
 both gates pass.
 
-**Gates.** First, a full `rsync -n -c` checksum pass from worker-01 (`/var/log/nas-checksum.txt`)
-ending `exit=0` with no `c` (checksum) or `s` (size) flag in any itemize code. Other flags are
-expected and need an explanation, not a fix. A `t` on a directory comes from writes into it, and
-a `p` comes from qBittorrent's `fix-perms`, which ran `chmod -R 777` over `/data/downloads` as it
-started after the 16:24 UTC cutover on 2026-09-30. `chmod` leaves mtime alone, so sort by ctime:
+**Gates.** First, a full `rsync -n -c` checksum pass from worker-01 (`/var/log/nas-checksum.txt`).
+The apps run on the NAS throughout, so it will report differences and may exit 23. Neither fails
+the gate on its own. The boundary is the end of the final delta copy, **15:53:42 UTC on
+2026-09-30**: every app was stopped until #242 merged at 16:21, so anything newer on the NAS is an
+app's own write. Check two things:
 
 ```bash
-cut=$(date -d '2026-09-30 16:24 UTC' +%s)
-sudo grep -v '^exit=' /var/log/nas-checksum.txt | while IFS= read -r line; do
-  c=$(sudo stat -c %Z "/mnt/nas/${line#* }" 2>/dev/null || echo 0)
-  [[ "$c" -gt "$cut" ]] && echo "after   $line" || echo "BEFORE  $line"
-done | sort
+# 1. Every changed file (c checksum, s size, p permissions) changed after the final delta.
+#    Sort by ctime: qBittorrent's fix-perms chmods without touching mtime.
+cut=$(date -d '2026-09-30 15:53:42 UTC' +%s)
+sudo grep -v -E '^(exit=|rsync)' /var/log/nas-checksum.txt | awk '$1 ~ /^..c|^...s|^.....p/' |
+  while IFS= read -r l; do c=$(sudo stat -c %Z "/mnt/nas/${l#* }" 2>/dev/null || echo 0)
+    [[ "$c" -gt "$cut" ]] && echo after || echo "BEFORE $l"; done | sort | uniq -c
+
+# 2. Everything missing on the NAS sits where apps delete their own files.
+sudo grep -E '^(>f\+{9}|cd\+{9})' /var/log/nas-checksum.txt |
+  awk '{ split($2, a, "/"); print a[1] "/" a[2] }' | sort | uniq -c
 ```
 
-Every line should read `after`. A `BEFORE` line is a difference the cutover doesn't explain.
+The first must print only `after`. The second may list only app-managed paths: Longhorn's
+backupstore (block pruning), Loki (compaction), the `*-db-backup` volumes and `photos/backups`
+(rotation), and app caches. Anything under `media/`, `downloads/`, `nextcloud/` or the photo
+library fails the gate. Exit 23 passes only when every `rsync:` error line is `No such file or
+directory` under one of those same paths.
 
 Second, a clean scrub of `storage` (TrueNAS, Storage, the pool's Scrub action; `zpool status
 storage` shows 0 errors).
