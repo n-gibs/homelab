@@ -148,9 +148,24 @@ absent. The media dashboard's capacity panels now read the NAS through kubelet's
 `zpool attach` wipes the WD, which until then is the only other copy. Nothing below starts until
 both gates pass.
 
-**Gates.** A full `rsync -n -c` checksum pass from worker-01, where every difference is a file the
-apps wrote on the NAS after the 16:24 UTC cutover on 2026-09-30. Then a clean scrub of `storage`
-(TrueNAS, Storage, the pool's Scrub action; `zpool status storage` shows 0 errors).
+**Gates.** First, a full `rsync -n -c` checksum pass from worker-01 (`/var/log/nas-checksum.txt`)
+ending `exit=0` with no `c` (checksum) or `s` (size) flag in any itemize code. Other flags are
+expected and need an explanation, not a fix. A `t` on a directory comes from writes into it, and
+a `p` comes from qBittorrent's `fix-perms`, which ran `chmod -R 777` over `/data/downloads` as it
+started after the 16:24 UTC cutover on 2026-09-30. `chmod` leaves mtime alone, so sort by ctime:
+
+```bash
+cut=$(date -d '2026-09-30 16:24 UTC' +%s)
+sudo grep -v '^exit=' /var/log/nas-checksum.txt | while IFS= read -r line; do
+  c=$(sudo stat -c %Z "/mnt/nas/${line#* }" 2>/dev/null || echo 0)
+  [[ "$c" -gt "$cut" ]] && echo "after   $line" || echo "BEFORE  $line"
+done | sort
+```
+
+Every line should read `after`. A `BEFORE` line is a difference the cutover doesn't explain.
+
+Second, a clean scrub of `storage` (TrueNAS, Storage, the pool's Scrub action; `zpool status
+storage` shows 0 errors).
 
 **Window.** Keep clear of 03:00–04:30 UTC (database and Longhorn backups) and ~06:00 UTC
 (unattended-upgrades re-execs systemd and restarts transient units).
