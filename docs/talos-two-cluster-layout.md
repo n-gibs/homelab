@@ -13,7 +13,12 @@ Both clusters run an ArgoCD that syncs this repo's `main`. Three rules keep them
    never destroys its volumes.
 
 The ApplicationSet templates on k3s change, but the resources k3s deploys stay the same, so this
-can merge before the Talos cluster exists.
+can merge before the Talos cluster exists. Prove that before relying on it:
+
+1. `helmfile diff` on the root release shows only the selector, the second `valueFiles` entry,
+   `ignoreMissingValueFiles`, the `exclude` pattern and `preserveResourcesOnDeletion`.
+2. Apply with `just bootstrap-root`, refresh, and confirm every Application stays Synced with no
+   resource changed. An app that goes OutOfSync means an overlay matched on k3s.
 
 ## Rule 1: one line picks the cluster
 
@@ -123,6 +128,10 @@ An app never runs on both clusters at once, because both would write the same NF
 4. Restore from the backup on Talos and verify.
 5. Delete the orphaned k3s resources by hand, including its HTTPRoute. While that route
    exists, k3s's external-dns keeps the hostname pointing at `.200`.
+
+qBittorrent's `fix-perms` init container runs `chmod -R 777` over `/data/downloads` and
+`/data/media` on every start, so its first start on Talos rewrites modes across the shared
+library. That is expected; a checksum or diff afterwards shows `p` flags, not a fault.
 
 ## Cutover
 
