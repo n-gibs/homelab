@@ -139,7 +139,8 @@ absent. The media dashboard's capacity panels now read the NAS through kubelet's
 5. Recreate all 10 NFS PVs against the NAS (see above), then merge the repo changes to `main`
    and let ArgoCD sync.
 6. Bring apps back in dependency order: storage-facing infra (Loki) first, then media. Unsuspend
-   the CronJobs explicitly; ArgoCD's selfHeal leaves `spec.suspend` alone.
+   the CronJobs explicitly. selfHeal restores `spec.suspend` only where the chart renders it
+   (nextcloud-cron, rclone-seedbox, recyclarr); the rest stay suspended until you patch them.
 7. Verify writes land on the NAS, not on a stale local mount — an empty `/mnt/storage` on a node
    with a failed mount looks identical to a working one until something writes into it.
 
@@ -214,15 +215,14 @@ for src in 192.168.30.0/24 10.42.0.0/16; do for p in tcp udp; do
 sudo rm -f /etc/systemd/system/smart-temp-textfile.{service,timer} /usr/local/bin/smart-temp-textfile \
   /var/lib/node_exporter/textfile_collector/smart_temp.prom \
   /etc/udev/rules.d/60-wd-elements-apm.rules /etc/udev/rules.d/99-nfs-storage.rules
-sudo systemctl stop mnt-storage.automount
-sudo umount /mnt/storage
+sudo systemctl stop mnt-storage.automount   # also unmounts the drive
 sudo sed -i '\#^UUID=9701ed19-d894-496c-8594-1d671d789b8e #d' /etc/fstab
 sudo systemctl daemon-reload
 lsblk -o NAME,MOUNTPOINTS /dev/sda   # no mountpoint left
 ```
 
-Stop the automount unit before unmounting: `x-systemd.automount` otherwise remounts the drive on
-the next access. Unplug the enclosure once `lsblk` shows no mountpoint.
+Stopping the automount unit unmounts the drive too, so there is no separate `umount`: under
+`set -e` it fails with "not mounted". Unplug the enclosure once `lsblk` shows no mountpoint.
 
 ### 3. Quiesce, move the disk, bring back
 
@@ -231,7 +231,7 @@ in Sequence step 3, then silence the NAS-down alert for the window:
 
 ```bash
 kubectl -n monitoring-system exec alertmanager-monitoring-system-kube-pro-alertmanager-0 -c alertmanager -- \
-  amtool silence add alertname=NFSServerUnreachable --duration=1h \
+  amtool silence add alertname=~'NFSServerUnreachable|LokiMetricsMissing' --duration=2h \
   --comment="HOM-12 NAS power-off" --alertmanager.url=http://localhost:9093
 ```
 
@@ -243,10 +243,32 @@ Sequence steps 6 and 7, including the CronJob unsuspend.
 
 ### 4. Attach and resilver
 
-In TrueNAS: Storage, the `storage` pool, Manage Devices, select the data vdev's disk, and use
-**Extend** to add the WD, which turns the single disk into a mirror. This is the step that wipes
-the WD. In System, Shell, `zpool status storage` shows `mirror-0` resilvering; expect a few hours
-for ~3.3 TB. Scrub again once it finishes.
+This is the step that wipes the WD. Attach it from System, Shell rather than the UI: the
+dashboard's **Add To Pool** button and the Add VDEV wizard both offer a "Stripe" layout, which adds
+the WD as a second vdev with no redundancy and cannot be undone. The UI's mirror path is
+**Extend** under View VDEVs, with the data disk selected; the middleware call below does the same.
+
+Confirm the disk first. Over USB the enclosure reported its bridge's serial (4E2038EE1A62); on
+SATA the drive reports its own, WD-B002KX5D. Check the model rather than the serial:
+
+```bash
+sudo smartctl -i /dev/sdb | grep -E 'Model|Serial|Capacity'   # WDC WD120EDGZ, 12,000,138,625,024 bytes
+sudo midclt call disk.get_unused | jq -r '.[] | "\(.name) \(.serial) \(.size)"'
+sudo midclt call pool.query '[["name","=","storage"]]' |
+  jq '.[0] | {id, vdev_guid: .topology.data[0].guid, disk: .topology.data[0].disk}'
+```
+
+`zpool status` prints the partition UUID; `pool.attach` wants the vdev GUID from `pool.query`.
+Attach to the striped disk's GUID and it becomes a mirror (`-j` waits for the job; `-job` fails):
+
+```bash
+sudo midclt call -j pool.attach <id> '{"target_vdev": "<vdev_guid>", "new_disk": "sdb"}'
+sudo zpool status storage
+```
+
+`zpool status` then shows `mirror-0` with both disks ONLINE and a resilver in progress. The first
+phase only scans metadata, so it reads 0% with no ETA for a while. Expect 5–6 hours for ~3.3 TB.
+Scrub again once it finishes.
 
 ### 5. After the resilver
 
