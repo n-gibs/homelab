@@ -8,7 +8,7 @@ k3s_cluster:
         worker-02:
           ansible_host: 192.168.30.136  # G6: i5-10500T, 16GB, 256GB NVMe — server + worker, no control-plane taint, homelab.io/ingress label
         worker-01:
-          ansible_host: 192.168.30.194  # G9: i5-12500T, 24GB, 512GB NVMe + 12TB USB — server + worker, homelab.io/media + homelab.io/ingress labels, no taint
+          ansible_host: 192.168.30.194  # G9: i5-12500T, 24GB, 512GB NVMe — server + worker, homelab.io/media + homelab.io/ingress labels, no taint
 
   vars:
     ansible_user: homelab
