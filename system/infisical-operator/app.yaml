@@ -1,4 +1,4 @@
 chartName: secrets-operator
 chartRepo: https://dl.cloudsmith.io/public/infisical/helm-charts/helm/charts/
-chartVersion: 0.11.10
+chartVersion: 0.11.11
 syncWave: "0"
