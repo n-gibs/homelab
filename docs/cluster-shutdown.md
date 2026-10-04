@@ -6,9 +6,8 @@ electrical job. The order is workloads, then nodes, then the NAS, and the revers
 Powering the nodes off without the quiesce would probably survive. It risks Longhorn replica
 rebuilds and a dirty stop for SQLite and Postgres, and the quiesce costs about fifteen minutes.
 
-**Status.** The ArgoCD, scale-down and CronJob steps ran during the NAS cutover
-(`nas-migration-checklist.md`). CNPG hibernation and a full three-node power-off have not run on
-this cluster yet. Correct this file after the first real run.
+**Status.** The shutdown half through step 7 has run on this cluster. The node and NAS power-off
+and the whole of "Starting up" have not. Correct this file after the first real run.
 
 ## Before you start
 
@@ -93,6 +92,8 @@ kubectl get clusters.postgresql.cnpg.io -A --no-headers \
   done
 kubectl get pods -A -l cnpg.io/cluster    # empty when hibernation finishes
 ```
+
+`infisical-database` takes a few minutes longer than the others: Infisical is still connected to it.
 
 Infisical goes down with `infisical-database`. The Secrets it already synced stay in the cluster.
 
