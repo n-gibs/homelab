@@ -34,6 +34,11 @@
       "groupName": "longhorn",
       "automerge": false,
       "dependencyDashboardApproval": true
+    },
+    {
+      "description": "A k3s minor bump has to wait for Cilium to support that Kubernetes minor, so without this every patch release sits behind a minor PR that can't merge yet.",
+      "matchDepNames": ["k3s-io/k3s"],
+      "separateMinorPatch": true
     }
   ],
   "customManagers": [
