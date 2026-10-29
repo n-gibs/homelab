@@ -16,7 +16,7 @@ controllers:
       app:
         image:
           repository: golift/unpackerr
-          tag: "v0.16.1"
+          tag: "v1.0.0"
         env:
           TZ: America/Los_Angeles
           UN_SONARR_0_URL: http://sonarr.sonarr.svc.cluster.local:8989
