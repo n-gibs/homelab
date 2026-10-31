@@ -1,3 +1,3 @@
 chartName: alloy
 chartRepo: https://grafana.github.io/helm-charts
-chartVersion: 1.14.3
+chartVersion: 1.15.0
