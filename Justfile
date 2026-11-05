@@ -58,9 +58,8 @@ bootstrap:
 bootstrap-cilium:
     helmfile apply -f bootstrap/helmfile.yaml -l name=cilium
 
-# Bootstrap Gateway API CRDs + ArgoCD + register private repo
+# Bootstrap ArgoCD + register private repo
 bootstrap-argocd:
-    helmfile apply -f bootstrap/helmfile.yaml -l name=gateway-api-crds
     helmfile apply -f bootstrap/helmfile.yaml -l name=argocd
     just register-repo
 
