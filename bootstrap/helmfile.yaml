@@ -14,12 +14,6 @@ releases:
     values:
       - values/cilium.yaml
 
-  - name: gateway-api-crds
-    namespace: kube-system
-    chart: ./charts/gateway-api-crds
-    needs:
-      - kube-system/cilium
-
   - name: argocd
     namespace: argocd
     createNamespace: true
@@ -29,7 +23,6 @@ releases:
       - values/argocd.yaml
     needs:
       - kube-system/cilium
-      - kube-system/gateway-api-crds
 
   - name: root
     namespace: argocd

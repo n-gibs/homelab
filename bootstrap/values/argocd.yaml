@@ -1,6 +1,6 @@
 server:
   # Keep this inside the existing server block: a second top-level `server:` key silently
-  # wins in YAML, which drops everything below it and deletes the ArgoCD HTTPRoute.
+  # wins in YAML, which drops everything below it.
   resources:
     requests:
       cpu: 50m
@@ -15,13 +15,9 @@ server:
       gethomepage.dev/href: "https://argocd.nik-homelab.dev"
   ingress:
     enabled: false
+  # No Gateway API CRDs exist yet at bootstrap; the route is system/envoy-gateway/argocd-httproute.yaml.
   httproute:
-    enabled: true
-    parentRefs:
-      - name: homelab
-        namespace: envoy-gateway-system
-    hostnames:
-      - argocd.nik-homelab.dev
+    enabled: false
 
 # The controller already listens on :8082; this only puts a Service in front of it, so an
 # alert on ArgoCD sync state has something to fire on. The matching ServiceMonitor lives in
