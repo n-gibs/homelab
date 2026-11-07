@@ -1,5 +1,5 @@
 # renovate: datasource=docker depName=docker.io/envoyproxy/gateway-helm
 chartName: gateway-helm
 chartRepo: docker.io/envoyproxy
-chartVersion: 1.9.3
+chartVersion: 1.10.0
 syncWave: "1"
