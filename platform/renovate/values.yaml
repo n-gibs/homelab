@@ -3,7 +3,8 @@ image:
   tag: 44.223.0
 
 cronjob:
-  schedule: "0 3,15 * * *"
+  # Off the hour: ghcr.io's shared limit trips when every :00 cron fires at once.
+  schedule: "23 3,15 * * *"
   timeZone: America/Los_Angeles
   # Two Renovate runs at once can open duplicate PRs for the same dependency.
   concurrencyPolicy: Forbid
@@ -39,8 +40,12 @@ renovate:
           matchHost: 'ghcr.io',
           username: 'n-gibs',
           password: process.env.RENOVATE_TOKEN,
-          // Serial on purpose: ghcr.io pages at 1000 tags, so one lookup can be
-          // dozens of requests. A slow run is fine; a 429'd probe skips silently.
+        },
+        {
+          // No hostType on purpose: Renovate looks up request limits without
+          // one, so a limit on the docker rule above is silently ignored.
+          // Serial because ghcr.io pages at 1000 tags; a 429'd probe skips silently.
+          matchHost: 'ghcr.io',
           concurrentRequestLimit: 1,
           maxRequestsPerSecond: 2,
         },
