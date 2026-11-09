@@ -3,13 +3,17 @@
   "extends": [
     "config:recommended"
   ],
-  "timezone": "America/Los_Angeles",
-  "schedule": ["every weekend"],
   "labels": ["dependencies"],
-  "description": "Default prHourlyLimit of 2 starves the queue: only the four weekend cron runs can open PRs, so majors (sorted last) never win a slot. prConcurrentLimit is uncapped because updates are grouped per app directory, which already bounds open PRs at roughly one per app.",
+  "description": "No schedule: the CronJob in platform/renovate is the schedule, and every run may open PRs. Default prHourlyLimit of 2 starves the queue, so majors (sorted last) never win a slot. prConcurrentLimit is uncapped because updates are grouped per app directory, which already bounds open PRs at roughly one per app.",
   "prHourlyLimit": 6,
   "prConcurrentLimit": 0,
   "packageRules": [
+    {
+      "description": "linuxserver images pull from lscr.io but are tracked through a # renovate: comment naming their ghcr.io twin. helm-values also extracts the lscr.io repository, a second lookup of the same tags that ends on ghcr.io's rate limit anyway.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["lscr.io/**"],
+      "enabled": false
+    },
     {
       "matchManagers": ["ansible-galaxy"],
       "groupName": "ansible dependencies",
