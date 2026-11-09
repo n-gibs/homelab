@@ -2,5 +2,5 @@
 # instance-manager gRPC starts failing after a bump, that value is the first thing to set false.
 chartName: longhorn
 chartRepo: https://charts.longhorn.io
-chartVersion: 1.12.1
+chartVersion: 1.13.0
 syncWave: "1"
