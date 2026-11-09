@@ -13,7 +13,7 @@ controllers:
         # Chart 0.13.1's appVersion is v3.0.0 and the chart does not release on
         # every Immich release, so the tag is pinned ahead of it here. Valkey is
         # unaffected: its own values section pins its image explicitly.
-        # renovate: datasource=docker depName=ghcr.io/immich-app/immich-server
+        # renovate: datasource=github-releases depName=immich-app/immich versioning=regex:^v(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)$
         image:
           tag: v3.3.6
         env:

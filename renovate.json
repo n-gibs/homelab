@@ -15,6 +15,12 @@
       "enabled": false
     },
     {
+      "description": "These images are tracked by GitHub release, which upstream publishes before the image is pushed. Waiting keeps a PR from pointing at a tag that does not exist yet.",
+      "matchDatasources": ["github-releases"],
+      "matchPackageNames": ["linuxserver/docker-*", "immich-app/immich"],
+      "minimumReleaseAge": "3 hours"
+    },
+    {
       "matchManagers": ["ansible-galaxy"],
       "groupName": "ansible dependencies",
       "automerge": false
