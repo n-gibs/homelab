@@ -13,7 +13,7 @@ controllers:
         # renovate: datasource=github-releases depName=linuxserver/docker-prowlarr versioning=regex:^(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)\.(?<build>\d+)-ls(?<revision>\d+)$
         image:
           repository: lscr.io/linuxserver/prowlarr
-          tag: 2.7.0.5723-ls167
+          tag: 2.7.0.5723-ls168
         env:
           PUID: "1000"
           PGID: "1000"
