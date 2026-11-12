@@ -17,3 +17,8 @@ spec:
       backendRefs:
         - name: monitoring-system-grafana
           port: 80
+      # The route timeout covers the response body, so Envoy's 15s default cut the JS bundles
+      # mid-download to a slow tailnet client. Keep it above Grafana's 30s dataproxy.timeout
+      # so a slow query fails with Grafana's error, not Envoy's 504.
+      timeouts:
+        request: 60s
