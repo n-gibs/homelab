@@ -1,0 +1,46 @@
+name: validate
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  # renovate: datasource=github-releases depName=helm/helm
+  HELM_VERSION: v4.3.1
+  # renovate: datasource=github-releases depName=yannh/kubeconform
+  KUBECONFORM_VERSION: v0.8.0
+  # renovate: datasource=npm depName=renovate
+  RENOVATE_VERSION: 44.224.1
+
+jobs:
+  # The main ruleset requires this job by name, so it runs on every PR and
+  # skips work internally instead of using a paths filter.
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Install kubeconform
+        run: |
+          curl -fsSL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin kubeconform
+
+      - name: Render and schema-check changed stack directories
+        run: .github/scripts/render-apps.sh "${{ github.event.pull_request.base.sha }}"
+
+      - name: Validate renovate.json
+        run: |
+          if git diff --quiet "${{ github.event.pull_request.base.sha }}...HEAD" -- renovate.json; then
+            echo "renovate.json unchanged"
+          else
+            npx --yes --package "renovate@${RENOVATE_VERSION}" -- renovate-config-validator renovate.json
+          fi
