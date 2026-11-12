@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 2
 
@@ -45,7 +45,7 @@ jobs:
           gh pr close "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" \
             --comment "Closing: this moves a tag to an older release, so it is a downgrade even though the version number is higher. Release dates are in [the validate run](${RUN_URL}). Renovate will not reopen this version, but it also won't offer later builds until \`renovate.json\` excludes this one with \`allowedVersions\`."
 
-      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - uses: azure/setup-helm@v5.0.1
         with:
           version: ${{ env.HELM_VERSION }}
 
