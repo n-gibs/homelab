@@ -17,6 +17,10 @@ spec:
     kubernetes:
       envoyService:
         externalTrafficPolicy: Local
+      # Stops a drain evicting the last proxy while the other is down. Rollouts bypass a PDB,
+      # so the strategy below is still what governs an upgrade.
+      envoyPDB:
+        minAvailable: 1
       envoyDeployment:
         replicas: 2
         # A DoNotSchedule spread with replicas == nodes leaves a surge pod nowhere to land,

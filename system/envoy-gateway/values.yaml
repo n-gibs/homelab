@@ -10,3 +10,22 @@ config:
         # serves fine and ArgoCD reports Progressing. The informer resync is the only thing that
         # re-fires that event, and upstream defaults it to 10h.
         cacheSyncPeriod: 10m
+
+# Every replica serves xDS and only the leader writes status, so a proxy that restarts while
+# one controller is down still gets its config instead of never going Ready.
+deployment:
+  replicas: 2
+  pod:
+    # Soft: a hard spread counts a dead node as a domain and could leave the replacement Pending.
+    topologySpreadConstraints:
+      - topologyKey: kubernetes.io/hostname
+        maxSkew: 1
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            control-plane: envoy-gateway
+
+podDisruptionBudget:
+  minAvailable: 1
+  # A crash-looping controller must not block a node drain.
+  unhealthyPodEvictionPolicy: AlwaysAllow
