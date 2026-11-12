@@ -5,6 +5,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
 
 env:
   # renovate: datasource=github-releases depName=helm/helm
@@ -24,6 +25,23 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+
+      - name: Reject downgrades
+        id: downgrade
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/reject-downgrades.sh "${{ github.event.pull_request.base.sha }}"
+
+      # Renovate never reopens a PR closed for the same version, so closing
+      # keeps the downgrade from coming back on the next run.
+      - name: Close downgrade PR
+        if: failure() && steps.downgrade.outcome == 'failure' && startsWith(github.head_ref, 'renovate/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh pr close "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" \
+            --comment "Closing: this moves a tag to an older release, so it is a downgrade even though the version number is higher. Release dates are in [the validate run](${RUN_URL}). Renovate will not reopen this version."
 
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
         with:
