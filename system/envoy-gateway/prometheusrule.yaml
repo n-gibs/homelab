@@ -12,29 +12,28 @@ spec:
   groups:
     - name: envoy-gateway
       rules:
-        # Ratio rather than a raw count, since absolute 5xx volume scales with traffic. The
-        # second clause is a volume floor: without it two errors on an idle listener read as
-        # 100% and page. It also drops the admin and readiness listeners from scope without
-        # naming them, so a new listener is covered automatically.
+        # Per route, from upstream_rq: downstream_rq_xx never carries routed traffic (README).
+        # Routes idle at a few requests a minute, so the floor counts errors rather than
+        # traffic; one stray 503 alone is over 5%. EndpointDown covers a route that is fully
+        # down; this catches the partial failure a passing probe misses.
         - alert: Gateway5xxRateHigh
           expr: |
             (
-              sum by (envoy_http_conn_manager_prefix) (rate(envoy_http_downstream_rq_xx{envoy_response_code_class="5"}[5m]))
+              sum by (envoy_cluster_name) (rate(envoy_cluster_upstream_rq{envoy_cluster_name=~"httproute/.*", envoy_response_code=~"5.."}[15m]))
               /
-              sum by (envoy_http_conn_manager_prefix) (rate(envoy_http_downstream_rq_xx[5m]))
+              sum by (envoy_cluster_name) (rate(envoy_cluster_upstream_rq{envoy_cluster_name=~"httproute/.*"}[15m]))
             ) > 0.05
             and
-            sum by (envoy_http_conn_manager_prefix) (rate(envoy_http_downstream_rq_xx[5m])) > 0.2
+            sum by (envoy_cluster_name) (increase(envoy_cluster_upstream_rq{envoy_cluster_name=~"httproute/.*", envoy_response_code=~"5.."}[15m])) >= 5
           for: 15m
           labels:
             severity: warning
           annotations:
-            summary: "{{ $labels.envoy_http_conn_manager_prefix }} is serving over 5% 5xx"
+            summary: "{{ $labels.envoy_cluster_name }} is serving over 5% 5xx"
             description: >-
-              More than 5% of requests through the {{ $labels.envoy_http_conn_manager_prefix }}
-              listener have failed for 15m. Check GatewayNoHealthyUpstream first to see whether
-              one backend is responsible. A VPA Recreate that shrank a container's CPU limit
-              has caused this before, so check recent pod resizes on the backends too.
+              More than 5% of requests to {{ $labels.envoy_cluster_name }} have returned 5xx
+              for 15m. A VPA Recreate that shrank a container's CPU limit has caused this
+              before, so check recent pod resizes on that backend too.
 
         # One series per HTTPRoute backend, so the firing label points straight at the route.
         # This is the alert that distinguishes "the gateway is broken" from "one app behind it
