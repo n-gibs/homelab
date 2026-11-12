@@ -1,0 +1,66 @@
+name: validate
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  # renovate: datasource=github-releases depName=helm/helm
+  HELM_VERSION: v4.3.1
+  # renovate: datasource=github-releases depName=yannh/kubeconform
+  KUBECONFORM_VERSION: v0.8.0
+  # renovate: datasource=npm depName=renovate
+  RENOVATE_VERSION: 44.224.1
+
+jobs:
+  # The main ruleset requires this job by name, so it runs on every PR and
+  # skips work internally instead of using a paths filter.
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 2
+
+      # The checkout is GitHub's PR merge commit, whose first parent is the base
+      # branch, so HEAD^1 is the base and two commits of history are enough.
+      - name: Reject downgrades
+        id: downgrade
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/reject-downgrades.sh HEAD^1
+
+      # Renovate never reopens a PR closed for the same version, so closing
+      # keeps the downgrade from coming back on the next run.
+      - name: Close downgrade PR
+        if: failure() && steps.downgrade.outcome == 'failure' && startsWith(github.head_ref, 'renovate/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh pr close "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" \
+            --comment "Closing: this moves a tag to an older release, so it is a downgrade even though the version number is higher. Release dates are in [the validate run](${RUN_URL}). Renovate will not reopen this version, but it also won't offer later builds until \`renovate.json\` excludes this one with \`allowedVersions\`."
+
+      - uses: azure/setup-helm@v5.0.1
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Install kubeconform
+        run: |
+          curl -fsSL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin kubeconform
+
+      - name: Render and schema-check changed stack directories
+        run: .github/scripts/render-apps.sh HEAD^1
+
+      - name: Validate renovate.json
+        run: |
+          if git diff --quiet HEAD^1 HEAD -- renovate.json; then
+            echo "renovate.json unchanged"
+          else
+            npx --yes --package "renovate@${RENOVATE_VERSION}" -- renovate-config-validator renovate.json
+          fi

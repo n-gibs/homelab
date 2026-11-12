@@ -1,7 +1,8 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "config:recommended"
+    "config:recommended",
+    "customManagers:githubActionsVersions"
   ],
   "labels": ["dependencies"],
   "description": "No schedule: the CronJob in platform/renovate is the schedule, and every run may open PRs. Default prHourlyLimit of 2 starves the queue, so majors (sorted last) never win a slot. prConcurrentLimit is uncapped because updates are grouped per app directory, which already bounds open PRs at roughly one per app.",
@@ -21,15 +22,32 @@
       "minimumReleaseAge": "3 hours"
     },
     {
-      "matchManagers": ["ansible-galaxy"],
-      "groupName": "ansible dependencies",
-      "automerge": false
-    },
-    {
       "description": "One PR per app directory, so a chart bump and the image bump it pairs with land together. This also keeps Nextcloud, which cannot skip majors, out of any batch.",
       "matchManagers": ["custom.regex", "helm-values"],
       "matchFileNames": ["**/app.yaml", "**/values.yaml"],
       "groupName": "{{parentDir}}",
+      "automerge": false
+    },
+    {
+      "description": "Patches merge on their own once the validate check passes. A group automerges only if every update in it does, so a chart patch paired with an image minor still waits for review. Rules below this one opt specific deps back out. A release with no timestamp skips the wait instead of never opening.",
+      "matchUpdateTypes": ["patch"],
+      "automerge": true,
+      "minimumReleaseAge": "3 days",
+      "minimumReleaseAgeBehaviour": "timestamp-optional"
+    },
+    {
+      "description": "linuxserver restarted sonarr's build counter at ls1 after ls329, so the stale ls325-ls329 builds sort as newer than the current one. Regex versioning counts an ls bump as a patch, so without this the old build would automerge. Drop this once sonarr moves past 4.0.20.3014.",
+      "matchPackageNames": ["linuxserver/docker-sonarr"],
+      "allowedVersions": "!/^4\\.0\\.20\\.3014-ls32[5-9]$/"
+    },
+    {
+      "description": "bootstrap/ releases are applied by hand with just bootstrap-*, so an automerge would only move git away from what is running.",
+      "matchFileNames": ["bootstrap/**"],
+      "automerge": false
+    },
+    {
+      "matchManagers": ["ansible-galaxy"],
+      "groupName": "ansible dependencies",
       "automerge": false
     },
     {
@@ -40,9 +58,10 @@
       "dependencyDashboardApproval": true
     },
     {
-      "description": "A k3s minor bump has to wait for Cilium to support that Kubernetes minor, so without this every patch release sits behind a minor PR that can't merge yet.",
+      "description": "A k3s minor bump has to wait for Cilium to support that Kubernetes minor, so without this every patch release sits behind a minor PR that can't merge yet. Even a patch means rolling every node, so none of them automerge.",
       "matchDepNames": ["k3s-io/k3s"],
-      "separateMinorPatch": true
+      "separateMinorPatch": true,
+      "automerge": false
     }
   ],
   "customManagers": [
