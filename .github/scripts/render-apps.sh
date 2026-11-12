@@ -33,20 +33,22 @@ render() {
 
 main() {
   [[ $# -eq 1 ]] || { echo "usage: $0 <base-ref>|--all" >&2; exit 2; }
-  local out dir f failed=0
+  local out dir key f failed=0
   out="$(mktemp -d)"
   trap 'rm -rf "$out"' EXIT
+  shopt -s nullglob
 
   while IFS= read -r dir; do
     [[ -d "$dir" ]] || continue
+    key="${dir//\//_}"
     echo "::group::$dir"
-    if [[ -f "$dir/app.yaml" ]] && ! render "$dir" > "$out/${dir//\//_}.yaml"; then
+    if [[ -f "$dir/app.yaml" ]] && ! render "$dir" > "$out/$key.yaml"; then
       echo "::error::helm template failed for $dir"
       failed=1
     fi
     for f in "$dir"/*.yaml; do
-      [[ -e "$f" && "$f" != */app.yaml && "$f" != */values.yaml ]] || continue
-      cp "$f" "$out/${dir//\//_}_$(basename "$f")"
+      [[ "$f" != */app.yaml && "$f" != */values.yaml ]] || continue
+      cp "$f" "$out/${key}_$(basename "$f")"
     done
     echo "::endgroup::"
   done < <(list_dirs "$1")

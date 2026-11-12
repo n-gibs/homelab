@@ -9,7 +9,7 @@ set -euo pipefail
 tracked_tags() {
   awk '
     match($0, /# renovate: datasource=github-releases depName=[^ ]+/) {
-      split(substr($0, RSTART, RLENGTH), parts, "depName="); dep = parts[2]; left = 4; next
+      dep = substr($0, RSTART, RLENGTH); sub(/.*depName=/, "", dep); left = 4; next
     }
     dep != "" && $1 == "tag:" { print dep, $2; dep = "" }
     dep != "" && --left == 0 { dep = "" }
@@ -22,11 +22,12 @@ published() {
 
 main() {
   [[ $# -ge 1 ]] || { echo "usage: $0 <base-ref> [head-ref]" >&2; exit 2; }
-  local base="$1" head="${2:-HEAD}" file dep old new old_at new_at failed=0
+  local base="$1" head="${2:-HEAD}" file base_tags dep old new old_at new_at failed=0
 
   while IFS= read -r file; do
+    base_tags="$(git show "$base:$file" 2> /dev/null | tracked_tags)"
     while read -r dep new; do
-      old="$(git show "$base:$file" 2> /dev/null | tracked_tags | awk -v d="$dep" '$1 == d { print $2 }')"
+      old="$(awk -v d="$dep" '$1 == d { print $2 }' <<< "$base_tags")"
       [[ -n "$old" && "$old" != "$new" ]] || continue
       old_at="$(published "$dep" "$old")" || old_at=""
       new_at="$(published "$dep" "$new")" || new_at=""
@@ -35,7 +36,7 @@ main() {
         continue
       fi
       if [[ "$new_at" < "$old_at" ]]; then
-        echo "::error file=$file::$dep $old -> $new is a downgrade: $new was released $new_at, $old was released $old_at"
+        echo "::error file=$file::$dep $old -> $new is a downgrade: $new was released $new_at, $old was released $old_at. Renovate still ranks $new newest and won't offer later builds until renovate.json excludes it with allowedVersions."
         failed=1
       else
         echo "$dep $old -> $new ok ($old_at -> $new_at)"
