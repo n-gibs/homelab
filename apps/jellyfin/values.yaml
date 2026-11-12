@@ -78,6 +78,17 @@ route:
               value: /
         timeouts:
           request: 300s
+      # Direct play is one range response read at playback speed, so it lasts as long as
+      # the video and any request timeout cuts it. 0s also disables the idle timeout,
+      # which backendtrafficpolicy.yaml restores.
+      - backendRefs:
+          - identifier: main
+        matches:
+          - path:
+              type: RegularExpression
+              value: (?i)/(videos|audio)/[^/]+/stream(\.[^/]+)?
+        timeouts:
+          request: 0s
 
 persistence:
   config:

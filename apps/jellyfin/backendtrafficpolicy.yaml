@@ -1,0 +1,15 @@
+# Envoy Gateway derives a route's idle timeout from its request timeout, and the
+# direct-play rule's 0s turns it off. Set here, it takes precedence on both rules.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: jellyfin
+  namespace: jellyfin
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: jellyfin
+  timeout:
+    http:
+      streamIdleTimeout: 1h
