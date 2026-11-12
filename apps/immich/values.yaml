@@ -15,7 +15,7 @@ controllers:
         # unaffected: its own values section pins its image explicitly.
         # renovate: datasource=github-releases depName=immich-app/immich versioning=regex:^v(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)$
         image:
-          tag: v3.3.6
+          tag: v3.4.1
         env:
           DB_HOSTNAME: immich-database-rw
           DB_USERNAME: app
