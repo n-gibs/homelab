@@ -1,9 +1,9 @@
 fullnameOverride: sealed-secrets-controller
 
-# The chart's default resourcesPreset "nano" ships 100m/150m, a 1.5:1 ratio VPA divides
-# down to a 22m ceiling. resources wins over the preset, but set it to none anyway so a
-# chart bump can't reintroduce one.
-resourcesPreset: none
+# The bitnami catalog chart named keys sealed-secrets-controller-key*; keep new keys on
+# the same prefix. The controller loads existing keys by label, not by name.
+secretName: sealed-secrets-controller-key
+
 resources:
   requests:
     cpu: 50m
