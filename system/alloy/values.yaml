@@ -1,6 +1,17 @@
+# Tail positions live under storagePath; on the container filesystem every new pod
+# re-tailed every container from the start and Loki discarded the replay, live lines too.
 controller:
-  type: deployment
+  type: statefulset
   replicas: 1
+  volumeClaimTemplates:
+    - metadata:
+        name: storage
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: longhorn
+        resources:
+          requests:
+            storage: 1Gi
 
 # Alloy is the only log shipper; unscraped, a stopped pipeline is invisible. See
 # prometheusrule.yaml.
@@ -13,6 +24,11 @@ alloy:
   resources:
     requests:
       cpu: 100m
+  storagePath: /var/lib/alloy
+  mounts:
+    extra:
+      - name: storage
+        mountPath: /var/lib/alloy
   configMap:
     content: |-
       discovery.kubernetes "pods" {
@@ -86,10 +102,10 @@ alloy:
       loki.process "pods" {
         forward_to = [loki.write.local.receiver]
 
-        // loki.source.kubernetes re-tails a container from the start of its log, so quiet
-        // pods replay their startup lines forever. Past Loki's reject_old_samples_max_age
-        // (= retention_period, 168h) that 400s and Alloy drops the whole batch, live lines
-        // included. Dropping here keeps the batch, and loki_write_dropped_entries_total real.
+        // A container with no stored position (a fresh or lost storage volume) is tailed
+        // from the start of its log. Lines past Loki's reject_old_samples_max_age (168h)
+        // 400 the whole batch, live lines included. Dropping here keeps the batch, and
+        // loki_write_dropped_entries_total real.
         stage.drop {
           older_than          = "167h"
           drop_counter_reason = "older_than_loki_retention"

@@ -53,5 +53,5 @@ spec:
             description: >-
               alloy_build_info has had no series for an hour, so AlloyNotShippingLogs cannot
               fire and the log pipeline is unwatched again. Check that serviceMonitor.enabled
-              survived a chart bump in system/alloy/values.yaml, and that the alloy Deployment
+              survived a chart bump in system/alloy/values.yaml, and that the alloy StatefulSet
               is up.
