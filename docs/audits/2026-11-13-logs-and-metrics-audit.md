@@ -87,7 +87,8 @@ trains you to ignore it.
 
 **Status: fixed 2026-11-13 (#359).** Dropping bitnami's ~27MB `index.yaml` was enough. A full
 run on 44.239.0 at the default heap finished with `"result": "done"` and peaked at 1125 MiB
-working set, against 1.0-1.4 GiB for the good runs before the failures. The margin is thin, so
+working set; the 15:23 scheduled run matched it at 1182 MiB. Good runs before the failures
+peaked at 1.0-1.4 GiB, so the margin is thin, and
 #358's heap cap is the fallback if the heap error returns. One successful Job is enough to put
 the app back to Healthy: the two Failed Jobs still exist and do not keep it Degraded.
 
