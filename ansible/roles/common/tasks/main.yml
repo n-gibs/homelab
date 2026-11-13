@@ -31,6 +31,29 @@
     state: absent
   become: true
 
+- name: Create kubelet drop-in config directory
+  ansible.builtin.file:
+    path: /var/lib/rancher/k3s/agent/etc/kubelet.conf.d
+    state: directory
+    mode: "0700"
+  become: true
+
+# Longhorn counts root-reserved blocks as free and kubelet does not, so Longhorn's 25% floor
+# is kubelet usage ~80%: the default 85 starts GC after scheduling has already stopped.
+# The age limit clears superseded images on nodes that never reach the threshold.
+# Read at kubelet start only. See ansible/README.md.
+- name: Garbage-collect images before Longhorn's disk floor
+  ansible.builtin.copy:
+    dest: /var/lib/rancher/k3s/agent/etc/kubelet.conf.d/50-image-gc.conf
+    content: |
+      apiVersion: kubelet.config.k8s.io/v1beta1
+      kind: KubeletConfiguration
+      imageGCHighThresholdPercent: 70
+      imageGCLowThresholdPercent: 65
+      imageMaximumGCAge: 168h
+    mode: "0600"
+  become: true
+
 - name: Create k3s systemd override directory
   ansible.builtin.file:
     path: /etc/systemd/system/k3s.service.d

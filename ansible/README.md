@@ -138,6 +138,24 @@ too, and takes effect on the next k3s restart.
 Changing snapshotters invalidates every image already on the node ("content digest not found"), so
 a switch needs a full re-pull.
 
+### kubelet image GC
+
+Longhorn stops scheduling replicas on a disk below `storage-minimal-available-percentage` (25).
+It counts the ext4 root reserve as free, while kubelet's image GC measures only what an
+unprivileged process can use, so the floor lands at kubelet usage of about 80%. kubelet's default
+high threshold is 85, so images only got collected after Longhorn had already marked the disk
+`DiskPressure`. `50-image-gc.conf` starts GC at 70% and frees down to 65%; on worker-00, the
+smallest disk, 70% still leaves Longhorn about 35% free.
+
+`imageMaximumGCAge: 168h` deletes any image unused for a week regardless of disk usage. Superseded
+versions are most of the bulk, Renovate's own image above all, and worker-01 never gets near a
+threshold. Every CronJob runs at least daily, so a CronJob re-pulls only when it lands on a node
+it has not run on for a week. The age clock starts
+at kubelet start, so it removes nothing during the first week after a k3s restart.
+
+kubelet reads the drop-in only at start, so the task needs `systemctl restart k3s` on each node,
+one at a time.
+
 ### k3s startup gate on the Cilium CNI socket
 
 Cilium's `05-cilium.conflist` persists on disk once written. At boot containerd finds it and
