@@ -24,8 +24,8 @@ Two numbers mislead if you query them naively:
 
 | # | Priority | Finding | Fix |
 |---|---|---|---|
-| 1 | Fix now | Alloy drops logs on every rollout | Persist `/tmp/alloy` |
-| 2 | Fix now | worker-02 disk blocks Longhorn scheduling | Kubelet image GC below Longhorn's floor |
+| 1 | ~~Fix now~~ Done (#363) | Alloy drops logs on every rollout | Persist `/tmp/alloy` |
+| 2 | ~~Fix now~~ Done (#364) | worker-02 disk blocks Longhorn scheduling | Kubelet image GC below Longhorn's floor |
 | 3 | Fix now | Renovate still OOMs on heap | Watch the next run; reopen #358 if it fails |
 | 4 | Worth doing | Prometheus stores 183k series twice | Drop apiserver/etcd series from the kubelet scrape |
 | 5 | Worth doing | No app-level NetworkPolicies | Default-deny in database namespaces |
@@ -52,6 +52,10 @@ Fix: put the storage path on a small `longhorn` volume. The chart supports a Sta
 controller with volume claim templates; confirm the exact keys against the chart before
 writing them.
 
+**Status: fixed 2026-11-13 (#363).** Alloy runs as a single-replica StatefulSet with a 1Gi
+`longhorn` volume at `/var/lib/alloy`, and positions now survive a pod replacement. The
+`stage.drop` older-than guard stays, because a fresh or lost volume still tails from the start.
+
 ### 2. worker-02's disk blocks Longhorn scheduling
 
 Longhorn marks worker-02's disk `Schedulable=False, DiskPressure`. The root filesystem is
@@ -65,6 +69,11 @@ default 85% high threshold, above the point where Longhorn stops scheduling.
 
 Fix: set `image-gc-high-threshold` and `image-gc-low-threshold` below 75 through
 `kubelet-arg` in `ansible/`, then prune once by hand. worker-01 is fine at 36% of 466G.
+
+**Status: fixed 2026-11-13 (#364).** A `kubelet.conf.d` drop-in replaced the deprecated
+`kubelet-arg` flags: thresholds 70/65 plus `imageMaximumGCAge: 168h`, so no manual prune was
+needed. The first GC pass took worker-02's root filesystem from 176G to 106G and worker-00's
+from 82G to 59G. All three Longhorn disks report `Schedulable=True`.
 
 ### 3. Renovate still OOMs on heap
 
