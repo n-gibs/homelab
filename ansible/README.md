@@ -153,6 +153,11 @@ threshold. Every CronJob runs at least daily, so a CronJob re-pulls only when it
 it has not run on for a week. The age clock starts
 at kubelet start, so it removes nothing during the first week after a k3s restart.
 
+kubelet tallies freed space by compressed image size, well under the unpacked snapshots it
+actually removes. A pass therefore usually deletes every unused image and still logs
+`FreeDiskSpaceFailed`; read `df`, not the event. The first pass after a k3s restart always frees
+0 bytes, because every image counts as first seen at kubelet start and `imageMinimumGCAge` is 2m.
+
 kubelet reads the drop-in only at start, so the task needs `systemctl restart k3s` on each node,
 one at a time.
 
