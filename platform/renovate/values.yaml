@@ -1,6 +1,6 @@
 # renovate: datasource=docker depName=ghcr.io/renovatebot/renovate
 image:
-  tag: 44.239.0
+  tag: 44.239.1
 
 cronjob:
   # Off the hour: ghcr.io's shared limit trips when every :00 cron fires at once.
