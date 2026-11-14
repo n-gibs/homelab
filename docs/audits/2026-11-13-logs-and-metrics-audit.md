@@ -27,7 +27,7 @@ Two numbers mislead if you query them naively:
 | 1 | ~~Fix now~~ Done (#363) | Alloy drops logs on every rollout | Persist `/tmp/alloy` |
 | 2 | ~~Fix now~~ Done (#364) | worker-02 disk blocks Longhorn scheduling | Kubelet image GC below Longhorn's floor |
 | 3 | ~~Fix now~~ Done (#359) | Renovate still OOMs on heap | Watch the next run; reopen #358 if it fails |
-| 4 | Worth doing | Prometheus stores 183k series twice | Drop apiserver/etcd series from the kubelet scrape |
+| 4 | ~~Worth doing~~ Done (#367) | Prometheus stores 183k series twice | Drop apiserver/etcd series from the kubelet scrape |
 | 5 | Worth doing | No app-level NetworkPolicies | Default-deny in database namespaces |
 | 6 | Worth doing | Prometheus volume is in the daily backup | Remove it from the `default` group |
 | 7 | Cleanup | Hubble dashboards are mostly empty | Enable `flow,tcp,icmp` or drop the dashboards |
@@ -102,6 +102,12 @@ growing 0.17-0.27 GiB a day, with no `retentionSize` set behind the 10d retentio
 Fix: a `metricRelabelings` drop of `(apiserver|etcd)_.+` on the kubelet ServiceMonitor in
 `system/monitoring-system/values.yaml`, plus a `retentionSize`. Before merging, grep the
 rendered rules and dashboards for those metrics filtered on `job="kubelet"`.
+
+**Status: fixed 2026-11-14 (#367).** Before the change prometheus-0 held 338k head series, of
+which 110k were kubelet copies (86k `apiserver_*`, 25k `etcd_*`), not the 183k first measured.
+No rule or dashboard read them from `job="kubelet"`. After the reload the kubelet `/metrics`
+path fell from 129k to 19k series and only `apiserver` and `kube-etcd` carry these metrics.
+`retentionSize` is 16GiB in the loaded config. Head series fall at the next block compaction.
 
 ### 5. No app-level NetworkPolicies
 
