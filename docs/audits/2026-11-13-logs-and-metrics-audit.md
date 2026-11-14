@@ -26,7 +26,7 @@ Two numbers mislead if you query them naively:
 |---|---|---|---|
 | 1 | ~~Fix now~~ Done (#363) | Alloy drops logs on every rollout | Persist `/tmp/alloy` |
 | 2 | ~~Fix now~~ Done (#364) | worker-02 disk blocks Longhorn scheduling | Kubelet image GC below Longhorn's floor |
-| 3 | Fix now | Renovate still OOMs on heap | Watch the next run; reopen #358 if it fails |
+| 3 | ~~Fix now~~ Done (#359) | Renovate still OOMs on heap | Watch the next run; reopen #358 if it fails |
 | 4 | Worth doing | Prometheus stores 183k series twice | Drop apiserver/etcd series from the kubelet scrape |
 | 5 | Worth doing | No app-level NetworkPolicies | Default-deny in database namespaces |
 | 6 | Worth doing | Prometheus volume is in the daily backup | Remove it from the `default` group |
@@ -84,6 +84,13 @@ succeeded, so #359 may be enough. The next scheduled run, around 15:25 PST, sett
 
 `ArgoCDAppDegraded` fired on the renovate app for most of the week (1,158 samples), which
 trains you to ignore it.
+
+**Status: fixed 2026-11-13 (#359).** Dropping bitnami's ~27MB `index.yaml` was enough. A full
+run on 44.239.0 at the default heap finished with `"result": "done"` and peaked at 1125 MiB
+working set; the 15:23 scheduled run matched it at 1182 MiB. Good runs before the failures
+peaked at 1.0-1.4 GiB, so the margin is thin, and
+#358's heap cap is the fallback if the heap error returns. One successful Job is enough to put
+the app back to Healthy: the two Failed Jobs still exist and do not keep it Degraded.
 
 ### 4. Prometheus stores 183k series twice
 
