@@ -35,6 +35,16 @@ kubelet:
         sourceLabels: []
         targetLabel: cluster
         replacement: homelab
+    # k3s serves the whole process registry on kubelet /metrics; the apiserver and etcd jobs
+    # already scrape these. Setting this list replaces the chart's default, so the first entry
+    # restates its storage-bucket drop.
+    metricRelabelings:
+      - action: drop
+        sourceLabels: [__name__, le]
+        regex: (csi_operations|storage_operation_duration)_seconds_bucket;(0.25|2.5|15|25|120|600)(\.0)?
+      - action: drop
+        sourceLabels: [__name__]
+        regex: (apiserver|etcd)_.+
     cAdvisorRelabelings:
       - action: replace
         sourceLabels: [__metrics_path__]
@@ -174,6 +184,8 @@ prometheus:
       requests:
         cpu: 250m
         memory: 3Gi
+    # Prometheus counts GB as GiB. 16 of the 20Gi leaves room for compaction rewrites.
+    retentionSize: 16GB
     ruleSelectorNilUsesHelmValues: false
     serviceMonitorSelectorNilUsesHelmValues: false
     podMonitorSelectorNilUsesHelmValues: false
