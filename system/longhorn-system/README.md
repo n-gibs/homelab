@@ -100,7 +100,19 @@ baseline half of the comparison.
 `RecurringJob daily-backup`, 04:30, retain 7, group `default`, target
 `nfs://192.168.30.144:/mnt/storage/data/longhorn-backups`. Longhorn renders this as
 **one** Kubernetes CronJob named after the RecurringJob — not one per volume — so
-`kubectl -n longhorn-system get cronjob daily-backup` covers all eight.
+`kubectl -n longhorn-system get cronjob daily-backup` covers every volume in the group.
+
+Every Longhorn volume joins `default` unless it opts out. Removing its
+`recurring-job-group.longhorn.io/default` label does nothing, because Longhorn
+re-adds `default` to any volume with no recurring-job label at all. Opt out on the
+PVC instead: `recurring-job.longhorn.io/source=enabled` makes Longhorn copy the PVC's
+recurring-job labels onto the Volume, and `recurring-job-group.longhorn.io/no-backup=enabled`
+names a group no RecurringJob uses. Prometheus is the one volume out (see
+`system/monitoring-system/values.yaml`).
+
+Leaving the group does not delete the snapshot the last backup left behind.
+Retention only runs inside a job, for the volumes that job selects, so delete that
+snapshot by hand. The volume's backups on the NAS stay too.
 
 **A completed Job is not a successful backup.** `kubectl wait --for=condition=complete`
 returns clean on a run whose underlying Backup CR is `Error` and whose
