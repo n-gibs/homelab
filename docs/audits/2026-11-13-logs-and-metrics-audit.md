@@ -29,7 +29,7 @@ Two numbers mislead if you query them naively:
 | 3 | ~~Fix now~~ Done (#359) | Renovate still OOMs on heap | Watch the next run; reopen #358 if it fails |
 | 4 | ~~Worth doing~~ Done (#367) | Prometheus stores 183k series twice | Drop apiserver/etcd series from the kubelet scrape |
 | 5 | Worth doing | No app-level NetworkPolicies | Default-deny in database namespaces |
-| 6 | Worth doing | Prometheus volume is in the daily backup | Remove it from the `default` group |
+| 6 | ~~Worth doing~~ Done (#382) | Prometheus volume is in the daily backup | Remove it from the `default` group |
 | 7 | Cleanup | Hubble dashboards are mostly empty | Enable `flow,tcp,icmp` or drop the dashboards |
 | 8 | Cleanup | Irrelevant and duplicate dashboards | Disable MacOS/AIX, drop upstream duplicates |
 | 9 | Cleanup | Loki's own info logs dominate log volume | Lower Loki's log level |
@@ -123,6 +123,13 @@ The 20Gi Prometheus volume uses 24.9G per replica, about 50G across two. It carr
 snapshot pins every TSDB block compaction has since rewritten. A crash-consistent copy of
 10 days of metrics is worth little. Removing the label frees the space once Longhorn cleans
 up the snapshot.
+
+**Status: fixed 2026-11-16 (#382).** Removing the label alone would not have held, because Longhorn
+re-adds `default` to any volume with no recurring-job label. The Prometheus PVC now carries
+`recurring-job.longhorn.io/source=enabled` and `recurring-job-group.longhorn.io/no-backup=enabled`,
+a group no RecurringJob uses, and its Volume shows only that group. Longhorn does not clean up
+the 19.65 GiB snapshot from the last run: retention runs only inside a job, for the volumes it
+selects. That snapshot has to be deleted by hand.
 
 ### 7. Hubble dashboards are mostly empty
 
