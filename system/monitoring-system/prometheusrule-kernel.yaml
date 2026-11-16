@@ -1,6 +1,5 @@
 ---
 # Feed: ansible/roles/common writes node_apparmor_signal_denials_total via a systemd timer.
-# Runbook: docs/kernel-updates.md.
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
@@ -12,7 +11,8 @@ spec:
   groups:
     - name: kernel
       rules:
-        # A healthy kernel logs ~15 signal denials in three weeks; 7.0.0-43 logged ~4,000 an hour.
+        # A healthy node logs ~15 signal denials in three weeks; 7.0.0-43 with containerd's
+        # stock profile logged ~4,000 an hour.
         - alert: AppArmorSignalDenials
           expr: |
             increase(node_apparmor_signal_denials_total[15m])
@@ -26,9 +26,10 @@ spec:
               {{ $value | humanize }} AppArmor signal denials in 15m on {{ $labels.nodename }},
               running kernel {{ $labels.release }}. Processes in one container can no longer
               signal each other, so Postgres stops waking its own workers and CNPG clusters
-              fill their connection slots. Check
-              `journalctl -k | grep 'operation="signal"'`, then boot the previous kernel:
-              docs/kernel-updates.md.
+              fill their connection slots. Check `journalctl -k | grep 'operation="signal"'`
+              for the peer label: ansible/roles/common loads a containerd profile that allows
+              only `cri-containerd.apparmor.d//&unconfined`. To roll the node back, boot the
+              previous kernel once with `grub-reboot`.
 
         # Without this, a node missing the timer or the collector flag silences the alert above.
         - alert: AppArmorDenialFeedMissing
