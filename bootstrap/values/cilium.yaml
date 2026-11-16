@@ -65,15 +65,18 @@ bpf:
 
 hubble:
   enabled: true
-  # drop and dns only. `flow`, `tcp` and `http` are per-flow and would dwarf the whole head
-  # series count. drop is bounded by namespace pairs at this context setting, and bare `dns`
-  # gives rcode/qtype without the `query` label, which is one series per domain name.
+  # flow, tcp and icmp carry no context labels: per-pod or per-namespace context would be
+  # one series per pair. drop is bounded by namespace pairs, and bare `dns` gives rcode/qtype
+  # without `query`, which is one series per domain name. `http` stays off (needs L7 proxy).
   metrics:
     enabled:
       - drop:sourceContext=namespace;destinationContext=namespace
       - dns
-    # The flow, TCP and HTTP panels of this dashboard stay empty by design — those metric
-    # families are the ones excluded above.
+      - flow
+      - tcp
+      - icmp
+    # The chart ships all four Hubble dashboards behind this one flag. DNS Overview and L7 HTTP
+    # stay empty because we run no L7 proxy, and there is no per-dashboard switch.
     dashboards:
       enabled: true
   relay:

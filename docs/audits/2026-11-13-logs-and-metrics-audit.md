@@ -30,7 +30,7 @@ Two numbers mislead if you query them naively:
 | 4 | ~~Worth doing~~ Done (#367) | Prometheus stores 183k series twice | Drop apiserver/etcd series from the kubelet scrape |
 | 5 | ~~Worth doing~~ Done (#369, #370) | No app-level NetworkPolicies | Default-deny in database namespaces |
 | 6 | ~~Worth doing~~ Done (#382) | Prometheus volume is in the daily backup | Remove it from the `default` group |
-| 7 | Cleanup | Hubble dashboards are mostly empty | Enable `flow,tcp,icmp` or drop the dashboards |
+| 7 | ~~Cleanup~~ Done (this PR) | Hubble dashboards are mostly empty | Enable `flow,tcp,icmp` without context labels |
 | 8 | Cleanup | Irrelevant and duplicate dashboards | Disable MacOS/AIX, drop upstream duplicates |
 | 9 | Cleanup | Loki's own info logs dominate log volume | Lower Loki's log level |
 | 10 | Cleanup | Failed Job pods linger | Delete; check `failedJobsHistoryLimit` |
@@ -143,6 +143,13 @@ Cilium runs `hubble-metrics: drop dns`. The `dns` metric emits nothing without L
 visibility, so four dashboards (Hubble Metrics and Monitoring, DNS Overview, Network
 Overview, L7 HTTP) query `hubble_flows_processed_total`, `hubble_tcp_flags_total`,
 `hubble_icmp_total` and `hubble_dns_*`, none of which exist.
+
+**Status: fixed 2026-11-16 (this PR), applied by `just bootstrap-cilium`.** `flow`, `tcp` and
+`icmp` join `drop` and `dns` in `bootstrap/values/cilium.yaml`, with no context labels. A
+sample of 30,000 flows on worker-01 showed 7 type/subtype/verdict combinations, 5 TCP flags
+and 2 ICMP types, so the families add roughly 50 to 120 series across three nodes, against
+338k in the Prometheus head. DNS Overview and L7 HTTP stay empty: no L7 proxy, and the chart
+renders its four dashboards from one flag with no per-file switch, so they remain.
 
 ### 8. Irrelevant and duplicate dashboards
 
