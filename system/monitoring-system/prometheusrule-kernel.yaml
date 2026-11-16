@@ -1,0 +1,47 @@
+---
+# Feed: ansible/roles/common writes node_apparmor_signal_denials_total via a systemd timer.
+# Runbook: docs/kernel-updates.md.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: kernel
+  namespace: monitoring-system
+  labels:
+    release: monitoring-system
+spec:
+  groups:
+    - name: kernel
+      rules:
+        # A healthy kernel logs ~15 signal denials in three weeks; 7.0.0-43 logged ~4,000 an hour.
+        - alert: AppArmorSignalDenials
+          expr: |
+            increase(node_apparmor_signal_denials_total[15m])
+              * on (instance) group_left (nodename, release) node_uname_info
+              > 20
+          labels:
+            severity: critical
+          annotations:
+            summary: AppArmor is denying signals on {{ $labels.nodename }} ({{ $labels.release }})
+            description: >-
+              {{ $value | humanize }} AppArmor signal denials in 15m on {{ $labels.nodename }},
+              running kernel {{ $labels.release }}. Processes in one container can no longer
+              signal each other, so Postgres stops waking its own workers and CNPG clusters
+              fill their connection slots. Check
+              `journalctl -k | grep 'operation="signal"'`, then boot the previous kernel:
+              docs/kernel-updates.md.
+
+        # Without this, a node missing the timer or the collector flag silences the alert above.
+        - alert: AppArmorDenialFeedMissing
+          expr: |
+            count(node_uname_info) - count(node_apparmor_signal_denials_total) > 0
+              or absent(node_apparmor_signal_denials_total)
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: AppArmor denial metric missing on at least one node
+            description: >-
+              node_apparmor_signal_denials_total is missing for at least one node, so
+              AppArmorSignalDenials cannot fire there. Check
+              `systemctl status apparmor-denials-textfile.timer` on the node and the
+              --collector.textfile.directory flag in system/monitoring-system/values.yaml.
