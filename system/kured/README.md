@@ -7,7 +7,7 @@ kured reboots nodes after unattended-upgrades installs something that needs a re
 - **Window:** 03:00–06:00 Pacific, Monday to Thursday, so you're around the morning after a reboot.
 - **One node at a time:** a node takes a cluster-wide lock (an annotation on the `kured` DaemonSet), drains, reboots and uncordons. The lock stays held for 30 minutes after the node returns, then the next node may start.
 - **Alerts gate it:** kured won't start a reboot while any alert other than `Watchdog` or `InfoInhibitor` is firing. A kernel that breaks the first node stops the rollout there.
-- **Drains give up:** a drain stuck on a PodDisruptionBudget gives up after 30 minutes, and kured tries again next check. It never forces the reboot.
+- **Drains give up:** a drain stuck on a PodDisruptionBudget gives up after 10 minutes, and kured never forces the reboot. The node then stays cordoned for another 30 minutes, because kured releases the lock (waiting out the 30-minute hold) before it uncordons. Its CNPG and media pods sit `Pending` meanwhile. kured tries again at a later check.
 
 GRUB boots the newest installed kernel, so the reboot after an install is the new kernel's first run on that node.
 

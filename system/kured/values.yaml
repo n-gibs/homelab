@@ -13,8 +13,9 @@ configuration:
   alertFiringOnly: true
   # Watchdog is the dead-man's switch and always fires; InfoInhibitor is an inhibition helper.
   alertFilterRegexp: ^(Watchdog|InfoInhibitor)$
-  # A drain stuck on a PDB gives up and retries next period instead of forcing the reboot.
-  drainTimeout: 30m
+  # A failed drain releases the lock before uncordoning, and the release waits out
+  # lockReleaseDelay, so the node stays cordoned for drainTimeout + 30m. Keep this short.
+  drainTimeout: 10m
   forceReboot: false
   annotateNodes: true
 
