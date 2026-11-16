@@ -31,7 +31,7 @@ Two numbers mislead if you query them naively:
 | 5 | ~~Worth doing~~ Done (#369, #370) | No app-level NetworkPolicies | Default-deny in database namespaces |
 | 6 | ~~Worth doing~~ Done (#382) | Prometheus volume is in the daily backup | Remove it from the `default` group |
 | 7 | ~~Cleanup~~ Done (this PR) | Hubble dashboards are mostly empty | Enable `flow,tcp,icmp` without context labels |
-| 8 | Cleanup | Irrelevant and duplicate dashboards | Disable MacOS/AIX, drop upstream duplicates |
+| 8 | ~~Cleanup~~ Done (this PR) | Irrelevant and duplicate dashboards | Disable MacOS/AIX, drop upstream duplicates |
 | 9 | Cleanup | Loki's own info logs dominate log volume | Lower Loki's log level |
 | 10 | Cleanup | Failed Job pods linger | Delete; check `failedJobsHistoryLimit` |
 
@@ -156,6 +156,13 @@ renders its four dashboards from one flag with no per-file switch, so they remai
 43 dashboards are provisioned. Node Exporter MacOS and AIX do not apply. Longhorn and
 CloudNativePG each ship an upstream dashboard beside the "Homelab" one. The Cilium
 Operator EC2 panels and Cilium kvstore/proxy panels are empty by design and can stay.
+
+**Status: fixed 2026-11-16 (this PR).** `nodeExporter.operatingSystems.aix` and `.darwin` are
+`false` in the kube-prometheus-stack 93.3.0 values, and `monitoring.grafanaDashboard.create` is
+`false` for the cloudnative-pg 0.29.1 chart. `dashboard-upstream.yaml` is deleted from
+`system/longhorn-system`. `helm template` before and after shows exactly two kube-prometheus-stack
+ConfigMaps gone (`nodes-aix`, `nodes-darwin`) and one cloudnative-pg ConfigMap
+(`cnpg-grafana-dashboard`). With the Longhorn file that is four of the 43.
 
 ### 9. Loki's own info logs dominate log volume
 

@@ -1,10 +1,10 @@
 crds:
   create: true
 
-# The Grafana sidecar runs NAMESPACE=ALL, so the ConfigMap is fine where the release puts it.
+# dashboard.yaml is the hand-written one; see README.md for why upstream's does not fit.
 monitoring:
   grafanaDashboard:
-    create: true
+    create: false
 
 resources:
   requests:
