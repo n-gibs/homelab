@@ -126,15 +126,13 @@
   become: true
   notify: Reload containerd AppArmor profile
 
-# apparmor.service loads the profile above; k3s must start after it or containerd loads its own.
-- name: Start k3s after AppArmor profiles load
-  ansible.builtin.copy:
-    dest: /etc/systemd/system/k3s.service.d/apparmor-order.conf
-    content: |
-      [Unit]
-      After=apparmor.service
-      Wants=apparmor.service
-    mode: "0644"
+# No ordering drop-in needed: apparmor.service runs Before=sysinit.target, which k3s's
+# default dependencies already wait for.
+# shortcut: one-off removal of an earlier redundant drop-in; delete once every node has run it.
+- name: Remove the redundant k3s AppArmor ordering drop-in
+  ansible.builtin.file:
+    path: /etc/systemd/system/k3s.service.d/apparmor-order.conf
+    state: absent
   become: true
   notify: Reload systemd
 
