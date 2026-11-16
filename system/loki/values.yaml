@@ -24,6 +24,9 @@ loki:
     delete_request_store: filesystem
   pattern_ingester:
     enabled: true
+  # Info logs every query, including the ruler's, and every table lookup.
+  server:
+    log_level: warn
 
   # Enables the ruler so log-only conditions can alert — see rule-cilium-split-brain.yaml.
   # storage.type must be local to read rule files off disk, and the local store expects

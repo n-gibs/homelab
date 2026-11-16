@@ -25,6 +25,14 @@ kubeEtcd:
   serviceMonitor:
     enabled: false
 
+# The cluster is Linux only. These gate the chart's per-OS node dashboards, nothing else.
+nodeExporter:
+  operatingSystems:
+    aix:
+      enabled: false
+    darwin:
+      enabled: false
+
 kubelet:
   serviceMonitor:
     relabelings:

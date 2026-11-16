@@ -28,12 +28,12 @@ Two numbers mislead if you query them naively:
 | 2 | ~~Fix now~~ Done (#364) | worker-02 disk blocks Longhorn scheduling | Kubelet image GC below Longhorn's floor |
 | 3 | ~~Fix now~~ Done (#359) | Renovate still OOMs on heap | Watch the next run; reopen #358 if it fails |
 | 4 | ~~Worth doing~~ Done (#367) | Prometheus stores 183k series twice | Drop apiserver/etcd series from the kubelet scrape |
-| 5 | Worth doing | No app-level NetworkPolicies | Default-deny in database namespaces |
+| 5 | ~~Worth doing~~ Done (#369, #370) | No app-level NetworkPolicies | Default-deny in database namespaces |
 | 6 | ~~Worth doing~~ Done (#382) | Prometheus volume is in the daily backup | Remove it from the `default` group |
-| 7 | Cleanup | Hubble dashboards are mostly empty | Enable `flow,tcp,icmp` or drop the dashboards |
-| 8 | Cleanup | Irrelevant and duplicate dashboards | Disable MacOS/AIX, drop upstream duplicates |
-| 9 | Cleanup | Loki's own info logs dominate log volume | Lower Loki's log level |
-| 10 | Cleanup | Failed Job pods linger | Delete; check `failedJobsHistoryLimit` |
+| 7 | ~~Cleanup~~ Done (this PR) | Hubble dashboards are mostly empty | Enable `flow,tcp,icmp` without context labels |
+| 8 | ~~Cleanup~~ Done (this PR) | Irrelevant and duplicate dashboards | Disable MacOS/AIX, drop upstream duplicates |
+| 9 | ~~Cleanup~~ Done (this PR) | Loki's own info logs dominate log volume | Lower Loki's log level |
+| 10 | ~~Cleanup~~ Done (this PR) | Failed Job pods linger | Delete; check `failedJobsHistoryLimit` |
 
 ### 1. Alloy drops logs on every rollout
 
@@ -116,6 +116,12 @@ pod can reach the Vaultwarden, Infisical, Nextcloud and Immich Postgres clusters
 drop metrics (`hubble_drop_total` with namespace context) are already on, so a
 default-deny would show what it breaks.
 
+**Status: fixed 2026-11-16 (#369, #370).** Each of the four CNPG clusters (nextcloud, immich,
+vaultwarden, infisical) now has a `networkpolicy-postgres.yaml` that denies ingress except from
+its known clients: the instances, the app, the CNPG operator, the nightly `pg_dump` Job and
+Prometheus. Nextcloud went first so `hubble_drop_total` could show what it broke. The policies
+cover Postgres only; the app pods themselves are still open to any pod.
+
 ### 6. Prometheus volume is in the daily backup
 
 The 20Gi Prometheus volume uses 24.9G per replica, about 50G across two. It carries the
@@ -131,6 +137,13 @@ a group no RecurringJob uses, and its Volume shows only that group. Longhorn doe
 the 19.65 GiB snapshot from the last run: retention runs only inside a job, for the volumes it
 selects. That snapshot has to be deleted by hand.
 
+**Snapshot removed 2026-11-16 (this PR).** `daily-ba-55347201-...` was already marked removed
+(deletion requested 20:51Z) when this PR checked it, so no second delete was issued. Longhorn
+cannot purge the snapshot directly behind the volume head, so it pruned the blocks the head had
+overwritten and kept a removed-marked 10.4 GiB file. Each replica went from 24.9G to 13G on
+disk (`actualSize` 13.4 GB against 14 GiB of live TSDB data), which is the space that came back.
+The remaining file holds live data, not pinned history. A fresh snapshot would only move it.
+
 ### 7. Hubble dashboards are mostly empty
 
 Cilium runs `hubble-metrics: drop dns`. The `dns` metric emits nothing without L7 DNS
@@ -138,11 +151,25 @@ visibility, so four dashboards (Hubble Metrics and Monitoring, DNS Overview, Net
 Overview, L7 HTTP) query `hubble_flows_processed_total`, `hubble_tcp_flags_total`,
 `hubble_icmp_total` and `hubble_dns_*`, none of which exist.
 
+**Status: fixed 2026-11-16 (this PR), applied by `just bootstrap-cilium`.** `flow`, `tcp` and
+`icmp` join `drop` and `dns` in `bootstrap/values/cilium.yaml`, with no context labels. A
+sample of 30,000 flows on worker-01 showed 7 type/subtype/verdict combinations, 5 TCP flags
+and 2 ICMP types, so the families add roughly 50 to 120 series across three nodes, against
+338k in the Prometheus head. DNS Overview and L7 HTTP stay empty: no L7 proxy, and the chart
+renders its four dashboards from one flag with no per-file switch, so they remain.
+
 ### 8. Irrelevant and duplicate dashboards
 
 43 dashboards are provisioned. Node Exporter MacOS and AIX do not apply. Longhorn and
 CloudNativePG each ship an upstream dashboard beside the "Homelab" one. The Cilium
 Operator EC2 panels and Cilium kvstore/proxy panels are empty by design and can stay.
+
+**Status: fixed 2026-11-16 (this PR).** `nodeExporter.operatingSystems.aix` and `.darwin` are
+`false` in the kube-prometheus-stack 93.3.0 values, and `monitoring.grafanaDashboard.create` is
+`false` for the cloudnative-pg 0.29.1 chart. `dashboard-upstream.yaml` is deleted from
+`system/longhorn-system`. `helm template` before and after shows exactly two kube-prometheus-stack
+ConfigMaps gone (`nodes-aix`, `nodes-darwin`) and one cloudnative-pg ConfigMap
+(`cnpg-grafana-dashboard`). With the Longhorn file that is four of the 43.
 
 ### 9. Loki's own info logs dominate log volume
 
@@ -155,10 +182,22 @@ Loki ingests about 2M lines a day. The top sources:
 | infisical | 345k | per-request info logs |
 | vpa | 181k | recommender checkpoint logs |
 
+**Status: fixed 2026-11-16 (this PR).** `loki.server.log_level` is `warn`; the info lines were
+`table_manager` lookups and one `roundtrip`, `metrics` and `engine` line per query, mostly the
+ruler's. The VPA recommender runs at `--v=2` instead of the chart's 4, because "Saved checkpoint
+for VPA" logs at `V(3)` in 1.7.1 (`checkpoint_writer.go`). Both render in `helm template`. The
+argocd and infisical volumes in the table are untouched.
+
 ### 10. Failed Job pods linger
 
 Three rclone-seedbox Jobs from 19 days ago and two Renovate Jobs keep their Failed pods.
 They are harmless except for skewing the unfiltered request queries above.
+
+**Status: fixed 2026-11-16 (this PR).** Both CronJobs now keep one failed Job: `failedJobsHistory`
+in the bjw-s `rclone-seedbox` values and `failedJobsHistoryLimit` in the Renovate chart, each
+confirmed in `helm template`. Both were 3. The five Failed Jobs are deleted, and no Failed pod
+remains in the cluster. One older Failed Job survives outside this item: `jellyfin-db-backup-29780865`
+from 2026-08-16, which belongs to a different CronJob.
 
 ## Watch only
 

@@ -8,8 +8,8 @@ cronjob:
   timeZone: America/Los_Angeles
   # Two Renovate runs at once can open duplicate PRs for the same dependency.
   concurrencyPolicy: Forbid
-  # k8s keeps only 1 failed pod by default; 3 gives enough log history to debug a bad run.
-  failedJobsHistoryLimit: 3
+  # Each retained failure keeps a Failed pod, which inflates unfiltered request queries.
+  failedJobsHistoryLimit: 1
 
 existingSecret: renovate-env
 
