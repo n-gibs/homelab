@@ -195,6 +195,73 @@
     - fail2ban
   become: true
 
+# Kernel 7.0.0-43 made AppArmor deny signals between processes in one container, which
+# wedged every Postgres. Only the kernel log shows it, so export a count for node-exporter.
+- name: Create node-exporter textfile directory
+  ansible.builtin.file:
+    path: /var/lib/node_exporter/textfile
+    state: directory
+    mode: "0755"
+  become: true
+
+- name: Install AppArmor signal-denial exporter
+  ansible.builtin.copy:
+    dest: /usr/local/sbin/apparmor-denials-textfile
+    mode: "0755"
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      dir=/var/lib/node_exporter/textfile
+      journal="$(journalctl -k -b 0 -q -o cat)"
+      # grep -c exits 1 on zero matches, the healthy case.
+      count="$(grep -c -F 'apparmor="DENIED" operation="signal"' <<<"${journal}" || true)"
+      tmp="$(mktemp "${dir}/.apparmor.XXXXXX")"
+      {
+        echo '# HELP node_apparmor_signal_denials_total AppArmor signal denials in the kernel log this boot.'
+        echo '# TYPE node_apparmor_signal_denials_total counter'
+        echo "node_apparmor_signal_denials_total ${count}"
+      } >"${tmp}"
+      chmod 0644 "${tmp}"
+      mv "${tmp}" "${dir}/apparmor.prom"
+  become: true
+
+- name: Install AppArmor signal-denial exporter units
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/{{ item.name }}"
+    content: "{{ item.content }}"
+    mode: "0644"
+  loop:
+    - name: apparmor-denials-textfile.service
+      content: |
+        [Unit]
+        Description=Export AppArmor signal-denial count for node-exporter
+
+        [Service]
+        Type=oneshot
+        ExecStart=/usr/local/sbin/apparmor-denials-textfile
+    - name: apparmor-denials-textfile.timer
+      content: |
+        [Unit]
+        Description=Export AppArmor signal-denial count every 2 minutes
+
+        [Timer]
+        OnBootSec=1min
+        OnUnitActiveSec=2min
+
+        [Install]
+        WantedBy=timers.target
+  loop_control:
+    label: "{{ item.name }}"
+  become: true
+
+- name: Enable AppArmor signal-denial exporter timer
+  ansible.builtin.systemd_service:
+    name: apparmor-denials-textfile.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  become: true
+
 # The default max_user_instances=128 is charged per-UID and every containerd-shim holds 2,
 # so a dense node runs the whole UID out of inotify fds. Not a leak: the only growth term
 # is pod count, which kubelet caps. See ansible/README.md.
