@@ -32,7 +32,7 @@ Two numbers mislead if you query them naively:
 | 6 | ~~Worth doing~~ Done (#382) | Prometheus volume is in the daily backup | Remove it from the `default` group |
 | 7 | ~~Cleanup~~ Done (this PR) | Hubble dashboards are mostly empty | Enable `flow,tcp,icmp` without context labels |
 | 8 | ~~Cleanup~~ Done (this PR) | Irrelevant and duplicate dashboards | Disable MacOS/AIX, drop upstream duplicates |
-| 9 | Cleanup | Loki's own info logs dominate log volume | Lower Loki's log level |
+| 9 | ~~Cleanup~~ Done (this PR) | Loki's own info logs dominate log volume | Lower Loki's log level |
 | 10 | Cleanup | Failed Job pods linger | Delete; check `failedJobsHistoryLimit` |
 
 ### 1. Alloy drops logs on every rollout
@@ -174,6 +174,12 @@ Loki ingests about 2M lines a day. The top sources:
 | argocd | 481k | repo-server, notifications, application-controller, about 160k each |
 | infisical | 345k | per-request info logs |
 | vpa | 181k | recommender checkpoint logs |
+
+**Status: fixed 2026-11-16 (this PR).** `loki.server.log_level` is `warn`; the info lines were
+`table_manager` lookups and one `roundtrip`, `metrics` and `engine` line per query, mostly the
+ruler's. The VPA recommender runs at `--v=2` instead of the chart's 4, because "Saved checkpoint
+for VPA" logs at `V(3)` in 1.7.1 (`checkpoint_writer.go`). Both render in `helm template`. The
+argocd and infisical volumes in the table are untouched.
 
 ### 10. Failed Job pods linger
 

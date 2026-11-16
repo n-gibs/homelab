@@ -2,6 +2,9 @@ recommender:
   enabled: true
   podMonitor:
     enabled: true
+  # "Saved checkpoint for VPA" logs at V(3), once per container per minute. Chart default is 4.
+  extraArgs:
+    v: "2"
 
 updater:
   enabled: true
