@@ -13,9 +13,11 @@ spec:
   resourcePolicy:
     containerPolicies:
       - containerName: "*"
+        # Chromium peaks near 400Mi on a hard challenge. With the template's 1:2 ratio this
+        # floor keeps the limit at 768Mi even when VPA history is thin or reset.
         minAllowed:
           cpu: 100m
-          memory: 128Mi
+          memory: 384Mi
         maxAllowed:
           cpu: 4
           memory: 2Gi
