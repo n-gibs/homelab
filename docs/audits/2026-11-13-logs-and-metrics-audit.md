@@ -137,6 +137,13 @@ a group no RecurringJob uses, and its Volume shows only that group. Longhorn doe
 the 19.65 GiB snapshot from the last run: retention runs only inside a job, for the volumes it
 selects. That snapshot has to be deleted by hand.
 
+**Snapshot removed 2026-11-16 (this PR).** `daily-ba-55347201-...` was already marked removed
+(deletion requested 20:51Z) when this PR checked it, so no second delete was issued. Longhorn
+cannot purge the snapshot directly behind the volume head, so it pruned the blocks the head had
+overwritten and kept a removed-marked 10.4 GiB file. Each replica went from 24.9G to 13G on
+disk (`actualSize` 13.4 GB against 14 GiB of live TSDB data), which is the space that came back.
+The remaining file holds live data, not pinned history. A fresh snapshot would only move it.
+
 ### 7. Hubble dashboards are mostly empty
 
 Cilium runs `hubble-metrics: drop dns`. The `dns` metric emits nothing without L7 DNS
