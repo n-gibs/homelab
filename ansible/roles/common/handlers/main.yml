@@ -12,6 +12,12 @@
     daemon_reload: true
   become: true
 
+# -r replaces the profile in place, so running containers pick up the new rules too.
+- name: Reload containerd AppArmor profile
+  ansible.builtin.command: apparmor_parser -r /etc/apparmor.d/cri-containerd.apparmor.d
+  changed_when: true
+  become: true
+
 # No reboot. Nothing here should decide to drop an etcd member.
 - name: Update grub
   ansible.builtin.command: update-grub
