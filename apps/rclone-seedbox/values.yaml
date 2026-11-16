@@ -21,7 +21,7 @@ controllers:
       # competing for the same files.
       concurrencyPolicy: Forbid
       successfulJobsHistory: 1
-      failedJobsHistory: 3
+      failedJobsHistory: 1
       backoffLimit: 2
     containers:
       app:

@@ -33,7 +33,7 @@ Two numbers mislead if you query them naively:
 | 7 | ~~Cleanup~~ Done (this PR) | Hubble dashboards are mostly empty | Enable `flow,tcp,icmp` without context labels |
 | 8 | ~~Cleanup~~ Done (this PR) | Irrelevant and duplicate dashboards | Disable MacOS/AIX, drop upstream duplicates |
 | 9 | ~~Cleanup~~ Done (this PR) | Loki's own info logs dominate log volume | Lower Loki's log level |
-| 10 | Cleanup | Failed Job pods linger | Delete; check `failedJobsHistoryLimit` |
+| 10 | ~~Cleanup~~ Done (this PR) | Failed Job pods linger | Delete; check `failedJobsHistoryLimit` |
 
 ### 1. Alloy drops logs on every rollout
 
@@ -185,6 +185,12 @@ argocd and infisical volumes in the table are untouched.
 
 Three rclone-seedbox Jobs from 19 days ago and two Renovate Jobs keep their Failed pods.
 They are harmless except for skewing the unfiltered request queries above.
+
+**Status: fixed 2026-11-16 (this PR).** Both CronJobs now keep one failed Job: `failedJobsHistory`
+in the bjw-s `rclone-seedbox` values and `failedJobsHistoryLimit` in the Renovate chart, each
+confirmed in `helm template`. Both were 3. The five Failed Jobs are deleted, and no Failed pod
+remains in the cluster. One older Failed Job survives outside this item: `jellyfin-db-backup-29780865`
+from 2026-08-16, which belongs to a different CronJob.
 
 ## Watch only
 
