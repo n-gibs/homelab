@@ -15,3 +15,19 @@ spec:
     - default
   retain: 7
   concurrency: 1
+---
+# Prometheus left daily-backup with its last backup snapshot still in place. Each trim releases
+# the TSDB blocks retention has deleted since, which needs unmapMarkSnapChainRemoved set on that
+# Volume. A removed snapshot directly under the volume head never merges away, so only a trim
+# can empty it.
+apiVersion: longhorn.io/v1beta2
+kind: RecurringJob
+metadata:
+  name: weekly-trim
+  namespace: longhorn-system
+spec:
+  cron: "30 5 * * 0"
+  task: filesystem-trim
+  groups:
+    - no-backup
+  concurrency: 1
