@@ -1,0 +1,4 @@
+chartName: kured
+chartRepo: https://kubereboot.github.io/charts
+chartVersion: 6.1.0
+syncWave: "3"

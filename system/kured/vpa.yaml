@@ -1,0 +1,21 @@
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: kured
+  namespace: kured
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: DaemonSet
+    name: kured
+  updatePolicy:
+    updateMode: "InPlaceOrRecreate"
+  resourcePolicy:
+    containerPolicies:
+      - containerName: "*"
+        minAllowed:
+          cpu: 5m
+          memory: 32Mi
+        maxAllowed:
+          cpu: 500m
+          memory: 256Mi
