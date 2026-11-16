@@ -1,0 +1,28 @@
+# One node at a time, and never while an alert fires, so a bad kernel stops the rollout on
+# the node it broke. The lock is held 30m after each reboot so slow failures can fire
+# before the next drain. See README.md.
+configuration:
+  concurrency: 1
+  lockReleaseDelay: 30m
+  period: 15m
+  startTime: "03:00"
+  endTime: "06:00"
+  timeZone: America/Los_Angeles
+  rebootDays: [mo, tu, we, th]
+  prometheusUrl: http://monitoring-system-kube-pro-prometheus.monitoring-system.svc:9090
+  alertFiringOnly: true
+  # Watchdog is the dead-man's switch and always fires; InfoInhibitor is an inhibition helper.
+  alertFilterRegexp: ^(Watchdog|InfoInhibitor)$
+  # A failed drain releases the lock before uncordoning, and the release waits out
+  # lockReleaseDelay, so the node stays cordoned for drainTimeout + 30m. Keep this short.
+  drainTimeout: 10m
+  forceReboot: false
+  annotateNodes: true
+
+# DaemonSet: every request here lands on all three nodes. No cpu limit, per the LimitRange rule.
+resources:
+  requests:
+    cpu: 5m
+    memory: 32Mi
+  limits:
+    memory: 128Mi
