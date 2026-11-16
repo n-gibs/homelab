@@ -1,0 +1,62 @@
+# Default-deny for the database pods only; the app keeps its own ingress. Kubelet probes need
+# no rule: Cilium's AllowLocalhost=always admits host traffic regardless of policy.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: nextcloud-database
+  namespace: nextcloud
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: nextcloud-database
+  policyTypes:
+    - Ingress
+  ingress:
+    # Replication and instance status; CNPG's join Jobs carry the same label.
+    - from:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: nextcloud-database
+      ports:
+        - protocol: TCP
+          port: 5432
+        - protocol: TCP
+          port: 8000
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: cloudnative-pg
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: cloudnative-pg
+      ports:
+        - protocol: TCP
+          port: 5432
+        - protocol: TCP
+          port: 8000
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 9187
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: nextcloud
+            matchExpressions:
+              - key: app.kubernetes.io/component
+                operator: In
+                values:
+                  - app
+                  - cronjob
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: nextcloud-db-backup
+      ports:
+        - protocol: TCP
+          port: 5432
