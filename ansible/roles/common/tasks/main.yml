@@ -233,6 +233,34 @@
   become: true
   notify: Update grub
 
+# Fail before update-grub: a pin to an absent kernel silently falls back to entry 0.
+- name: Check the pinned kernel is installed
+  ansible.builtin.stat:
+    path: "/boot/vmlinuz-{{ kernel_pin }}"
+  register: kernel_pin_image
+  when: kernel_pin | length > 0
+  failed_when: not kernel_pin_image.stat.exists
+
+# Menu titles, not IDs: the IDs embed each node's root filesystem UUID.
+- name: Pin the default boot kernel
+  ansible.builtin.copy:
+    dest: /etc/default/grub.d/98-kernel-pin.cfg
+    content: |
+      # Managed by Ansible (roles/common). Set kernel_pin in defaults, empty to unpin.
+      GRUB_DEFAULT="Advanced options for Ubuntu>Ubuntu, with Linux {{ kernel_pin }}"
+    mode: "0644"
+  when: kernel_pin | length > 0
+  become: true
+  notify: Update grub
+
+- name: Unpin the default boot kernel
+  ansible.builtin.file:
+    path: /etc/default/grub.d/98-kernel-pin.cfg
+    state: absent
+  when: kernel_pin | length == 0
+  become: true
+  notify: Update grub
+
 - name: Configure unattended-upgrades
   ansible.builtin.copy:
     dest: /etc/apt/apt.conf.d/50unattended-upgrades

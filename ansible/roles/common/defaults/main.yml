@@ -1,3 +1,8 @@
 ---
 # Appended to GRUB_CMDLINE_LINUX_DEFAULT. Set per host; see host_vars/worker-02.yml.
 kernel_cmdline_extra: []
+
+# Boot this kernel instead of the newest installed one. 7.0.0-43 labels container
+# processes `profile//&unconfined`, so AppArmor denies signals between them and Postgres
+# wedges on every lost latch wakeup. Empty it to go back to the newest kernel.
+kernel_pin: "7.0.0-34-generic"
