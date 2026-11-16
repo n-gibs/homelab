@@ -28,7 +28,7 @@ Two numbers mislead if you query them naively:
 | 2 | ~~Fix now~~ Done (#364) | worker-02 disk blocks Longhorn scheduling | Kubelet image GC below Longhorn's floor |
 | 3 | ~~Fix now~~ Done (#359) | Renovate still OOMs on heap | Watch the next run; reopen #358 if it fails |
 | 4 | ~~Worth doing~~ Done (#367) | Prometheus stores 183k series twice | Drop apiserver/etcd series from the kubelet scrape |
-| 5 | Worth doing | No app-level NetworkPolicies | Default-deny in database namespaces |
+| 5 | ~~Worth doing~~ Done (#369, #370) | No app-level NetworkPolicies | Default-deny in database namespaces |
 | 6 | ~~Worth doing~~ Done (#382) | Prometheus volume is in the daily backup | Remove it from the `default` group |
 | 7 | Cleanup | Hubble dashboards are mostly empty | Enable `flow,tcp,icmp` or drop the dashboards |
 | 8 | Cleanup | Irrelevant and duplicate dashboards | Disable MacOS/AIX, drop upstream duplicates |
@@ -115,6 +115,12 @@ The only NetworkPolicies are the ones the argocd, longhorn and infisical charts 
 pod can reach the Vaultwarden, Infisical, Nextcloud and Immich Postgres clusters. Hubble's
 drop metrics (`hubble_drop_total` with namespace context) are already on, so a
 default-deny would show what it breaks.
+
+**Status: fixed 2026-11-16 (#369, #370).** Each of the four CNPG clusters (nextcloud, immich,
+vaultwarden, infisical) now has a `networkpolicy-postgres.yaml` that denies ingress except from
+its known clients: the instances, the app, the CNPG operator, the nightly `pg_dump` Job and
+Prometheus. Nextcloud went first so `hubble_drop_total` could show what it broke. The policies
+cover Postgres only; the app pods themselves are still open to any pod.
 
 ### 6. Prometheus volume is in the daily backup
 
