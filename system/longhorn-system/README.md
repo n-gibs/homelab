@@ -107,12 +107,29 @@ Every Longhorn volume joins `default` unless it opts out. Removing its
 re-adds `default` to any volume with no recurring-job label at all. Opt out on the
 PVC instead: `recurring-job.longhorn.io/source=enabled` makes Longhorn copy the PVC's
 recurring-job labels onto the Volume, and `recurring-job-group.longhorn.io/no-backup=enabled`
-names a group no RecurringJob uses. Prometheus is the one volume out (see
+names a group no backup job uses (`weekly-trim` only). Prometheus is the one volume out (see
 `system/monitoring-system/values.yaml`).
 
 Leaving the group does not delete the snapshot the last backup left behind.
 Retention only runs inside a job, for the volumes that job selects, so delete that
 snapshot by hand. The volume's backups on the NAS stay too.
+
+Deleting it does not free everything. A snapshot whose only child is the volume
+head gets pruned, not merged: Longhorn drops the chunks the head has overwritten
+and keeps every block the filesystem has since freed. A trim releases those
+blocks, but only on a Volume with `spec.unmapMarkSnapChainRemoved: enabled`.
+`weekly-trim` (Sunday 05:30) trims the `no-backup` group. Prometheus's Volume
+had that flag set by hand, and it is not in git.
+
+The manager API sits behind Longhorn's own NetworkPolicy, so a `kubectl` service
+proxy call to it gets a 502. For a one-off action, call it from the UI pod, which
+the policy admits:
+
+```bash
+kubectl -n longhorn-system exec deploy/longhorn-ui -- curl -sS -X POST \
+  -H 'Content-Type: application/json' -d '{}' \
+  "http://longhorn-backend:9500/v1/volumes/<volume>?action=trimFilesystem"
+```
 
 **A completed Job is not a successful backup.** `kubectl wait --for=condition=complete`
 returns clean on a run whose underlying Backup CR is `Error` and whose
