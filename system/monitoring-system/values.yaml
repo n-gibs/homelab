@@ -201,7 +201,7 @@ prometheus:
       volumeClaimTemplate:
         # Out of daily-backup: a snapshot pins TSDB blocks that compaction has since rewritten.
         # Dropping the label is not enough, as Longhorn re-adds `default` to a volume with no
-        # recurring-job label, so it joins a group no RecurringJob uses. New PVCs only: an
+        # recurring-job label, so it joins a group with no backup job. New PVCs only: an
         # existing one needs the same labels by hand.
         metadata:
           labels:

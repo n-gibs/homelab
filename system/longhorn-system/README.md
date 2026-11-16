@@ -107,7 +107,7 @@ Every Longhorn volume joins `default` unless it opts out. Removing its
 re-adds `default` to any volume with no recurring-job label at all. Opt out on the
 PVC instead: `recurring-job.longhorn.io/source=enabled` makes Longhorn copy the PVC's
 recurring-job labels onto the Volume, and `recurring-job-group.longhorn.io/no-backup=enabled`
-names a group no RecurringJob uses. Prometheus is the one volume out (see
+names a group no backup job uses (`weekly-trim` only). Prometheus is the one volume out (see
 `system/monitoring-system/values.yaml`).
 
 Leaving the group does not delete the snapshot the last backup left behind.
