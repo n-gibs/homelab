@@ -12,7 +12,7 @@ spec:
     - name: kernel
       rules:
         # A healthy node logs ~15 signal denials in three weeks; 7.0.0-43 with containerd's
-        # stock profile logged ~4,000 an hour.
+        # stock profile logged ~6,500 an hour, even after kernel rate limiting.
         - alert: AppArmorSignalDenials
           expr: |
             increase(node_apparmor_signal_denials_total[15m])
@@ -31,18 +31,40 @@ spec:
               only `cri-containerd.apparmor.d//&unconfined`. To roll the node back, boot the
               previous kernel once with `grub-reboot`.
 
-        # Without this, a node missing the timer or the collector flag silences the alert above.
+        # A missing or stale feed silences the alert above, and with it kured's brake. A failing
+        # timer leaves the last value in place, so staleness needs its own check.
         - alert: AppArmorDenialFeedMissing
           expr: |
-            count(node_uname_info) - count(node_apparmor_signal_denials_total) > 0
-              or absent(node_apparmor_signal_denials_total)
-          for: 30m
+            (node_uname_info unless on (instance) node_apparmor_signal_denials_total)
+              or on (instance)
+            (
+              (time() - node_textfile_mtime_seconds{file=~".*apparmor\\.prom"} > 600)
+                * on (instance) group_left (nodename) node_uname_info
+            )
+          for: 15m
           labels:
             severity: warning
           annotations:
-            summary: AppArmor denial metric missing on at least one node
+            summary: AppArmor denial feed missing or stale on {{ $labels.nodename }}
             description: >-
-              node_apparmor_signal_denials_total is missing for at least one node, so
-              AppArmorSignalDenials cannot fire there. Check
-              `systemctl status apparmor-denials-textfile.timer` on the node and the
-              --collector.textfile.directory flag in system/monitoring-system/values.yaml.
+              node_apparmor_signal_denials_total is missing on {{ $labels.nodename }}, or its
+              textfile hasn't been rewritten in over 10 minutes, so AppArmorSignalDenials
+              cannot fire there. Check `systemctl status apparmor-denials-textfile` on the node
+              and the --collector.textfile.directory flag in
+              system/monitoring-system/values.yaml.
+
+        # Our containerd profile overrides containerd's own for as long as it's loaded, so a
+        # k3s upgrade must re-check it: refresh it from the new template, or delete it once
+        # containerd#14487 ships. Firing also pauses kured until someone does.
+        - alert: ContainerdProfileReview
+          expr: kube_node_info{container_runtime_version!="containerd://2.3.7-k3s1.36"}
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.node }} runs {{ $labels.container_runtime_version }}; review the containerd AppArmor profile"
+            description: >-
+              ansible/roles/common pins cri-containerd.apparmor.d to containerd 2.3.7's template
+              plus two stacked-peer rules (containerd#14485). {{ $labels.node }} now runs
+              {{ $labels.container_runtime_version }}. Re-render the profile from that version's
+              contrib/apparmor/template.go, or drop it if the version includes containerd#14487,
+              then update the version in this rule.
