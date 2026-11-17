@@ -30,10 +30,10 @@ Two numbers mislead if you query them naively:
 | 4 | ~~Worth doing~~ Done (#367) | Prometheus stores 183k series twice | Drop apiserver/etcd series from the kubelet scrape |
 | 5 | ~~Worth doing~~ Done (#369, #370) | No app-level NetworkPolicies | Default-deny in database namespaces |
 | 6 | ~~Worth doing~~ Done (#382) | Prometheus volume is in the daily backup | Remove it from the `default` group |
-| 7 | ~~Cleanup~~ Done (this PR) | Hubble dashboards are mostly empty | Enable `flow,tcp,icmp` without context labels |
-| 8 | ~~Cleanup~~ Done (this PR) | Irrelevant and duplicate dashboards | Disable MacOS/AIX, drop upstream duplicates |
-| 9 | ~~Cleanup~~ Done (this PR) | Loki's own info logs dominate log volume | Lower Loki's log level |
-| 10 | ~~Cleanup~~ Done (this PR) | Failed Job pods linger | Delete; check `failedJobsHistoryLimit` |
+| 7 | ~~Cleanup~~ Done (#384) | Hubble dashboards are mostly empty | Enable `flow,tcp,icmp` without context labels |
+| 8 | ~~Cleanup~~ Done (#384) | Irrelevant and duplicate dashboards | Disable MacOS/AIX, drop upstream duplicates |
+| 9 | ~~Cleanup~~ Done (#384) | Loki's own info logs dominate log volume | Lower Loki's log level |
+| 10 | ~~Cleanup~~ Done (#384) | Failed Job pods linger | Delete; check `failedJobsHistoryLimit` |
 
 ### 1. Alloy drops logs on every rollout
 
@@ -137,7 +137,7 @@ a group no RecurringJob uses, and its Volume shows only that group. Longhorn doe
 the 19.65 GiB snapshot from the last run: retention runs only inside a job, for the volumes it
 selects. That snapshot has to be deleted by hand.
 
-**Snapshot removed 2026-11-16 (this PR).** `daily-ba-55347201-...` was already marked removed
+**Snapshot removed 2026-11-16 (#384).** `daily-ba-55347201-...` was already marked removed
 (deletion requested 20:51Z) when this PR checked it, so no second delete was issued. Longhorn
 cannot purge the snapshot directly behind the volume head, so it pruned the blocks the head had
 overwritten and kept a removed-marked 10.4 GiB file. Each replica went from 24.9G to 13G on
@@ -151,9 +151,9 @@ visibility, so four dashboards (Hubble Metrics and Monitoring, DNS Overview, Net
 Overview, L7 HTTP) query `hubble_flows_processed_total`, `hubble_tcp_flags_total`,
 `hubble_icmp_total` and `hubble_dns_*`, none of which exist.
 
-**Status: fixed 2026-11-16 (#384, #385).** `flow`, `tcp` and `icmp` join `drop` and `dns` in
+**Status: fixed 2026-11-16 (#384, #388).** `flow`, `tcp` and `icmp` join `drop` and `dns` in
 `bootstrap/values/cilium.yaml`. #384 added them with no context labels, which left the Network
-Overview filters and top-10 panels with nothing to group by. #385 adds namespace context, as a
+Overview filters and top-10 panels with nothing to group by. #388 adds namespace context, as a
 `source`/`destination` label for the grouping and `source_namespace`/`destination_namespace` for
 the filters. A 60,000-flow sample per node showed 428 to 569 series from the three families, so
 about 1,500 to 2,000 across the cluster, against 338k in the Prometheus head. DNS Overview and L7
@@ -165,7 +165,7 @@ HTTP stay empty: no L7 proxy, and the chart renders its four dashboards from one
 CloudNativePG each ship an upstream dashboard beside the "Homelab" one. The Cilium
 Operator EC2 panels and Cilium kvstore/proxy panels are empty by design and can stay.
 
-**Status: fixed 2026-11-16 (this PR).** `nodeExporter.operatingSystems.aix` and `.darwin` are
+**Status: fixed 2026-11-16 (#384).** `nodeExporter.operatingSystems.aix` and `.darwin` are
 `false` in the kube-prometheus-stack 93.3.0 values, and `monitoring.grafanaDashboard.create` is
 `false` for the cloudnative-pg 0.29.1 chart. `dashboard-upstream.yaml` is deleted from
 `system/longhorn-system`. `helm template` before and after shows exactly two kube-prometheus-stack
@@ -183,7 +183,7 @@ Loki ingests about 2M lines a day. The top sources:
 | infisical | 345k | per-request info logs |
 | vpa | 181k | recommender checkpoint logs |
 
-**Status: fixed 2026-11-16 (this PR).** `loki.server.log_level` is `warn`; the info lines were
+**Status: fixed 2026-11-16 (#384).** `loki.server.log_level` is `warn`; the info lines were
 `table_manager` lookups and one `roundtrip`, `metrics` and `engine` line per query, mostly the
 ruler's. The VPA recommender runs at `--v=2` instead of the chart's 4, because "Saved checkpoint
 for VPA" logs at `V(3)` in 1.7.1 (`checkpoint_writer.go`). Both render in `helm template`. The
@@ -194,7 +194,7 @@ argocd and infisical volumes in the table are untouched.
 Three rclone-seedbox Jobs from 19 days ago and two Renovate Jobs keep their Failed pods.
 They are harmless except for skewing the unfiltered request queries above.
 
-**Status: fixed 2026-11-16 (this PR).** Both CronJobs now keep one failed Job: `failedJobsHistory`
+**Status: fixed 2026-11-16 (#384).** Both CronJobs now keep one failed Job: `failedJobsHistory`
 in the bjw-s `rclone-seedbox` values and `failedJobsHistoryLimit` in the Renovate chart, each
 confirmed in `helm template`. Both were 3. The five Failed Jobs are deleted, and no Failed pod
 remains in the cluster.
