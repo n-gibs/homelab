@@ -65,16 +65,16 @@ bpf:
 
 hubble:
   enabled: true
-  # flow, tcp and icmp carry no context labels: per-pod or per-namespace context would be
-  # one series per pair. drop is bounded by namespace pairs, and bare `dns` gives rcode/qtype
-  # without `query`, which is one series per domain name. `http` stays off (needs L7 proxy).
+  # Namespace context only: per-pod would be one series per pod pair. The dashboards group by
+  # `source` and filter on `source_namespace`, so each metric carries both labels. `dns`
+  # stays bare (no `query` label, one series per domain) and `http` needs the L7 proxy.
   metrics:
     enabled:
-      - drop:sourceContext=namespace;destinationContext=namespace
+      - drop:sourceContext=namespace;destinationContext=namespace;labelsContext=source_namespace,destination_namespace
       - dns
-      - flow
-      - tcp
-      - icmp
+      - flow:sourceContext=namespace;destinationContext=namespace;labelsContext=source_namespace,destination_namespace
+      - tcp:sourceContext=namespace;destinationContext=namespace;labelsContext=source_namespace,destination_namespace
+      - icmp:sourceContext=namespace;destinationContext=namespace;labelsContext=source_namespace,destination_namespace
     # The chart ships all four Hubble dashboards behind this one flag. DNS Overview and L7 HTTP
     # stay empty because we run no L7 proxy, and there is no per-dashboard switch.
     dashboards:
