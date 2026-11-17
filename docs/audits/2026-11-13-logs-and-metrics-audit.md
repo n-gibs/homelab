@@ -151,12 +151,13 @@ visibility, so four dashboards (Hubble Metrics and Monitoring, DNS Overview, Net
 Overview, L7 HTTP) query `hubble_flows_processed_total`, `hubble_tcp_flags_total`,
 `hubble_icmp_total` and `hubble_dns_*`, none of which exist.
 
-**Status: fixed 2026-11-16 (this PR), applied by `just bootstrap-cilium`.** `flow`, `tcp` and
-`icmp` join `drop` and `dns` in `bootstrap/values/cilium.yaml`, with no context labels. A
-sample of 30,000 flows on worker-01 showed 7 type/subtype/verdict combinations, 5 TCP flags
-and 2 ICMP types, so the families add roughly 50 to 120 series across three nodes, against
-338k in the Prometheus head. DNS Overview and L7 HTTP stay empty: no L7 proxy, and the chart
-renders its four dashboards from one flag with no per-file switch, so they remain.
+**Status: fixed 2026-11-16 (#384, #385).** `flow`, `tcp` and `icmp` join `drop` and `dns` in
+`bootstrap/values/cilium.yaml`. #384 added them with no context labels, which left the Network
+Overview filters and top-10 panels with nothing to group by. #385 adds namespace context, as a
+`source`/`destination` label for the grouping and `source_namespace`/`destination_namespace` for
+the filters. A 60,000-flow sample per node showed 428 to 569 series from the three families, so
+about 1,500 to 2,000 across the cluster, against 338k in the Prometheus head. DNS Overview and L7
+HTTP stay empty: no L7 proxy, and the chart renders its four dashboards from one flag.
 
 ### 8. Irrelevant and duplicate dashboards
 
@@ -196,8 +197,7 @@ They are harmless except for skewing the unfiltered request queries above.
 **Status: fixed 2026-11-16 (this PR).** Both CronJobs now keep one failed Job: `failedJobsHistory`
 in the bjw-s `rclone-seedbox` values and `failedJobsHistoryLimit` in the Renovate chart, each
 confirmed in `helm template`. Both were 3. The five Failed Jobs are deleted, and no Failed pod
-remains in the cluster. One older Failed Job survives outside this item: `jellyfin-db-backup-29780865`
-from 2026-08-16, which belongs to a different CronJob.
+remains in the cluster.
 
 ## Watch only
 
