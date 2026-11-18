@@ -1,8 +1,7 @@
 ---
-# Guards the CoreDNS HA posture. coredns-ha.yaml comes from a standalone Application, so
-# deleting that Application recreates nothing and the cluster silently drops to one replica
-# while DNS keeps working on the survivor. No extra ServiceMonitor needed: the stack's coredns
-# exporter selects `k8s-app=kube-dns`, which both deployments' pods carry.
+# Guards the CoreDNS HA posture. coredns-ha is the only kube-dns Deployment, so DNS keeps
+# answering on a survivor while replicas quietly die. No extra ServiceMonitor needed: the
+# stack's coredns exporter selects `k8s-app=kube-dns`, which coredns-ha's pods carry.
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:

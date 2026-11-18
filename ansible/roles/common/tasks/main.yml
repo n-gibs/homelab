@@ -75,6 +75,23 @@
   become: true
   notify: Reload systemd
 
+# kube-dns, its ConfigMap and RBAC come from this addon and back coredns-ha, so --disable
+# would delete them. .skip only stops k3s re-applying it; the guard lets a from-scratch
+# cluster create them on first boot. See system/coredns/coredns-ha.yaml.
+- name: Check for the k3s CoreDNS addon manifest
+  ansible.builtin.stat:
+    path: /var/lib/rancher/k3s/server/manifests/coredns.yaml
+  register: common_k3s_coredns_manifest
+  become: true
+
+- name: Stop k3s re-applying its CoreDNS addon
+  ansible.builtin.copy:
+    dest: /var/lib/rancher/k3s/server/manifests/coredns.yaml.skip
+    content: ""
+    mode: "0644"
+  become: true
+  when: common_k3s_coredns_manifest.stat.exists
+
 # containerd's v2.3.7 default profile plus the stacked peer, which Ubuntu 7.0 kernels give
 # container processes; without it they can't signal each other (containerd#14485).
 # containerd skips its own profile when one of this name is loaded.
