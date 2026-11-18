@@ -61,7 +61,7 @@ spec:
           # Renovate bumps this tag (renovate.json, kubernetes manager). k3s
           # moves its own replica on a k3s upgrade; the two may skew briefly,
           # which is wire-compatible.
-          image: rancher/mirrored-coredns-coredns:1.14.7
+          image: rancher/mirrored-coredns-coredns:1.15.0
           imagePullPolicy: IfNotPresent
           args:
             - -conf
