@@ -1,8 +1,7 @@
 ---
-# A SECOND deployment rather than scaling kube-system/coredns: k3s owns that as a k3s.cattle.io
-# Addon, so anything ArgoCD wrote there would fight the k3s deploy controller. These pods carry
-# k8s-app=kube-dns and mount k3s's own ConfigMap, so neither Service nor config is duplicated.
-# The selector overlaps k3s's, so `kubectl get deploy coredns` reports 1/1 of three.
+# Replaces k3s's own coredns Deployment, which Ansible stops k3s re-applying with a .skip file.
+# The kube-dns Service, the coredns ConfigMap and the ServiceAccount still come from that k3s
+# Addon; these pods carry k8s-app=kube-dns and mount that ConfigMap, so nothing is duplicated.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -12,7 +11,7 @@ metadata:
     k8s-app: kube-dns
     kubernetes.io/name: CoreDNS
 spec:
-  replicas: 2
+  replicas: 3
   revisionHistoryLimit: 3
   strategy:
     rollingUpdate:
@@ -58,9 +57,8 @@ spec:
               k8s-app: kube-dns
       containers:
         - name: coredns
-          # Renovate bumps this tag (renovate.json, kubernetes manager). k3s
-          # moves its own replica on a k3s upgrade; the two may skew briefly,
-          # which is wire-compatible.
+          # Renovate bumps this tag (renovate.json, kubernetes manager); k3s
+          # upgrades no longer touch CoreDNS.
           image: rancher/mirrored-coredns-coredns:1.15.0
           imagePullPolicy: IfNotPresent
           args:
@@ -130,7 +128,7 @@ spec:
             name: coredns-custom
             optional: true
 ---
-# Guards every kube-dns pod, k3s's included, so a drain can never take the
+# Guards every kube-dns pod so a drain can never take the
 # whole DNS fleet. maxUnavailable rather than minAvailable: it degrades
 # gracefully if the replica count ever changes, instead of blocking drains.
 apiVersion: policy/v1
