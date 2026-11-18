@@ -194,6 +194,17 @@ prometheus:
       requests:
         cpu: 250m
         memory: 3Gi
+    # The largest request in the cluster, so it goes on the largest node; the descheduler
+    # only moves small pods first. Preferred, so a down worker-01 doesn't strand it.
+    affinity:
+      nodeAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+                - key: kubernetes.io/hostname
+                  operator: In
+                  values: ["worker-01"]
     # Prometheus counts GB as GiB. 16 of the 20Gi leaves room for compaction rewrites.
     retentionSize: 16GB
     ruleSelectorNilUsesHelmValues: false
