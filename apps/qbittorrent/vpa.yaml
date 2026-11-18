@@ -13,9 +13,11 @@ spec:
   resourcePolicy:
     containerPolicies:
       - containerName: app
+        # Hash checks and torrent adds spike past what VPA sees at idle.
+        # The 1:2 request:limit ratio turns this 192Mi floor into a 384Mi limit.
         minAllowed:
           cpu: 50m
-          memory: 128Mi
+          memory: 192Mi
         maxAllowed:
           cpu: 4
           memory: 4Gi
