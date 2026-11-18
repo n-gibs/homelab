@@ -3,11 +3,10 @@
 schedule: "0 7 * * *"
 timeZone: America/Los_Angeles
 
-# Dry run logs what it would evict and evicts nothing. v4 logs why each pod was skipped.
-# Go live by deleting dry-run and dropping v back to 3.
+# No dry-run: in-cluster dry-run sees zero pods (kubernetes-sigs/descheduler#1943).
+# Preview with a locally patched build instead.
 cmdOptions:
-  v: 4
-  dry-run: true
+  v: 3
 
 # No cpu limit, per the LimitRange rule: VPA keeps the request:limit ratio.
 resources:
@@ -43,8 +42,9 @@ deschedulerPolicy:
               cpu: 70
               memory: 65
               pods: 60
+            # Small steps: one daily run moves at most two pods per node.
             evictionLimits:
-              node: 5
+              node: 2
             # Volume plumbing, cluster DNS/CNI, the password manager, the subnet router
             # carrying remote access, and the log shipper's ingest buffer.
             evictableNamespaces:
