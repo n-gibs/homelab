@@ -1,0 +1,60 @@
+# Daily, after kured's 03:00-06:00 window and its 30m lock hold, so a node kured just
+# emptied gets its share back the same morning.
+schedule: "0 7 * * *"
+timeZone: America/Los_Angeles
+
+# Dry run logs what it would evict and evicts nothing. v4 logs why each pod was skipped.
+# Go live by deleting dry-run and dropping v back to 3.
+cmdOptions:
+  v: 4
+  dry-run: true
+
+# No cpu limit, per the LimitRange rule: VPA keeps the request:limit ratio.
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: null
+    memory: 256Mi
+
+deschedulerPolicy:
+  profiles:
+    - name: rebalance
+      pluginConfig:
+        - name: DefaultEvictor
+          args:
+            # Skips pods no other node can take, which covers media pinned by homelab.io/media.
+            nodeFit: true
+            # CNPG instances are bound to their node's local-path volume.
+            labelSelector:
+              matchExpressions:
+                - key: cnpg.io/cluster
+                  operator: DoesNotExist
+        - name: LowNodeUtilization
+          args:
+            # Percentages of requests. thresholds caps how full an idle node gets, which
+            # matters most for 4-core worker-00, the first to hit per-node kernel limits.
+            thresholds:
+              cpu: 40
+              memory: 40
+              pods: 30
+            targetThresholds:
+              cpu: 70
+              memory: 65
+              pods: 60
+            evictionLimits:
+              node: 5
+            # Volume plumbing, cluster DNS/CNI, the password manager, the subnet router
+            # carrying remote access, and the log shipper's ingest buffer.
+            evictableNamespaces:
+              exclude:
+                - kube-system
+                - longhorn-system
+                - vaultwarden
+                - tailscale
+                - alloy
+      plugins:
+        balance:
+          enabled:
+            - LowNodeUtilization
