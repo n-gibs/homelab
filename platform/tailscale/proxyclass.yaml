@@ -1,0 +1,17 @@
+apiVersion: tailscale.com/v1alpha1
+kind: ProxyClass
+metadata:
+  name: homelab-subnet
+spec:
+  statefulSet:
+    pod:
+      # The operator sets no affinity, so both router replicas could share a node and
+      # fail together. Required, not preferred: with 2 replicas on 3 nodes it always fits.
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  tailscale.com/parent-resource: homelab-subnet
+                  tailscale.com/parent-resource-type: connector

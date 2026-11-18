@@ -4,7 +4,11 @@ metadata:
   name: homelab-subnet
   namespace: tailscale
 spec:
-  hostname: homelab-subnet
+  # Two devices advertising the same route: Tailscale fails over between them, so a
+  # drain or a dead node no longer cuts remote access. hostname is single-replica only.
+  replicas: 2
+  hostnamePrefix: homelab-subnet
+  proxyClass: homelab-subnet
   subnetRouter:
     advertiseRoutes:
       - "192.168.30.0/24"
