@@ -58,10 +58,10 @@ spec:
               k8s-app: kube-dns
       containers:
         - name: coredns
-          # Pinned to the image k3s v1.36.2+k3s1 ships. A k3s upgrade moves
-          # its own replica and leaves this one behind; CoreDNS minor skew is
-          # wire-compatible, but bump this when k3s bumps.
-          image: rancher/mirrored-coredns-coredns:1.14.4
+          # Renovate bumps this tag (renovate.json, kubernetes manager). k3s
+          # moves its own replica on a k3s upgrade; the two may skew briefly,
+          # which is wire-compatible.
+          image: rancher/mirrored-coredns-coredns:1.14.7
           imagePullPolicy: IfNotPresent
           args:
             - -conf
