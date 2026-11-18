@@ -1,0 +1,22 @@
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: descheduler
+  namespace: descheduler
+spec:
+  targetRef:
+    apiVersion: batch/v1
+    kind: CronJob
+    name: descheduler
+  updatePolicy:
+    # Each run lasts seconds: size the pod at creation, never evict it mid-run.
+    updateMode: "Initial"
+  resourcePolicy:
+    containerPolicies:
+      - containerName: "*"
+        minAllowed:
+          cpu: 10m
+          memory: 64Mi
+        maxAllowed:
+          cpu: 500m
+          memory: 256Mi
