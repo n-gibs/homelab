@@ -389,6 +389,29 @@
   become: true
   notify: Update grub
 
+# grub.cfg must be current before the sentinel below lets kured reboot.
+- name: Apply grub changes before requesting a reboot
+  ansible.builtin.meta: flush_handlers
+
+# Same sort grub uses for entry 0.
+- name: Read the newest installed kernel
+  ansible.builtin.shell: set -o pipefail; linux-version list | linux-version sort --reverse | head -1
+  args:
+    executable: /bin/bash
+  register: newest_kernel
+  changed_when: false
+  check_mode: false
+
+# kured reboots only on this file, and it lives on tmpfs: a node that rebooted while
+# pinned loses it and stays on the old kernel until another kernel package lands.
+- name: Ask kured to reboot into the target kernel
+  ansible.builtin.file:
+    path: /var/run/reboot-required
+    state: touch
+    mode: "0644"
+  when: ansible_kernel != (kernel_pin if kernel_pin | length > 0 else newest_kernel.stdout)
+  become: true
+
 - name: Configure unattended-upgrades
   ansible.builtin.copy:
     dest: /etc/apt/apt.conf.d/50unattended-upgrades
