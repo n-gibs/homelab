@@ -8,6 +8,7 @@ spec:
   # drain or a dead node no longer cuts remote access. hostname is single-replica only.
   replicas: 2
   hostnamePrefix: homelab-subnet
+  proxyClass: homelab-subnet
   subnetRouter:
     advertiseRoutes:
       - "192.168.30.0/24"
