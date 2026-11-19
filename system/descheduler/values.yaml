@@ -32,16 +32,15 @@ deschedulerPolicy:
                   operator: DoesNotExist
         - name: LowNodeUtilization
           args:
-            # Percentages of requests. thresholds caps how full an idle node gets, which
-            # matters most for 4-core worker-00, the first to hit per-node kernel limits.
+            # Memory requests within ±5 points of the cluster mean. Relative, so one hot node
+            # is caught even when none is idle; memory only, because a node counts as under
+            # only if every listed resource is. The low edge still caps how full a receiving
+            # node gets, which matters most for 4-core worker-00.
+            useDeviationThresholds: true
             thresholds:
-              cpu: 40
-              memory: 40
-              pods: 30
+              memory: 5
             targetThresholds:
-              cpu: 70
-              memory: 65
-              pods: 60
+              memory: 5
             # Small steps: one daily run moves at most two pods per node.
             evictionLimits:
               node: 2
