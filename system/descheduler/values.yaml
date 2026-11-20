@@ -12,7 +12,7 @@ cmdOptions:
 resources:
   requests:
     cpu: 50m
-    memory: 64Mi
+    memory: 128Mi
   limits:
     cpu: null
     memory: 256Mi

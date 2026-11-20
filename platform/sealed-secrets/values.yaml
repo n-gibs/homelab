@@ -7,6 +7,6 @@ secretName: sealed-secrets-controller-key
 resources:
   requests:
     cpu: 50m
-    memory: 128Mi
+    memory: 96Mi
   limits:
     memory: 192Mi
