@@ -54,8 +54,8 @@ spec:
               system/monitoring-system/values.yaml.
 
         # Our containerd profile overrides containerd's own for as long as it's loaded, so a
-        # k3s upgrade must re-check it: refresh it from the new template, or delete it once
-        # containerd#14487 ships. Firing also pauses kured until someone does.
+        # k3s upgrade must re-check it against the new template. Keep it even once
+        # containerd#14487 ships: upstream skips the chromium peer. Firing also pauses kured.
         - alert: ContainerdProfileReview
           expr: kube_node_info{container_runtime_version!="containerd://2.3.7-k3s1.36"}
           labels:
@@ -64,7 +64,7 @@ spec:
             summary: "{{ $labels.node }} runs {{ $labels.container_runtime_version }}; review the containerd AppArmor profile"
             description: >-
               ansible/roles/common pins cri-containerd.apparmor.d to containerd 2.3.7's template
-              plus two stacked-peer rules (containerd#14485). {{ $labels.node }} now runs
+              plus stacked-peer rules (containerd#14485). {{ $labels.node }} now runs
               {{ $labels.container_runtime_version }}. Re-render the profile from that version's
-              contrib/apparmor/template.go, or drop it if the version includes containerd#14487,
-              then update the version in this rule.
+              contrib/apparmor/template.go, keeping the chromium peer rules that upstream
+              containerd#14487 lacks, then update the version in this rule.
