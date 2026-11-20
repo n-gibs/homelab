@@ -3,6 +3,11 @@ oauth:
   clientSecret: "" # TODO: set via ExternalSecret or patch
 
 operatorConfig:
+  resources:
+    requests:
+      memory: 64Mi
+    limits:
+      memory: 128Mi
   hostname: homelab-operator
   defaultTags:
     - "tag:homelab"

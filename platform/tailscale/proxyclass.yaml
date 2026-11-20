@@ -15,3 +15,9 @@ spec:
                 matchLabels:
                   tailscale.com/parent-resource: homelab-subnet
                   tailscale.com/parent-resource-type: connector
+      tailscaleContainer:
+        resources:
+          requests:
+            memory: 64Mi
+          limits:
+            memory: 256Mi
