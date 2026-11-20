@@ -5,5 +5,5 @@ controllerManager:
         cpu: 10m
         memory: 128Mi
       limits:
-        cpu: 500m
+        cpu: null
         memory: 256Mi
