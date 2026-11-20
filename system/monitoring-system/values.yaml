@@ -186,14 +186,16 @@ prometheus-node-exporter:
 
 prometheus:
   prometheusSpec:
-    # Requests exist so the scheduler stops treating this pod as free. Memory is sized for a
-    # TSDB working set that grows with retention and series count, not for the observed peak.
-    # No limits, deliberately: a memory limit turns a slow query into an OOMKill that loses
-    # the WAL, and this pod is the alerting path.
+    # Unbounded, a runaway query lets the node OOM killer pick a neighbour (small-request pods
+    # score higher) instead of this pod. The limit leaves room for WAL replay at startup, which
+    # an OOMKill triggers; the WAL itself survives on the PVC. No cpu limit, per the LimitRange
+    # rule.
     resources:
       requests:
         cpu: 250m
         memory: 3Gi
+      limits:
+        memory: 6Gi
     # The largest request in the cluster, so it goes on the largest node; the descheduler
     # only moves small pods first. Preferred, so a down worker-01 doesn't strand it.
     affinity:
