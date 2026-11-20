@@ -24,6 +24,10 @@ alloy:
   resources:
     requests:
       cpu: 100m
+      memory: 192Mi
+    # 3x, not 2x: log bursts run ~1.6x above VPA's idle-tracking target.
+    limits:
+      memory: 576Mi
   storagePath: /var/lib/alloy
   mounts:
     extra:
@@ -130,3 +134,8 @@ alloy:
           cluster = "homelab",
         }
       }
+
+configReloader:
+  resources:
+    limits:
+      memory: 100Mi

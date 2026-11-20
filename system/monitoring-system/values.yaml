@@ -90,6 +90,11 @@ kubelet:
         regex: '.+;'
 
 prometheusOperator:
+  resources:
+    requests:
+      memory: 64Mi
+    limits:
+      memory: 128Mi
   # Trivial on their own (7-day peak 0m / 20Mi each), but these two sidecars were part of
   # the seventeen requestless containers that made worker-00 look empty to the scheduler.
   prometheusConfigReloader:
@@ -97,8 +102,16 @@ prometheusOperator:
       requests:
         cpu: 10m
         memory: 32Mi
+      limits:
+        memory: 64Mi
 
 kube-state-metrics:
+  # 3x, not 2x: VPA's target tracks the idle working set and a full relist lands ~1.7x above it.
+  resources:
+    requests:
+      memory: 128Mi
+    limits:
+      memory: 384Mi
   prometheus:
     monitor:
       relabelings:
@@ -169,6 +182,8 @@ prometheus-node-exporter:
     requests:
       cpu: 10m
       memory: 32Mi
+    limits:
+      memory: 128Mi
   # The filesystem excludes repeat the chart's own defaults verbatim because Helm replaces lists
   # rather than merging — re-check on a chart bump.
   extraArgs:
@@ -237,6 +252,17 @@ prometheus:
 
 grafana:
   enabled: true
+  resources:
+    requests:
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+  sidecar:
+    resources:
+      requests:
+        memory: 64Mi
+      limits:
+        memory: 128Mi
   # RWO + RollingUpdate deadlocks: the new pod waits on a volume the old pod still holds.
   deploymentStrategy:
     type: Recreate
@@ -278,6 +304,8 @@ alertmanager:
       requests:
         cpu: 25m
         memory: 96Mi
+      limits:
+        memory: 256Mi
     secrets:
       - ntfy-webhook-url
       - deadmanssnitch-url
