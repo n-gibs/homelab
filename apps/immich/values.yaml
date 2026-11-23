@@ -17,6 +17,9 @@ controllers:
         image:
           tag: v3.4.2
         env:
+          # v3.4.2 builds the metrics exporter URL from IMMICH_HOST unbracketed, so the
+          # default "::" makes 8081/8082 answer 400 (immich#33466). Drop on v3.4.3+.
+          IMMICH_HOST: "0.0.0.0"
           DB_HOSTNAME: immich-database-rw
           DB_USERNAME: app
           DB_DATABASE_NAME: app
