@@ -364,7 +364,10 @@ new cluster's identity rooted in the CA of the thing being deleted.)
 | `system/external-dns` | `txtOwnerId: homelab` with `policy: sync` in both clusters. Each treats the other's records as its own orphans and deletes them. | Give the Talos cluster a distinct `txtOwnerId` before it ever syncs. |
 | Cilium L2 VIP | Both would ARP for `192.168.30.200`. | The pool is `192.168.30.200/29`, so `.201`–`.207` are free. Allocate a second VIP; collapse to `.200` at cutover. |
 | `platform/tailscale` Connector | Both advertise `192.168.30.0/24`. | Don't deploy it on Talos until cutover. |
-| cert-manager | Two ACME accounts, same wildcard. Let's Encrypt allows 5 duplicate certificates per week. | Staging issuer on Talos until cutover. |
+| cert-manager | Two ACME accounts, same wildcard. Let's Encrypt allows 5 duplicate certificates per week. | Prod issuer on Talos with an added `*.talos.nik-homelab.dev` name, so the certificate isn't a duplicate. Staging would serve moved apps an untrusted certificate. |
+
+`docs/talos-two-cluster-layout.md` supersedes this table. It lists the collisions found since,
+and puts the Talos VIP at `.208`, outside the k3s pool rather than inside it.
 
 **The API endpoint is on the node being retired.** `api_endpoint: 192.168.30.129` in
 `ansible/group_vars/k3s_cluster.yml` is worker-00's own address, not a VIP — every other node's
