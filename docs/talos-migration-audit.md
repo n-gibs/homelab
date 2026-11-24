@@ -196,6 +196,22 @@ links` on one node before committing.
   audit rationale in a comment; the per-UID limit is a kernel property, not an Ubuntu one.
 - Node labels/taints → `KubeNodeConfig` `labels` / `taints`.
 
+**New on Talos, never built for k3s: UPS shutdown.** The NAS is the NUT primary for the
+CP1500PFCLCD (#187). Each Talos node needs, from its first boot:
+- the `nut-client` extension, configured by an `ExtensionServiceConfig` holding `upsmon.conf`:
+  `MONITOR <ups>@192.168.30.144 1 <user> <pass> secondary`, `SHUTDOWNCMD "/sbin/poweroff"`, and
+  `SHUTDOWNEXIT no`, which keeps the node logged in to the NAS until it has drained, so the NAS
+  doesn't cut UPS power under it;
+- a patch on the generated `KubeletConfig` document setting, under `config:`,
+  `shutdownGracePeriodByPodPriority`: priority 0 → 180s, 1000000000 → 60s, 2000000000 → 30s.
+  `longhorn-critical` (1e9) sits below kubelet's critical cut-off, so the default two-phase mode
+  would stop Longhorn alongside the apps still using it. The patch must also set
+  `shutdownGracePeriod` and `shutdownGracePeriodCriticalPods` to `0s`: Talos defaults them to
+  30s/10s, and kubelet won't start with either beside a by-priority list;
+- BIOS set to power on after AC loss, since the NAS powers the UPS off at the end.
+
+Design and reasoning: `docs/superpowers/specs/2026-11-23-ups-graceful-shutdown-design.md`.
+
 **Now also ports cleanly, added 2026-08-13 after the Longhorn deployment:** `roles/common`
 enables and starts `iscsid` on all three nodes — Longhorn's V1 volumes need `iscsiadm` on the
 host to attach. This is real Ansible work (Task 1 of the deployment) that would be **silently
@@ -284,6 +300,7 @@ DNS pain history is in this repo.
 | `siderolabs/util-linux-tools` | contrib | Longhorn's other documented requirement. Contrib tier, but it is what the official Longhorn-on-Talos guide names. |
 | `siderolabs/i915` | core | `/dev/dri` for QSV on the G9s (§6). Bake it in now even though nothing transcodes today: the set is compiled into the boot asset, so adding one later costs an image rebuild and a node upgrade. |
 | `siderolabs/intel-ucode` | core | Microcode, which Ubuntu supplies today for free. |
+| `siderolabs/nut-client` | contrib | `upsmon` as a NUT secondary of the NAS, so a power cut shuts the node down cleanly (§5). Added 2026-11-23; the k3s nodes never got a NUT client. |
 
 Deliberately excluded: `nfsd` (the NAS owns the export, §2), `nfs-utils` (TrueNAS exports
 NFSv4-only and the v4 client is in-kernel), `nvme-cli` (the 12TB is USB, §5), `mdadm` (now a
@@ -535,6 +552,11 @@ Claims in this audit I could not confirm from the repo or docs alone:
 3. `/dev/net/tun` availability and whether gluetun's `tun0` binding works unchanged (§6).
 4. Whether any arr needs NFSv3 locking (→ `nfs-utils` extension) or NFSv4 suffices.
 5. Talos's CoreDNS vs `system/coredns/` ownership of the `kube-dns` Service (§6).
+6. UPS shutdown ordering (§5). Does `/sbin/poweroff` from `upsmon` run kubelet's graceful
+   shutdown, or Talos's own cordon-and-drain? And when does Talos stop `ext-nut-client`? Its
+   service `depends` on `cri`, so it may stop before pods finish, which logs it out and lets the
+   NAS cut power early. Test on a node in step 2: `talosctl shutdown`, and watch `upsc -c` on the
+   NAS keep the client listed until the node is drained.
 
 ## Addendum — Rook/Ceph as the storage answer
 
