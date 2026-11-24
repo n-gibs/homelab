@@ -72,9 +72,10 @@ and no labels, so on Talos the privileged pods in `longhorn-system` and `monitor
 (node-exporter) are rejected at admission. Each such app adds a `namespace.talos.yaml` with
 `pod-security.kubernetes.io/enforce: privileged`. The same goes for `local-path-provisioner`,
 whose helper pods mount `hostPath`, and, when they move, `alloy`, `node-feature-discovery`,
-`intel-gpu-plugin` and `qbittorrent` (gluetun adds `NET_ADMIN`). After the first Talos sync,
-`kubectl get events -A --field-selector reason=FailedCreate` must show no PodSecurity
-rejections.
+`intel-gpu-plugin`, `qbittorrent` (gluetun adds `NET_ADMIN`) and `tailscale` (the proxy's
+`sysctler` init container runs privileged). After the first Talos sync, and again after each of
+those moves, `kubectl get events -A --field-selector reason=FailedCreate` must show no
+PodSecurity rejections.
 
 ## Rule 2: overlays named for a cluster
 
@@ -189,7 +190,7 @@ namespace on Talos before `just bootstrap-root`: the controller loads existing k
 start, and generates its own if it finds none. `machine-identity.yaml` then unseals on Talos
 unchanged.
 
-**Infisical.** The server stays on k3s until it moves like any other app. Talos's operator
+**Infisical.** The server stays on k3s until audit step 4 (below). Talos's operator
 reads from it through `https://infisical.nik-homelab.dev`: k3s's
 `system/infisical/connection-auth.yaml` uses a cluster-local address Talos can't resolve. That
 puts k3s's gateway, cert-manager and external-dns in Talos's secret path, the dependency
@@ -205,29 +206,55 @@ Secrets survive an outage. On Talos:
 Every InfisicalSecret references `infisical-auth` in namespace `infisical`, so none of them
 changes.
 
+**Moving the Infisical server** (audit step 4). `infisical` is a `both` app, so it can't use
+`cluster: moving`; its files move instead, in three merges:
+
+1. `values-k3s.yaml` sets `infisical.enabled: false`, stopping the k3s server. Talos's existing
+   Secrets keep working; they just stop refreshing. Run k3s's `pg-backup` once by hand and
+   confirm the dump on the NAS.
+2. Rename the server's `.k3s.yaml` files to `.talos.yaml`, with `postgres` at `instances: 2`
+   and `pg-backup` suspended. k3s prunes its copies once the files leave its half, so the dump
+   is the only copy from here. Restore it into Talos's cluster.
+3. Drop `infisical.enabled: false` and `redis.enabled: false` from `values-talos.yaml`, and
+   point `connection-auth.talos.yaml` at the cluster-local address. Unsuspend `pg-backup`.
+
 ## Machine config
 
-`talos/` holds the Image Factory schematic and the machine-config patches (#177), as audit
+`talos/` holds the Image Factory schematics and the machine-config patches (#177), as audit
 Phase 3 describes. The stack generators glob only `<stack>/*/app.yaml`, so ArgoCD never reads
 it. Secrets stay out of git, as #177 handles them.
 
+Pin Talos **v1.14.7** and generate with `talosctl gen config --talos-version v1.14.7`. That
+release deprecates most v1alpha1 machine fields in favour of multi-document configs, and a
+v1alpha1 field beside its replacement document fails validation, so write every patch below in
+the document form and copy exact shapes from the generated config.
+
 - `talos/schematic.yaml`: the audit's extension table, `siderolabs/nut-client` included.
-- `talos/patches/cluster.yaml`, shared by every node: `allowSchedulingOnControlPlanes`, the
-  control-plane VIP, and `cluster.network.podSubnets: [10.42.0.0/16]` with
-  `serviceSubnets: [10.43.0.0/16]`. Talos defaults to `10.244.0.0/16` and `10.96.0.0/12`, which
-  breaks gluetun's hard-coded `10.43.0.10:53` and the `10.42.0.0/16` proxy ranges in Jellyfin
-  and Nextcloud. Cilium's IPAM pool in HOM-18's values must match.
-- `talos/nodes/<hostname>.yaml`, one per node: hostname, static IP, node labels
-  (`homelab.io/ingress` agreeing with the audit's ingress triple, `homelab.io/quicksync` on the
-  G9s), and on the G6 `nvme_core.default_ps_max_latency_us=0` in
-  `machine.install.extraKernelArgs`.
+- `talos/schematic-g6.yaml`: the same, plus `customization.extraKernelArgs:
+  [nvme_core.default_ps_max_latency_us=0]`. Kernel arguments only reach a UEFI install through
+  the schematic; check `talosctl read /proc/cmdline` on the G6 before it joins.
+- `talos/patches/cluster.yaml`, shared by every node:
+  - `KubeNetworkConfig` with `podSubnets: [10.42.0.0/16]` and `serviceSubnets:
+    [10.43.0.0/16]`. Talos defaults to `10.244.0.0/16` and `10.96.0.0/12`, which breaks
+    gluetun's hard-coded `10.43.0.10:53` and the `10.42.0.0/16` proxy ranges in Jellyfin and
+    Nextcloud. Cilium runs `ipam.mode: kubernetes`, so it takes each node's pod CIDR from these
+    and needs no pool of its own.
+  - No Flannel (the v1alpha1 `cni.name: none`; v1.14.7 configures Flannel through
+    `KubeFlannelCNIConfig`) and `KubeProxyConfig` with `enabled: false`, matching k3s's
+    `--flannel-backend=none` and `--disable-kube-proxy` under Cilium's kube-proxy replacement.
+  - Control planes schedulable, which v1.14.7 moves from `allowSchedulingOnControlPlanes` to
+    `KubeNodeConfig`.
+  - `Layer2VIPConfig` for the control-plane VIP.
+- `talos/nodes/<hostname>.yaml`, one per node: `HostnameConfig`, a `LinkConfig` with the static
+  address, and `KubeNodeConfig` labels (`homelab.io/ingress` agreeing with the audit's ingress
+  triple, `homelab.io/quicksync` on the G9s).
 - `talos/patches/`:
-  - Storage: Longhorn's `/var/lib/longhorn` user volume now, and the `local-path` kubelet mount
-    before the first CNPG move.
+  - Storage: a `UserVolumeConfig` for Longhorn's `/var/lib/longhorn` now, and the `local-path`
+    kubelet mount before the first CNPG move.
   - etcd: `cluster.etcd.extraArgs.listen-metrics-urls`, so `scrapeconfig-etcd.talos.yaml` has a
     target.
   - `ups.yaml` (#187): the `ExtensionServiceConfig` holding `upsmon.conf` with the NAS as primary,
-    and `machine.kubelet.extraConfig.shutdownGracePeriodByPodPriority`.
+    and the kubelet's `shutdownGracePeriodByPodPriority` in a `KubeletConfig` document.
 
 ## Moving an app
 
@@ -246,9 +273,10 @@ An app never runs on both clusters at once, because both would write the same NF
 5. Delete the orphaned k3s resources by hand, including its HTTPRoute. While that route
    exists, k3s's external-dns keeps the hostname pointing at `.200`.
 
-A CNPG app's `postgres.yaml` splits into `.k3s`/`.talos` halves so each cluster sets its own
-`instances`. With `podAntiAffinityType: required`, a cluster can't place more instances than it
-has nodes: k3s runs 2 from step 2, and Talos runs 2 until step 5 adds its third node.
+CNPG apps keep one `postgres.yaml`. With `podAntiAffinityType: required`, a cluster can't place
+more instances than it has nodes, and both clusters have two from step 2 until step 5, so every
+`postgres.yaml` (and Infisical's `postgres.k3s.yaml`) drops to `instances: 2` at step 2 and
+returns to 3 at step 5. An app runs on one cluster at a time, so it never needs two counts.
 
 qBittorrent's `fix-perms` init container runs `chmod -R 777` over `/data/downloads` and
 `/data/media` on every start, so its first start on Talos rewrites modes across the shared

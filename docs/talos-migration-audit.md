@@ -27,7 +27,7 @@ rolling reinstall.
 ### 1. Kubernetes control plane — trivial
 
 `k3s_version: v1.36.3+k3s1`, 3-node embedded etcd, all three servers. Talos is the same shape:
-3 control-plane nodes with `allowSchedulingOnControlPlanes: true`, real etcd instead of k3s's
+3 control-plane nodes that also schedule workloads, real etcd instead of k3s's
 embedded one.
 
 The k3s server flags map cleanly and most just vanish:
@@ -37,12 +37,19 @@ The k3s server flags map cleanly and most just vanish:
 | `--disable traefik` | n/a — Talos ships none |
 | `--disable servicelb` | n/a |
 | `--disable metrics-server` | n/a — you already deploy your own (`system/metrics-server`) |
-| `--flannel-backend=none` | `cluster.network.cni.name: none` |
+| `--flannel-backend=none` | no Flannel (`cluster.network.cni.name: none` in the v1alpha1 schema) |
 | `--disable-network-policy` | implied by `cni: none` |
+| `--disable-kube-proxy` | `KubeProxyConfig` with `enabled: false`; Cilium runs `kubeProxyReplacement: true` |
 | `--write-kubeconfig-mode=644` | n/a — `talosctl kubeconfig` |
 | `--resolv-conf /run/systemd/resolve/resolv.conf` | n/a — no systemd-resolved; Talos manages resolv.conf |
-| `--node-label homelab.io/media=true` | `machine.nodeLabels` |
-| control-plane taint on worker-00 | `machine.nodeTaints` |
+| `--node-label homelab.io/media=true` | `KubeNodeConfig` `labels` |
+| control-plane taint on worker-00 | `KubeNodeConfig` `taints` |
+
+Talos v1.14 deprecates most of the v1alpha1 fields this table and the layout doc used to cite
+(`cluster.network`, `cluster.proxy`, `machine.nodeLabels`, `machine.network`, `machine.kubelet`,
+`machine.install`) in favour of multi-document configs. Pin the Talos version, generate with
+`talosctl gen config --talos-version` for it, and write the patches in that schema; a v1alpha1
+field and its replacement document in the same config fail validation.
 
 Note the inconsistency this audit surfaced independent of Talos: `group_vars` sets
 `extra_server_args` with a control-plane `NoSchedule` taint as the group default, but every
@@ -187,7 +194,7 @@ links` on one node before committing.
 **Ports cleanly:**
 - `fs.inotify.max_user_instances=1024` / `max_user_watches` → `machine.sysctls`. Keep the
   audit rationale in a comment; the per-UID limit is a kernel property, not an Ubuntu one.
-- Node labels/taints → `machine.nodeLabels` / `machine.nodeTaints`.
+- Node labels/taints → `KubeNodeConfig` `labels` / `taints`.
 
 **Now also ports cleanly, added 2026-08-13 after the Longhorn deployment:** `roles/common`
 enables and starts `iscsid` on all three nodes — Longhorn's V1 volumes need `iscsiadm` on the
@@ -234,7 +241,7 @@ Everything from ArgoCD down is pure Kubernetes and does not care what OS the kub
   Alloy, kube-prometheus-stack, Renovate — unchanged.
 - All 20 apps — unchanged, **except** the NFS server IP if you move to a NAS.
 
-Two spot-checks that came back clean:
+Two spot-checks:
 
 - **qBittorrent/gluetun** uses `NET_ADMIN` and userspace WireGuard. Pod Security `baseline`,
   Talos's default, rejects `NET_ADMIN`, so its namespace needs the `privileged` label (see the
@@ -376,7 +383,7 @@ strands nothing: a k3s server whose etcd is already initialized ignores an unrea
 restarts every server. Point the control node's kubeconfig at worker-01 (`192.168.30.194`) by
 hand and drop worker-00 from `ansible/inventory.yml`.
 
-Give the Talos cluster a control-plane VIP from the start (`machine.network.interfaces[].vip`)
+Give the Talos cluster a control-plane VIP from the start (a `Layer2VIPConfig` document)
 so this doesn't recur. Pick the address before step 1: it becomes the cluster endpoint in the
 generated config and certificates. It must sit outside the DHCP range and both LB pools.
 
@@ -384,31 +391,38 @@ generated config and certificates. It must sit outside the DHCP range and both L
 node, and every CNPG cluster runs `instances: 3` with `podAntiAffinityType: required`, so with
 fewer than three nodes the extra instances sit Pending. Order:
 
-1. New G9 → Talos control plane #1, single node. Run only `just bootstrap-cilium` and
-   `just bootstrap-argocd` against it. `just bootstrap-root` waits until the HOM-19 selector
+1. New G9 → Talos control plane #1, single node. Prerequisites: the helmfile `talos`
+   environment that pins the Talos kube context, and HOM-18's Talos Cilium values. Today's
+   recipes take no environment and apply k3s's Cilium values to whatever context is current, so
+   they gain one (`helmfile -e talos`) first. Run only the Cilium and ArgoCD releases against
+   it. The root release waits until the HOM-19 selector
    change is merged and its no-op check has passed on k3s; before that, the root ApplicationSets
    have no selector and Talos would sync every app. Platform only, no apps. This answers
    verify-items 1 and 5 on real hardware, and verify-item 2 for the G9's NIC; k3s is untouched
    at three nodes throughout.
-2. Pause kured on k3s. Set `instances: 2` in each CNPG cluster's k3s half, and for any instance
-   still on worker-00 (G4), switch the primary away if needed and remove it with
-   `kubectl cnpg destroy <cluster> <instance>`; CNPG rebuilds it on the free node. Then drain the
-   G4 and delete its node object, which removes its etcd member. Wipe it and install it as Talos
+2. Pause kured on k3s and cordon worker-00 (G4). Set `instances: 2` in each CNPG cluster's
+   `postgres.yaml` (Infisical's `postgres.k3s.yaml`). Scale-down removes the highest-serial
+   replica wherever it runs, so for any instance still on the G4, switch the primary away if
+   needed and remove it with `kubectl cnpg destroy <cluster> <instance>`; the cordon makes CNPG
+   rebuild it on the other node. Then drain the G4 and delete its node object, which removes
+   its etcd member. Wipe it and install it as Talos
    control plane #2. Longhorn can hold its two replicas and apps have somewhere to land.
 3. Migrate apps k3s → Talos, biggest first. Per app: scale to zero on k3s, restore from its own
    backup on the NAS, verify, move on. CNPG clusters start on Talos at `instances: 2`.
-4. Move Tailscale, Renovate and blackbox-exporter to Talos, the layout doc's last rows. k3s now
-   runs nothing that matters, and the subnet router survives the next step.
+4. Move the Infisical server, then Tailscale, Renovate and blackbox-exporter, to Talos. The
+   Infisical move follows the layout doc's own procedure for it. k3s now runs nothing that
+   matters, and the subnet router and Talos's secret source both survive the next step.
 5. Remove worker-02 (G6) from k3s, fit the spare 8GB stick, run one memtest pass, and install it
-   as Talos control plane #3 with its NVMe kernel argument. Wipe worker-01 (G9) next → control
+   as Talos control plane #3 from its own schematic, which carries its NVMe kernel argument. Wipe worker-01 (G9) next → control
    plane #4. Raise the Talos CNPG clusters back to `instances: 3`.
 6. Cordon the G4, `kubectl cnpg destroy` any CNPG instance on it, evict its Longhorn replicas,
-   drain it, and `talosctl reset` it, which takes its etcd member out with it. Talos is back at
-   three members; retire the box. HOM-24 then collapses the overlays.
+   drain it, and `talosctl reset` it, which takes its etcd member out with it. The reset leaves
+   the Node object, so `kubectl delete node` it. Talos is back at three members; retire the box. HOM-24 then collapses the overlays.
 
-**Every Talos node is a control plane that also runs workloads.** One base machine config, with
-`cluster.allowSchedulingOnControlPlanes: true`, serves all of them, plus a small patch per node
-for its hostname, static IP, labels and, on the G6, its kernel argument. Talos sets the role at
+**Every Talos node is a control plane that also runs workloads.** One base machine config,
+which leaves control planes schedulable, serves all of them, plus a small patch per node for its
+hostname, static IP and labels. Kernel arguments live in the Image Factory schematic, so the G6
+gets its own. The layout doc's Machine config section lists the documents. Talos sets the role at
 install and can't promote a worker later, so no node ever needs a second wipe.
 
 **Take the G4 out of k3s second, retire it last.** Leaving k3s, it is the cheapest node to lose:
@@ -428,8 +442,11 @@ Constraints with no way around them at four boxes:
   removes its etcd member; never power it off first. Talos goes 2 → 3 → 4 → 3 members from
   there; four tolerates one failure, the same as three.
 - The G6 needs `nvme_core.default_ps_max_latency_us=0`, as `ansible/host_vars/worker-02.yml`
-  sets today, in its patch's `machine.install.extraKernelArgs`. Without it the drive stops
-  answering after boot and takes an etcd member and its Longhorn replicas with it.
+  sets today. Put it in a G6-only schematic's `customization.extraKernelArgs`:
+  `machine.install.extraKernelArgs` is deprecated and only applies under legacy GRUB boot
+  (`cmd/installer/pkg/install/install.go`, v1.14.7), so a UEFI install ignores it. Confirm with
+  `talosctl read /proc/cmdline` before the G6 takes an etcd member. Without the argument the
+  drive stops answering after boot and takes the member and its Longhorn replicas with it.
 - The G4's 128GB NVMe holds one replica of every Longhorn volume while Talos has two nodes.
   The volumes declared on `main` total about 43Gi, beside the CNPG `local-path` volumes and the
   image cache. Check `kubectl -n longhorn-system get volumes` against the space Talos leaves
@@ -482,7 +499,7 @@ re-test it on Talos rather than carrying the note over.
 
 Two Talos details that touch this:
 
-- `machine.nodeLabels` applies on **every boot**, unlike k3s's `--node-label`, which only applies
+- Talos applies node labels from the machine config on **every boot**, unlike k3s's `--node-label`, which only applies
   at kubelet registration. The CLAUDE.md warning about labelling an existing node by hand goes
   away — this is a small, real win.
 - `cilium-l2-announce.yaml` matches interfaces `^enp2s0$` and `^eno1$`. Confirm what Talos names
