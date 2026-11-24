@@ -461,8 +461,9 @@ agree**:
 across candidate nodes, so keep `replicas` at or above the number of labelled nodes; extra
 replicas double up harmlessly. A labelled node with no proxy is less dangerous than this audit
 first assumed: Cilium's L2 announcer skips an `externalTrafficPolicy: Local` service on a node
-with no local backend (`hasLocalBackends` in `pkg/l2announcer`). Confirm that on the Cilium
-version Talos installs before relying on it. While the sets differ, `envoyproxy.yaml` splits
+with no live local backend (`hasLocalBackends` in `pkg/l2announcer/l2announcer.go`, v1.20.5,
+the version on `main` and live on k3s). Talos's Cilium values (HOM-18) should pin the same
+release. While the sets differ, `envoyproxy.yaml` splits
 into `.k3s`/`.talos` halves; on Talos only the new G9 carries the label until step 5.
 
 Options once worker-00 is gone:
