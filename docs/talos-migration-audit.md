@@ -383,31 +383,36 @@ rebalance when nodes arrive later. Order:
 1. New G9 → Talos control plane #1, single node. Platform only: Cilium, ArgoCD, Longhorn,
    CoreDNS ownership. No apps. This answers verify-items 1, 2 and 5 below on real hardware, and
    k3s is untouched at three nodes throughout.
-2. Repoint `api_endpoint`, then drain worker-00 (G4) and remove it from k3s. Wipe it and join it
-   to Talos as a **worker**. Longhorn can hold its two replicas and apps have somewhere to land.
+2. Repoint `api_endpoint`, then drain worker-00 (G4) and remove it from k3s. Wipe it and install
+   it as Talos control plane #2. Longhorn can hold its two replicas and apps have somewhere to
+   land.
 3. Migrate apps k3s → Talos, biggest first. Per app: scale to zero on k3s, restore from its own
    backup on the NAS, verify, move on.
 4. Remove worker-02 (G6) from k3s, fit the spare 8GB stick, run one memtest pass, and install it
-   as Talos control plane #2. Wipe worker-01 (G9) straight after → control plane #3.
-5. Evict the G4's Longhorn replicas, drain it, `talosctl reset` it, and retire it.
+   as Talos control plane #3. Wipe worker-01 (G9) next → control plane #4.
+5. Evict the G4's Longhorn replicas, drain it, and `talosctl reset` it, which takes its etcd
+   member out with it. Talos is back at three members; retire the box.
+
+**Every Talos node is a control plane that also runs workloads.** One machine config, with
+`cluster.allowSchedulingOnControlPlanes: true`, serves all of them, and there is no worker
+config to keep in step. Talos sets the role at install and can't promote a worker later, so this
+also means no node ever needs a second wipe.
 
 **Take the G4 out of k3s second, retire it last.** Leaving k3s, it is the cheapest node to lose:
 k3s keeps worker-01 and worker-02, which are both ingress announcers and hold the only working
 iGPU, and drops the overload hotspot. RAM splits 40GB on k3s (24 + 16) against 48GB on Talos
-(32 + 16) during step 3. Joining Talos, it gives Longhorn and CNPG a second node without
-creating a second etcd member.
+(32 + 16) during step 3, and the G4 gives Longhorn and CNPG a second node.
 
 Constraints with no way around them at four boxes:
 
-- During step 3 k3s sits at two etcd members. A 2-member etcd tolerates zero failures and has
-  more ways to lose quorum than a 1-member one, which makes it the worst point in the migration. Keep it
-  short and don't reboot anything optional. In step 4, remove the G6's etcd member while both
-  k3s servers are up (`etcdctl member list` to confirm), never by powering it off.
-- Talos stays at one etcd member through step 3, because the G4 joins as a worker. Its own
-  2-member window is the gap between the G6 and worker-01 in step 4, so do them back to back.
-- Install the G6 with a **control-plane** config. Talos sets the node role at install; a worker
-  cannot be promoted later without a reinstall. The G4 is the exception because it never needs
-  promoting.
+- **Both clusters run two etcd members through step 3.** A 2-member etcd tolerates zero
+  failures and has more ways to lose quorum than a 1-member one, which makes step 3 the worst
+  point in the migration. Keep it short, don't reboot or upgrade anything optional, and take a
+  `talosctl etcd snapshot` before each app move: losing either Talos node for good means
+  recovering with `talosctl bootstrap --recover-from`.
+- In step 4, remove the G6's k3s etcd member while both k3s servers are up (`etcdctl member
+  list` to confirm), never by powering it off. Talos goes 2 → 3 → 4 → 3 members from there;
+  four tolerates one failure, the same as three.
 - The G4's 128GB NVMe holds one replica of every Longhorn volume while Talos has two nodes.
   The volumes declared on `main` total about 43Gi, beside the CNPG `local-path` volumes and the
   image cache. Check `kubectl -n longhorn-system get volumes` against the space Talos leaves
