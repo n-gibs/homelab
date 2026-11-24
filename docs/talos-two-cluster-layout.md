@@ -47,18 +47,17 @@ Put `cluster:` after the three chart lines. Renovate's regex manager matches `ch
 `chartRepo` and `chartVersion` as consecutive lines, and a key between them hides the app from
 Renovate without an error.
 
-`both` grows with the migration rather than covering the platform at once. Step 1 is one node,
-and several components are k3s-specific or pointless on Talos:
+`both` grows with the migration rather than covering the platform at once. Talos starts in
+step 2 with platform only, and several components are k3s-specific or pointless on Talos:
 
 | Component | On Talos | Why |
 |---|---|---|
-| `cert-manager`, `envoy-gateway`, `external-dns`, `infisical-operator`, `infisical`, `longhorn-system`, `metrics-server`, `vpa`, `monitoring-system`, `sealed-secrets` | `both` from step 1 | Ingress, secrets and storage. `vpa` and `monitoring-system` own CRDs that every other app's `vpa.yaml`, ServiceMonitor and PrometheusRule need, so they can't wait |
-| `cloudnative-pg`, `nfs-provisioner`, `descheduler` | `both` from step 2 | Nothing on one node uses them |
+| `cert-manager`, `envoy-gateway`, `external-dns`, `infisical-operator`, `infisical`, `longhorn-system`, `metrics-server`, `vpa`, `monitoring-system`, `sealed-secrets`, `cloudnative-pg`, `nfs-provisioner`, `descheduler` | `both` from step 2 | Ingress, secrets, storage and the operators apps need on arrival. `vpa` and `monitoring-system` own CRDs that every other app's `vpa.yaml`, ServiceMonitor and PrometheusRule need, so they can't wait |
 | `local-path-provisioner` (new) | `talos` before the first CNPG app moves | k3s bundles `local-path`; Talos has no such StorageClass, and CNPG volumes use it |
 | `loki` and `alloy` | `talos`, moved together like an app | Loki's `nfs` PVC path is the same on both clusters; Alloy on Talos has no Loki to push to until then, so Talos ships no logs before the move |
 | `node-feature-discovery`, `intel-gpu-plugin` | `talos` with Jellyfin | They exist for the iGPU |
 | `blackbox-exporter` | `talos` after the last app, before k3s loses a node in step 5 | It probes the same public URLs from either cluster, so a second copy only duplicates alerts |
-| `kured` | never | Talos upgrades through `talosctl`, with no reboot sentinel and no `systemctl`. Paused on k3s from step 2, because a reboot breaks a 2-member etcd |
+| `kured` | never | Talos upgrades through `talosctl`, with no reboot sentinel and no `systemctl`. Paused on k3s from step 1, because a reboot breaks a 2-member etcd |
 | `tailscale`, `renovate` | `talos` after the last app, before step 5 | A second Connector advertises the subnet twice; a second Renovate opens duplicate PRs. Wiping worker-01 with them still on k3s loses the subnet router |
 
 A component given `both` before Talos exists changes nothing on k3s. No component gets `both`
@@ -145,20 +144,18 @@ The platform rows depend on `cluster: both`; without it, a Talos overlay never a
 |---|---|---|
 | external-dns | `txtOwnerId: homelab` with `policy: sync`; each deletes the other's records | `system/external-dns/values-talos.yaml`: `txtOwnerId: homelab-talos` |
 | LB VIP | `cilium-lb-pool.yaml` hands out `192.168.30.200/29`; both clusters would ARP for `.200` | `cilium-lb-pool.k3s.yaml` keeps `.200/29`; `cilium-lb-pool.talos.yaml` holds `.208/32`. Confirm `.208` sits outside OPNsense's DHCP range first. Announcing also needs the node prerequisites under Machine config |
-| LAN DNS | OPNsense's Unbound override answers every `*.nik-homelab.dev` name with `.200`, existing or not, so LAN clients and both clusters' pods reach k3s for Talos hostnames | For step 1, exempt `talos.nik-homelab.dev` from the override (`local-zone: "talos.nik-homelab.dev." transparent` in Unbound's custom options). Before the first app moves, delete the override as `docs/unifi-migration.md` plans, after checking OPNsense passes Cloudflare's private-IP answers through. `dig @192.168.30.1 argocd.talos.nik-homelab.dev` must return `.208` |
+| LAN DNS | OPNsense's Unbound override answers every `*.nik-homelab.dev` name with `.200`, existing or not, so LAN clients and both clusters' pods reach k3s for Talos hostnames | Before step 2, exempt `talos.nik-homelab.dev` from the override (`local-zone: "talos.nik-homelab.dev." transparent` in Unbound's custom options). Before the first app moves, delete the override as `docs/unifi-migration.md` plans, after checking OPNsense passes Cloudflare's private-IP answers through. `dig @192.168.30.1 argocd.talos.nik-homelab.dev` must return `.208` |
 | cert-manager | both issue the `*.nik-homelab.dev` wildcard from `letsencrypt-prod` | `wildcard-cert.k3s.yaml` keeps today's names; `wildcard-cert.talos.yaml` adds `*.talos.nik-homelab.dev`, so it is a different certificate rather than a duplicate. Staging would serve every moved app an untrusted certificate |
 | ACME account | `cluster-issuer.yaml` holds `email: ${LETSENCRYPT_EMAIL}`, which only Ansible or `just build-config` fills in. Talos would register a fresh account with the literal placeholder | `cluster-issuer.k3s.yaml` unchanged; `cluster-issuer.talos.yaml` omits `email`, which ACME doesn't require. Confirm the ClusterIssuer reaches Ready |
 | Tailscale | both advertise `192.168.30.0/24` | stays on k3s (rule 1) |
 | **Dead-man's switch** | both Alertmanagers ping the same healthchecks.io URL, so a dead k3s pipeline stays green | separate check: `system/monitoring-system/infisical-secret.k3s.yaml` unchanged, `infisical-secret.talos.yaml` the same two secrets with the dead-man's path at `/monitoring-system/deadmanssnitch-url-talos` |
-| **Monitoring** | both clusters label every series `cluster: homelab` and page the same ntfy topic, so a page doesn't say which cluster sent it. `scrapeconfig-etcd.yaml` scrapes k3s's etcd by node IP, and `EtcdSnapshotStale` reads k3s's `ETCDSnapshotFile`, so Talos would alert on k3s and fire `absent()` forever | `values-talos.yaml` relabels to `cluster: talos` and drops the `k3s.cattle.io` state metric and its RBAC rule. `scrapeconfig-etcd` and `prometheusrule-etcd` split into `.k3s`/`.talos`, the Talos half scraping its own etcd. Both halves list node IPs, so each node step edits them: k3s drops `.129` at step 2 and `.136` at step 5; Talos adds each control plane as it joins and drops `.129` at step 6 |
+| **Monitoring** | both clusters label every series `cluster: homelab` and page the same ntfy topic, so a page doesn't say which cluster sent it. `scrapeconfig-etcd.yaml` scrapes k3s's etcd by node IP, and `EtcdSnapshotStale` reads k3s's `ETCDSnapshotFile`, so Talos would alert on k3s and fire `absent()` forever | `values-talos.yaml` relabels to `cluster: talos` and drops the `k3s.cattle.io` state metric and its RBAC rule. `scrapeconfig-etcd` and `prometheusrule-etcd` split into `.k3s`/`.talos`, the Talos half scraping its own etcd. Both halves list node IPs, so each node step edits them: k3s drops `.129` at step 1 and `.136` at step 5; Talos adds each control plane as it joins and drops `.129` at step 6 |
 | **Renovate** | two runs open duplicate PRs | stays on k3s (rule 1) |
 | **Longhorn backups** | both write `nfs://192.168.30.144:/mnt/storage/data/longhorn-backups` and list each other's backups | `system/longhorn-system/values-talos.yaml` pointing at `longhorn-backups-talos`, created on the NAS first (Longhorn can't mount a missing path) |
 | **Platform UIs** | `argocd`, `grafana`, `longhorn` and `hubble` exist on both; Talos's external-dns can't take records k3s owns, so Talos's copies have no name | each route splits into `.k3s.yaml` and a `.talos.yaml` on `<name>.talos.nik-homelab.dev`: `system/envoy-gateway/argocd-httproute`, `system/monitoring-system/httproute`, `system/longhorn-system/httproute` and `system/kube-system/hubble-ui-httproute`. Keep the object names, so `longhorn-system/securitypolicy.yaml` still targets `longhorn-ui` |
 
 external-dns's RecordsOutOfSync alert counts the other cluster's TXT records as foreign, so
-expect it on both clusters for the whole migration; silence it rather than chase it. Longhorn
-at 2 replicas also sits Degraded on step 1's single node; silence its volume alerts on Talos
-until step 2.
+expect it on both clusters for the whole migration; silence it rather than chase it.
 
 Shared NFS data is safe under rule 1. The provisioner's `pathPattern` is `namespace/pvc-name`,
 so an app recreated on Talos finds its own directory, and only one cluster runs the app at a
@@ -274,9 +271,9 @@ An app never runs on both clusters at once, because both would write the same NF
    exists, k3s's external-dns keeps the hostname pointing at `.200`.
 
 CNPG apps keep one `postgres.yaml`. With `podAntiAffinityType: required`, a cluster can't place
-more instances than it has nodes, and both clusters have two from step 2 until step 5, so every
-`postgres.yaml` (and Infisical's `postgres.k3s.yaml`) drops to `instances: 2` at step 2 and
-returns to 3 at step 5. An app runs on one cluster at a time, so it never needs two counts.
+more instances than it has nodes. k3s has two from step 1 and Talos two from its creation in
+step 2, until step 5, so every `postgres.yaml` (and Infisical's `postgres.k3s.yaml`) drops to
+`instances: 2` at step 1 and returns to 3 at step 5. An app runs on one cluster at a time, so it never needs two counts.
 
 qBittorrent's `fix-perms` init container runs `chmod -R 777` over `/data/downloads` and
 `/data/media` on every start, so its first start on Talos rewrites modes across the shared

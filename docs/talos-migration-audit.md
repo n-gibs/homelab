@@ -384,40 +384,45 @@ restarts every server. Point the control node's kubeconfig at worker-01 (`192.16
 hand and drop worker-00 from `ansible/inventory.yml`.
 
 Give the Talos cluster a control-plane VIP from the start (a `Layer2VIPConfig` document)
-so this doesn't recur. Pick the address before step 1: it becomes the cluster endpoint in the
+so this doesn't recur. Pick the address before step 2: it becomes the cluster endpoint in the
 generated config and certificates. It must sit outside the DHCP range and both LB pools.
 
 **Don't migrate apps onto a one-node cluster.** Longhorn at 2 replicas sits Degraded with one
 node, and every CNPG cluster runs `instances: 3` with `podAntiAffinityType: required`, so with
 fewer than three nodes the extra instances sit Pending. Order:
 
-1. New G9 → Talos control plane #1, single node. Prerequisites: the helmfile `talos`
-   environment that pins the Talos kube context, and HOM-18's Talos Cilium values. Today's
-   recipes take no environment and apply k3s's Cilium values to whatever context is current, so
-   they gain one (`helmfile -e talos`) first. Run only the Cilium and ArgoCD releases against
-   it. The root release waits until the HOM-19 selector
-   change is merged and its no-op check has passed on k3s; before that, the root ApplicationSets
-   have no selector and Talos would sync every app. Platform only, no apps. This answers
-   verify-items 1 and 5 on real hardware, and verify-item 2 for the G9's NIC; k3s is untouched
-   at three nodes throughout.
-2. Pause kured on k3s and cordon worker-00 (G4). Set `instances: 2` in each CNPG cluster's
-   `postgres.yaml` (Infisical's `postgres.k3s.yaml`). Scale-down removes the highest-serial
-   replica wherever it runs, so for any instance still on the G4, switch the primary away if
-   needed and remove it with `kubectl cnpg destroy <cluster> <instance>`; the cordon makes CNPG
-   rebuild it on the other node. Then drain the G4 and delete its node object, which removes
-   its etcd member. Wipe it and install it as Talos
-   control plane #2. Longhorn can hold its two replicas and apps have somewhere to land.
+1. Take worker-00 (G4) out of k3s. Pause kured and cordon the G4. Set `instances: 2` in each
+   CNPG cluster's `postgres.yaml` (Infisical's `postgres.k3s.yaml`). Scale-down removes the
+   highest-serial replica wherever it runs, so for any instance still on the G4, switch the
+   primary away if needed and remove it with `kubectl cnpg destroy <cluster> <instance>`; the
+   cordon makes CNPG rebuild it on the other node. Then drain the G4 and delete its node object,
+   which removes its etcd member.
+2. Create the Talos cluster on the new G9 and the G4 together: bootstrap etcd on the G9
+   (control plane #1), then apply the G4's config (control plane #2). Prerequisites: the
+   helmfile `talos` environment that pins the Talos kube context, and HOM-18's Talos Cilium
+   values. Today's recipes take no environment and apply k3s's Cilium values to whatever
+   context is current, so they gain one (`helmfile -e talos`) first. Run only the Cilium and
+   ArgoCD releases. The root release waits until the HOM-19 selector change is merged and its
+   no-op check has passed on k3s; before that, the root ApplicationSets have no selector and
+   Talos would sync every app. Platform only, no apps. This answers verify-items 1 and 5 on
+   real hardware, and verify-item 2 for the G9's and G4's NICs.
 3. Migrate apps k3s → Talos, biggest first. Per app: scale to zero on k3s, restore from its own
    backup on the NAS, verify, move on. CNPG clusters start on Talos at `instances: 2`.
 4. Move the Infisical server, then Tailscale, Renovate and blackbox-exporter, to Talos. The
    Infisical move follows the layout doc's own procedure for it. k3s now runs nothing that
    matters, and the subnet router and Talos's secret source both survive the next step.
-5. Remove worker-02 (G6) from k3s, fit the spare 8GB stick, run one memtest pass, and install it
-   as Talos control plane #3 from its own schematic, which carries its NVMe kernel argument. Wipe worker-01 (G9) next → control
-   plane #4. Raise the Talos CNPG clusters back to `instances: 3`.
+5. Remove worker-02 (G6) from k3s, fit the spare 8GB stick, run one memtest pass, and install
+   it as Talos control plane #3 from its own schematic, which carries its NVMe kernel argument.
+   Wipe worker-01 (G9) next → control plane #4. Raise the Talos CNPG clusters back to
+   `instances: 3`.
 6. Cordon the G4, `kubectl cnpg destroy` any CNPG instance on it, evict its Longhorn replicas,
    drain it, and `talosctl reset` it, which takes its etcd member out with it. The reset leaves
-   the Node object, so `kubectl delete node` it. Talos is back at three members; retire the box. HOM-24 then collapses the overlays.
+   the Node object, so `kubectl delete node` it. Talos is back at three members; retire the
+   box. HOM-24 then collapses the overlays.
+
+Starting Talos on two nodes means Longhorn and CNPG have a second node from the first sync,
+with no single-node stage. The cost: k3s is already at two members while Talos is being shaken
+down, and rolling back a failed Talos install means reinstalling Ubuntu and k3s on the G4.
 
 **Every Talos node is a control plane that also runs workloads.** One base machine config,
 which leaves control planes schedulable, serves all of them, plus a small patch per node for its
@@ -425,14 +430,15 @@ hostname, static IP and labels. Kernel arguments live in the Image Factory schem
 gets its own. The layout doc's Machine config section lists the documents. Talos sets the role at
 install and can't promote a worker later, so no node ever needs a second wipe.
 
-**Take the G4 out of k3s second, retire it last.** Leaving k3s, it is the cheapest node to lose:
+**Take the G4 out of k3s first, retire it last.** Leaving k3s, it is the cheapest node to lose:
 k3s keeps worker-01 and worker-02, which are both ingress announcers and hold the only working
 iGPU, and drops the overload hotspot. RAM splits 40GB on k3s (24 + 16) against 48GB on Talos
 (32 + 16) during step 3, and the G4 gives Longhorn and CNPG a second node.
 
 Constraints with no way around them at four boxes:
 
-- **Both clusters run two etcd members from step 2 to step 5.** A 2-member etcd tolerates zero
+- **Both clusters run two etcd members until step 5**: k3s from step 1, Talos from its
+  creation in step 2. A 2-member etcd tolerates zero
   failures and has more ways to lose quorum than a 1-member one, which makes this the worst
   stretch of the migration. Keep it short and don't reboot or upgrade anything optional. On
   k3s that means kured stays paused and `just provision` doesn't run: either restarts a server.
@@ -525,7 +531,7 @@ Claims in this audit I could not confirm from the repo or docs alone:
 2. Interface names Talos assigns on the ProDesk G4/G6/G9, for `l2announcements.interfacePattern`.
    **Partly settled 2026-09-11:** worker-01 (G9) presents its single I219-LM as `eno1` under
    Ubuntu, alongside an unused `wlp0s20f3`. Talos uses the same predictable-naming scheme, so
-   `eno1` is the expectation rather than the confirmation. Read it off the node in step 1.
+   `eno1` is the expectation rather than the confirmation. Read it off the node in step 2.
 3. `/dev/net/tun` availability and whether gluetun's `tun0` binding works unchanged (§6).
 4. Whether any arr needs NFSv3 locking (→ `nfs-utils` extension) or NFSv4 suffices.
 5. Talos's CoreDNS vs `system/coredns/` ownership of the `kube-dns` Service (§6).
