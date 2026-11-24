@@ -47,8 +47,8 @@ Put `cluster:` after the three chart lines. Renovate's regex manager matches `ch
 `chartRepo` and `chartVersion` as consecutive lines, and a key between them hides the app from
 Renovate without an error.
 
-`both` grows with the migration rather than covering the platform at once. Step 1 is one node
-with 8GB, and several components are k3s-specific or pointless on Talos:
+`both` grows with the migration rather than covering the platform at once. Step 1 is one node,
+and several components are k3s-specific or pointless on Talos:
 
 | Component | On Talos | Why |
 |---|---|---|
@@ -148,7 +148,7 @@ The platform rows depend on `cluster: both`; without it, a Talos overlay never a
 | ACME account | `cluster-issuer.yaml` holds `email: ${LETSENCRYPT_EMAIL}`, which only Ansible or `just build-config` fills in. Talos would register a fresh account with the literal placeholder | `cluster-issuer.k3s.yaml` unchanged; `cluster-issuer.talos.yaml` omits `email`, which ACME doesn't require. Confirm the ClusterIssuer reaches Ready |
 | Tailscale | both advertise `192.168.30.0/24` | stays on k3s (rule 1) |
 | **Dead-man's switch** | both Alertmanagers ping the same healthchecks.io URL, so a dead k3s pipeline stays green | separate check: `system/monitoring-system/infisical-secret.k3s.yaml` unchanged, `infisical-secret.talos.yaml` the same two secrets with the dead-man's path at `/monitoring-system/deadmanssnitch-url-talos` |
-| **Monitoring** | both clusters label every series `cluster: homelab` and page the same ntfy topic, so a page doesn't say which cluster sent it. `scrapeconfig-etcd.yaml` scrapes k3s's etcd by node IP, and `EtcdSnapshotStale` reads k3s's `ETCDSnapshotFile`, so Talos would alert on k3s and fire `absent()` forever | `values-talos.yaml` relabels to `cluster: talos`, drops the `k3s.cattle.io` state metric and its RBAC rule, and sizes Prometheus for an 8GB node. `scrapeconfig-etcd` and `prometheusrule-etcd` split into `.k3s`/`.talos`, the Talos half scraping its own etcd |
+| **Monitoring** | both clusters label every series `cluster: homelab` and page the same ntfy topic, so a page doesn't say which cluster sent it. `scrapeconfig-etcd.yaml` scrapes k3s's etcd by node IP, and `EtcdSnapshotStale` reads k3s's `ETCDSnapshotFile`, so Talos would alert on k3s and fire `absent()` forever | `values-talos.yaml` relabels to `cluster: talos` and drops the `k3s.cattle.io` state metric and its RBAC rule. `scrapeconfig-etcd` and `prometheusrule-etcd` split into `.k3s`/`.talos`, the Talos half scraping its own etcd |
 | **Renovate** | two runs open duplicate PRs | stays on k3s (rule 1) |
 | **Longhorn backups** | both write `nfs://192.168.30.144:/mnt/storage/data/longhorn-backups` and list each other's backups | `system/longhorn-system/values-talos.yaml` pointing at `longhorn-backups-talos`, created on the NAS first (Longhorn can't mount a missing path) |
 | **Platform UIs** | `argocd`, `grafana`, `longhorn` and `hubble` exist on both; Talos's external-dns can't take records k3s owns, so Talos's copies have no name | each route splits into `.k3s.yaml` and a `.talos.yaml` on `<name>.talos.nik-homelab.dev`: `system/envoy-gateway/argocd-httproute`, `system/monitoring-system/httproute`, `system/longhorn-system/httproute` and `system/kube-system/hubble-ui-httproute`. Keep the object names, so `longhorn-system/securitypolicy.yaml` still targets `longhorn-ui` |

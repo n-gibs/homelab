@@ -345,9 +345,9 @@ throwaway test target. A second G9 removes both constraints.
 
 ### The fourth-node plan (2026-09-09)
 
-A second G9 (i5-12500T) is arriving to replace worker-00, the G4. It ships bare: 8GB and no
-drive. A 512GB NVMe covers the drive; the 16GB is the G4's own two DDR4 sticks, which only
-come free when it retires in step 4, so the Talos node runs on 8GB until then. That is a
+A second G9 (i5-12500T) is arriving to replace worker-00, the G4. It ships with one 8GB stick
+and no drive; it gets a 512GB NVMe and 32GB of new DDR4. The spare 8GB stick goes into the G6's
+empty slot before it joins Talos in step 4, taking it from 16GB to 24GB. That is a
 better migration than Phases 1–2 above: the new box is Phase 1's test target *and* the first
 node of the real cluster, so the bake period is free and there is a rollback the whole way.
 
@@ -371,41 +371,53 @@ and puts the Talos VIP at `.208`, outside the k3s pool rather than inside it.
 
 **The API endpoint is on the node being retired.** `api_endpoint: 192.168.30.129` in
 `ansible/group_vars/k3s_cluster.yml` is worker-00's own address, not a VIP — every other node's
-server URL points at the G4. Pulling it first strands the remaining two. Give the Talos cluster
-a control-plane VIP from the start (`machine.network.interfaces[].vip`) so this doesn't recur.
+server URL points at the G4. Pulling it without repointing strands the remaining two, so step 2
+starts by moving `api_endpoint` to worker-01 (`192.168.30.194`), the last k3s node to leave, and
+running Ansible. Give the Talos cluster a control-plane VIP from the start
+(`machine.network.interfaces[].vip`) so this doesn't recur.
 
 **Don't migrate apps onto a one-node cluster.** Longhorn at 2 replicas sits Degraded with one
 node, and four CNPG clusters × 3 instances land all their instances on one disk with no
 rebalance when nodes arrive later. Order:
 
-1. New G9 → Talos, single node. Platform only: Cilium, ArgoCD, Longhorn, CoreDNS ownership.
-   No apps. This answers verify-items 1, 2 and 5 below on real hardware, and k3s is untouched
-   at three nodes throughout.
-2. worker-02 (G6) wiped → Talos control plane #2. Longhorn can hold its two replicas and apps
-   have somewhere to land.
+1. New G9 → Talos control plane #1, single node. Platform only: Cilium, ArgoCD, Longhorn,
+   CoreDNS ownership. No apps. This answers verify-items 1, 2 and 5 below on real hardware, and
+   k3s is untouched at three nodes throughout.
+2. Repoint `api_endpoint`, then drain worker-00 (G4) and remove it from k3s. Wipe it and join it
+   to Talos as a **worker**. Longhorn can hold its two replicas and apps have somewhere to land.
 3. Migrate apps k3s → Talos, biggest first. Per app: scale to zero on k3s, restore from its own
    backup on the NAS, verify, move on.
-4. worker-00 (G4) retired and worker-01 (G9) wiped → Talos control plane #3.
+4. Remove worker-02 (G6) from k3s, fit the spare 8GB stick, run one memtest pass, and install it
+   as Talos control plane #2. Wipe worker-01 (G9) straight after → control plane #3.
+5. Evict the G4's Longhorn replicas, drain it, `talosctl reset` it, and retire it.
 
-**Retire the G4 last, not first.** It is the node being replaced, but pulling it early is what
-forces every remaining workload onto worker-01 alone (24GB against ~55GB of cluster total).
-Leaving it in k3s through step 3 keeps two nodes and 40GB under the apps that haven't moved
-yet, and keeps `api_endpoint: 192.168.30.129` pointing at something that exists.
+**Take the G4 out of k3s second, retire it last.** Leaving k3s, it is the cheapest node to lose:
+k3s keeps worker-01 and worker-02, which are both ingress announcers and hold the only working
+iGPU, and drops the overload hotspot. RAM splits 40GB on k3s (24 + 16) against 48GB on Talos
+(32 + 16) during step 3. Joining Talos, it gives Longhorn and CNPG a second node without
+creating a second etcd member.
 
-Two constraints with no way around them at four boxes:
+Constraints with no way around them at four boxes:
 
-- During step 3 both clusters sit at two etcd members. A 2-member etcd tolerates zero failures
-  and has more ways to lose quorum than a 1-member one — it is the worst point in the
-  migration. Keep it short and don't reboot anything optional.
-- Install the G6 with a **control-plane** config in step 2 even though that is what creates the
-  2-member window. Talos sets the node role at install; a worker cannot be promoted later
-  without a reinstall, so the alternative is wiping it twice.
+- During step 3 k3s sits at two etcd members. A 2-member etcd tolerates zero failures and has
+  more ways to lose quorum than a 1-member one, which makes it the worst point in the migration. Keep it
+  short and don't reboot anything optional. In step 4, remove the G6's etcd member while both
+  k3s servers are up (`etcdctl member list` to confirm), never by powering it off.
+- Talos stays at one etcd member through step 3, because the G4 joins as a worker. Its own
+  2-member window is the gap between the G6 and worker-01 in step 4, so do them back to back.
+- Install the G6 with a **control-plane** config. Talos sets the node role at install; a worker
+  cannot be promoted later without a reinstall. The G4 is the exception because it never needs
+  promoting.
+- The G4's 128GB NVMe holds one replica of every Longhorn volume while Talos has two nodes.
+  The volumes declared on `main` total about 43Gi, beside the CNPG `local-path` volumes and the
+  image cache. Check `kubectl -n longhorn-system get volumes` against the space Talos leaves
+  before step 2.
 
 **What the new node changes elsewhere in this audit:**
 
 - §1's control-plane taint inconsistency dies with worker-00, as does the i915-blacklisted node
-  and the requestless-container density hotspot. Cluster RAM goes 16/24/16 → 16/24/16 with a
-  12th-gen replacing an 8th-gen, so scheduling pressure improves without more memory.
+  and the requestless-container density hotspot. Cluster RAM goes 16/24/16 → 32/24/24, with a
+  12th-gen replacing an 8th-gen.
 - §6's Jellyfin note assumes one modern iGPU. Two 12th-gen G9s means `homelab.io/media` is no
   longer the only expression of "the better encoder" — revisit which node it points at.
 **Node labels need settling before the new G9 is installed**
