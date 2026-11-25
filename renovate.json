@@ -65,6 +65,11 @@
       "matchDepNames": ["k3s-io/k3s"],
       "separateMinorPatch": true,
       "automerge": false
+    },
+    {
+      "description": "descheduler's minor version tracks the Kubernetes minor, so 0.37 targets 1.37. Remove this cap in the PR that moves k3s to 1.37.",
+      "matchDepNames": ["descheduler"],
+      "allowedVersions": "<0.37.0"
     }
   ],
   "customManagers": [
