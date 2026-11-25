@@ -17,39 +17,50 @@ list_dirs() {
 
 field() { sed -n "s/^$1: *//p" "$2/app.yaml"; }
 
-render() {
-  local dir="$1" name repo version chart
+# Runs helm with the given arguments followed by the chart that <dir>/app.yaml names.
+helm_chart() {
+  local dir="$1" name repo chart
+  shift
   name="$(field chartName "$dir")"
   repo="$(field chartRepo "$dir")"
-  version="$(field chartVersion "$dir")"
   if [[ "$repo" == https://* ]]; then
     chart=("$name" --repo "$repo")
   else
     chart=("oci://$repo/$name")
   fi
-  helm template "$(basename "$dir")" "${chart[@]}" --version "$version" \
-    --namespace "$(basename "$dir")" --values "$dir/values.yaml"
+  helm "$@" "${chart[@]}" --version "$(field chartVersion "$dir")"
+}
+
+render() {
+  helm_chart "$1" template "$(basename "$1")" \
+    --namespace "$(basename "$1")" --values "$1/values.yaml"
+}
+
+# Everything ArgoCD deploys from <dir>: the chart, if any, then its other manifests.
+render_dir() {
+  local f
+  if [[ -f "$1/app.yaml" ]]; then render "$1" || return 1; fi
+  for f in "$1"/*.yaml; do
+    [[ "$f" != */app.yaml && "$f" != */values.yaml ]] || continue
+    printf -- '\n---\n# Source: %s\n' "$(basename "$f")"
+    cat "$f"
+  done
 }
 
 main() {
   [[ $# -eq 1 ]] || { echo "usage: $0 <base-ref>|--all" >&2; exit 2; }
-  local out dir key f failed=0
+  local out dir failed=0
   out="$(mktemp -d)"
   trap 'rm -rf "$out"' EXIT
   shopt -s nullglob
 
   while IFS= read -r dir; do
     [[ -d "$dir" ]] || continue
-    key="${dir//\//_}"
     echo "::group::$dir"
-    if [[ -f "$dir/app.yaml" ]] && ! render "$dir" > "$out/$key.yaml"; then
+    if ! render_dir "$dir" > "$out/${dir//\//_}.yaml"; then
       echo "::error::helm template failed for $dir"
       failed=1
     fi
-    for f in "$dir"/*.yaml; do
-      [[ "$f" != */app.yaml && "$f" != */values.yaml ]] || continue
-      cp "$f" "$out/${key}_$(basename "$f")"
-    done
     echo "::endgroup::"
   done < <(list_dirs "$1")
 
@@ -62,4 +73,7 @@ main() {
   exit "$failed"
 }
 
-main "$@"
+# Sourced by chart-diff.sh for its helpers.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi

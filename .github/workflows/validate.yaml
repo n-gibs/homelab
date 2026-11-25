@@ -14,6 +14,7 @@ env:
   KUBECONFORM_VERSION: v0.8.0
   # renovate: datasource=npm depName=renovate
   RENOVATE_VERSION: 44.224.1
+  RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
 jobs:
   # The main ruleset requires this job by name, so it runs on every PR and
@@ -40,7 +41,6 @@ jobs:
         if: failure() && steps.downgrade.outcome == 'failure' && startsWith(github.head_ref, 'renovate/')
         env:
           GH_TOKEN: ${{ github.token }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           gh pr close "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" \
             --comment "Closing: this moves a tag to an older release, so it is a downgrade even though the version number is higher. Release dates are in [the validate run](${RUN_URL}). Renovate will not reopen this version, but it also won't offer later builds until \`renovate.json\` excludes this one with \`allowedVersions\`."
@@ -64,3 +64,38 @@ jobs:
           else
             npx --yes --package "renovate@${RENOVATE_VERSION}" -- renovate-config-validator renovate.json
           fi
+
+  # Advisory, so keep it out of the required checks: the report is for whoever
+  # reviews the PR, and a comment that fails to post must not hold up a merge.
+  chart-diff:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 2
+
+      - uses: azure/setup-helm@v5.0.1
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Render changed charts at base and head
+        run: |
+          .github/scripts/chart-diff.sh HEAD^1 > "$RUNNER_TEMP/chart-diff.md"
+          cat "$RUNNER_TEMP/chart-diff.md" >> "$GITHUB_STEP_SUMMARY"
+
+      # A fork's token can't comment, and a comment body caps at 65536 characters.
+      - name: Comment on the PR
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          report="$RUNNER_TEMP/chart-diff.md"
+          [[ -s "$report" ]] || exit 0
+          if (( $(wc -c < "$report") > 60000 )); then
+            printf '%s\n\nToo long for a comment; read it in the [run summary](%s).\n' "$(head -1 "$report")" "$RUN_URL" > "$report.short"
+            mv "$report.short" "$report"
+          fi
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --edit-last --create-if-none --body-file "$report" \
+            || echo "::warning::Could not post the chart diff comment"
