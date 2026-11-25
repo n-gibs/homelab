@@ -251,7 +251,9 @@ the document form and copy exact shapes from the generated config.
   - etcd: `cluster.etcd.extraArgs.listen-metrics-urls`, so `scrapeconfig-etcd.talos.yaml` has a
     target.
   - `ups.yaml` (#187): the `ExtensionServiceConfig` holding `upsmon.conf` with the NAS as primary,
-    and the kubelet's `shutdownGracePeriodByPodPriority` in a `KubeletConfig` document.
+    and the kubelet's `shutdownGracePeriodByPodPriority` in a `KubeletConfig` patch, with
+    `shutdownGracePeriod` and `shutdownGracePeriodCriticalPods` set to `0s` beside it. Talos
+    defaults those to 30s/10s, and kubelet refuses to start with either next to a by-priority list.
 
 ## Moving an app
 
