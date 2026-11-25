@@ -64,3 +64,38 @@ jobs:
           else
             npx --yes --package "renovate@${RENOVATE_VERSION}" -- renovate-config-validator renovate.json
           fi
+
+  # Advisory, so keep it out of the required checks: the report is for whoever
+  # reviews the PR, and a comment that fails to post must not hold up a merge.
+  chart-diff:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 2
+
+      - uses: azure/setup-helm@v5.0.1
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Render changed charts at base and head
+        run: |
+          .github/scripts/chart-diff.sh HEAD^1 > "$RUNNER_TEMP/chart-diff.md"
+          cat "$RUNNER_TEMP/chart-diff.md" >> "$GITHUB_STEP_SUMMARY"
+
+      # A fork's token can't comment, and a comment body caps at 65536 characters.
+      - name: Comment on the PR
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          report="$RUNNER_TEMP/chart-diff.md"
+          [[ -s "$report" ]] || exit 0
+          if (( $(wc -c < "$report") > 60000 )); then
+            printf '### Rendered chart changes\n\nToo long for a comment; read it in the [run summary](%s).\n' "$RUN_URL" > "$report"
+          fi
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --edit-last --create-if-none --body-file "$report" \
+            || echo "::warning::Could not post the chart diff comment"
