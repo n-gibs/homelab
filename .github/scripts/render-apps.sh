@@ -17,18 +17,23 @@ list_dirs() {
 
 field() { sed -n "s/^$1: *//p" "$2/app.yaml"; }
 
-render() {
-  local dir="$1" name repo version chart
+# Runs helm with the given arguments followed by the chart that <dir>/app.yaml names.
+helm_chart() {
+  local dir="$1" name repo chart
+  shift
   name="$(field chartName "$dir")"
   repo="$(field chartRepo "$dir")"
-  version="$(field chartVersion "$dir")"
   if [[ "$repo" == https://* ]]; then
     chart=("$name" --repo "$repo")
   else
     chart=("oci://$repo/$name")
   fi
-  helm template "$(basename "$dir")" "${chart[@]}" --version "$version" \
-    --namespace "$(basename "$dir")" --values "$dir/values.yaml"
+  helm "$@" "${chart[@]}" --version "$(field chartVersion "$dir")"
+}
+
+render() {
+  helm_chart "$1" template "$(basename "$1")" \
+    --namespace "$(basename "$1")" --values "$1/values.yaml"
 }
 
 main() {
@@ -62,4 +67,7 @@ main() {
   exit "$failed"
 }
 
-main "$@"
+# Sourced by chart-diff.sh for its helpers.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi
