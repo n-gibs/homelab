@@ -36,25 +36,31 @@ render() {
     --namespace "$(basename "$1")" --values "$1/values.yaml"
 }
 
+# Everything ArgoCD deploys from <dir>: the chart, if any, then its other manifests.
+render_dir() {
+  local f
+  if [[ -f "$1/app.yaml" ]]; then render "$1" || return 1; fi
+  for f in "$1"/*.yaml; do
+    [[ "$f" != */app.yaml && "$f" != */values.yaml ]] || continue
+    printf -- '\n---\n# Source: %s\n' "$(basename "$f")"
+    cat "$f"
+  done
+}
+
 main() {
   [[ $# -eq 1 ]] || { echo "usage: $0 <base-ref>|--all" >&2; exit 2; }
-  local out dir key f failed=0
+  local out dir failed=0
   out="$(mktemp -d)"
   trap 'rm -rf "$out"' EXIT
   shopt -s nullglob
 
   while IFS= read -r dir; do
     [[ -d "$dir" ]] || continue
-    key="${dir//\//_}"
     echo "::group::$dir"
-    if [[ -f "$dir/app.yaml" ]] && ! render "$dir" > "$out/$key.yaml"; then
+    if ! render_dir "$dir" > "$out/${dir//\//_}.yaml"; then
       echo "::error::helm template failed for $dir"
       failed=1
     fi
-    for f in "$dir"/*.yaml; do
-      [[ "$f" != */app.yaml && "$f" != */values.yaml ]] || continue
-      cp "$f" "$out/${key}_$(basename "$f")"
-    done
     echo "::endgroup::"
   done < <(list_dirs "$1")
 
