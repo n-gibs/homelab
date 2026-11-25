@@ -603,6 +603,22 @@ sync-seedbox:
     kubectl -n "$ns" wait --for=create pod -l job-name=rclone-seedbox-manual --timeout=60s
     kubectl -n "$ns" logs -f job/rclone-seedbox-manual
 
+# Run Renovate now instead of waiting for the next 3 AM / 3 PM PT run, and tail it
+renovate:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ns=renovate
+    # Two runs on one repo race each other's branch pushes; Forbid doesn't cover manual jobs.
+    if kubectl -n "$ns" get pods --field-selector=status.phase=Running -o name | grep -q .; then
+        echo "a renovate run is already in progress, not starting another" >&2
+        exit 1
+    fi
+    # The CronJob owns jobs created --from it, so its history limit prunes these too.
+    job="renovate-manual-$(date +%s)"
+    kubectl -n "$ns" create job "$job" --from=cronjob/renovate
+    kubectl -n "$ns" wait --for=create pod -l job-name="$job" --timeout=60s
+    kubectl -n "$ns" logs -f "job/$job"
+
 # ── Misc ─────────────────────────────────────────────────────────────────────
 
 # Show TODOs remaining
