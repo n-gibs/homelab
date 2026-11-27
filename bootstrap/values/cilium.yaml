@@ -56,9 +56,12 @@ operator:
   dashboards:
     enabled: true
 
+# Pods use per-packet LB, not socket LB: the Tailscale subnet router forwards packets without
+# connect(), so socket LB never translates them and they ARP for the VIP on the wire. The June
+# reason for `false` (hubble-relay -> hubble-peer) went away when relay moved to hostNetwork.
 socketLB:
   enabled: true
-  hostNamespaceOnly: false
+  hostNamespaceOnly: true
 
 bpf:
   lbExternalClusterIP: true
