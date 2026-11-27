@@ -1,3 +1,3 @@
 chartName: renovate
 chartRepo: https://docs.renovatebot.com/helm-charts
-chartVersion: 46.455.3
+chartVersion: 47.1.1
