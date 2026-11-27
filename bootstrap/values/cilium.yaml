@@ -22,6 +22,11 @@ envoy:
     rollingUpdate:
       maxUnavailable: 1
 
+# Auto-detection adopts worker-01's host tailscale0 and sizes that node's MTU from its 1280,
+# leaving its pods at 1230 against 1450 elsewhere. Tailnet traffic enters via the subnet router
+# pods, not the host, so nothing needs Cilium on tailscale0. Same NICs as interfacePattern below.
+devices: "en+"
+
 ipam:
   mode: kubernetes
 
