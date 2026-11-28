@@ -25,7 +25,9 @@ which exist only while the WAN gateway has a monitor IP set (System → Gateways
    `192.168.30.1`, port `9100`, and enable the cpu, filesystem, loadavg, meminfo, netdev, time
    and zfs collectors. The existing OPT2 rule (`OPT2 net → any`) already lets the nodes in, and
    Cilium masquerades pod traffic to node IPs, so no new firewall rule is needed.
-3. Copy the script and register it as a configd action:
+3. **System → Settings → Miscellaneous → Thermal Sensors:** select the Intel Core on-die sensor so
+   `coretemp` loads. Without it the temperature series are empty and that alert can never fire.
+4. Copy the script and register it as a configd action:
 
    ```sh
    scp opnsense/textfile-metrics.sh root@192.168.10.1:/usr/local/bin/homelab-textfile-metrics.sh
@@ -44,7 +46,7 @@ which exist only while the WAN gateway has a monitor IP set (System → Gateways
    ```
 
    and run `service configd restart`.
-4. **System → Settings → Cron:** add a job running every minute (`*` in all five fields) with the
+5. **System → Settings → Cron:** add a job running every minute (`*` in all five fields) with the
    command *Write node_exporter textfile metrics (homelab)*.
 
 Check it with `curl -s http://192.168.30.1:9100/metrics | grep ^opnsense_` from a node.

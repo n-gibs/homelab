@@ -42,8 +42,8 @@ spec:
               {{ $labels.interface }} ({{ $labels.description }}) has had no link for 2m.
               WAN means no internet for anything; LAN means the Wi-Fi AP is cut off.
 
-        # Zero on a healthy port: igb0 had none across 500M+ packets while a bad run on igb1
-        # logged hundreds, so any sustained count is the cable, not background noise.
+        # A healthy port logs no receive errors at all, so any sustained count is the cable
+        # or a port, not background noise.
         - alert: OPNsenseNICReceiveErrors
           expr: >-
             increase(node_network_receive_errs_total{job="opnsense", device=~"igb.*|ix.*"}[1h])
@@ -72,19 +72,20 @@ spec:
               The hottest core has been within 12C of its throttle point for 15m. The
               box is passively cooled, so check that its vents are clear.
 
+        # Bytes, not a ratio: every ZFS dataset reports pool free space as its own avail, and
+        # its size as used + avail, so /var/log filling the pool never moves the ratio for /.
         - alert: OPNsenseDiskSpaceLow
-          expr: >-
-            node_filesystem_avail_bytes{job="opnsense", mountpoint="/"}
-              / node_filesystem_size_bytes{job="opnsense", mountpoint="/"} < 0.15
+          expr: node_filesystem_avail_bytes{job="opnsense", mountpoint="/"} < 10 * 1024 ^ 3
           for: 30m
           labels:
             severity: warning
           annotations:
             summary: >-
-              OPNsense root filesystem is {{ $value | humanizePercentage }} free
+              OPNsense ZFS pool has {{ $value | humanize1024 }}B free
             description: >-
-              A full root dataset stops OPNsense saving its config. ntopng and log
-              retention are the usual growers.
+              The zroot pool is down to under 10 GiB free. A full pool stops OPNsense
+              saving its config. `zfs list -o name,used` on the firewall shows which
+              dataset grew; ntopng and /var/log are the usual ones.
 
         # Loss and latency to 1.1.1.1 as dpinger measures it from the firewall, so it separates
         # "the ISP is bad" from "the house network is bad". A full outage can't page until the
@@ -134,6 +135,7 @@ spec:
           expr: >-
             (time() - node_textfile_mtime_seconds{job="opnsense"} > 300)
               or node_textfile_scrape_error{job="opnsense"} == 1
+              or (up{job="opnsense"} == 1 unless on(instance) node_textfile_mtime_seconds{job="opnsense"})
           for: 5m
           labels:
             severity: warning
@@ -141,5 +143,5 @@ spec:
             summary: OPNsense link and temperature metrics have stopped updating
             description: >-
               The `homelab textfile` cron job on the firewall has not refreshed
-              opnsense.prom in over 5m. Check System → Settings → Cron and run
+              opnsense.prom in over 5m, or the file is missing. Check System → Settings → Cron and run
               `configctl homelab textfile` by hand to see its error. See opnsense/README.md.

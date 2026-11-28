@@ -7,17 +7,26 @@ DIR=/var/tmp/node_exporter
 OUT="$DIR/opnsense.prom"
 TMP="$OUT.$$"
 
-# "(1000baseT <full-duplex>)" -> 1000, "(10Gbase-T ...)" -> 10000, no carrier -> 0
+# Autoselect prints the active speed in parentheses, a forced port prints it bare:
+# "autoselect (1000baseT <full-duplex>)" / "1000baseT <full-duplex>" -> 1000, "10Gbase-T" -> 10000.
 link_speed_mbps() {
-	printf '%s\n' "$1" | sed -nE 's/.*media: .*\(([0-9]+)(G?)[bB]ase.*/\1 \2/p' |
+	printf '%s\n' "$1" | sed -nE 's/.*media: [^<]*[ (]([0-9]+)(G?)[bB]ase.*/\1 \2/p' |
 		awk '{ print ($2 == "G") ? $1 * 1000 : $1 }'
+}
+
+# Only NICs backed by a device (dev.igb.1, ...): VLANs, taps and bridges have no
+# negotiated speed of their own and would read as a degraded link.
+is_physical_nic() {
+	drv=${1%%[0-9]*}
+	sysctl -n "dev.$drv.${1#"$drv"}.%driver" >/dev/null 2>&1
 }
 
 link_metrics() {
 	up_lines=""
 	speed_lines=""
 	for ifc in $(ifconfig -l ether); do
-		info=$(ifconfig "$ifc")
+		is_physical_nic "$ifc" || continue
+		info=$(ifconfig "$ifc") || continue
 		desc=$(printf '%s\n' "$info" | sed -n 's/^[[:space:]]*description: //p' | tr -d '"')
 		labels="interface=\"$ifc\",description=\"$desc\""
 		up=0
@@ -60,7 +69,9 @@ gateway_metrics() {
 	lines=""
 	for sock in /var/run/dpinger_*.sock; do
 		[ -S "$sock" ] || continue
-		lines="${lines}$(nc -U "$sock" </dev/null)
+		# A socket left behind by a dead dpinger must not take the link metrics down with it.
+		reply=$(nc -w 2 -U "$sock" </dev/null 2>/dev/null) || continue
+		lines="${lines}${reply}
 "
 	done
 	printf '%s' "$lines" | awk '

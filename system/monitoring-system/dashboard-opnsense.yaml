@@ -105,13 +105,13 @@ data:
           "id": 3,
           "type": "stat",
           "title": "Disk free",
-          "description": "Root ZFS dataset. OPNsenseDiskSpaceLow fires under 15%.",
+          "description": "Free space in the zroot pool, shared by every dataset. OPNsenseDiskSpaceLow fires under 10 GiB.",
           "gridPos": { "x": 16, "y": 0, "w": 4, "h": 5 },
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
           "targets": [
             {
               "refId": "A",
-              "expr": "node_filesystem_avail_bytes{job=\"opnsense\", mountpoint=\"/\"} / node_filesystem_size_bytes{job=\"opnsense\", mountpoint=\"/\"}",
+              "expr": "node_filesystem_avail_bytes{job=\"opnsense\", mountpoint=\"/\"}",
               "instant": true
             }
           ],
@@ -123,13 +123,13 @@ data:
           },
           "fieldConfig": {
             "defaults": {
-              "unit": "percentunit",
+              "unit": "bytes",
               "decimals": 0,
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
                   { "color": "red", "value": null },
-                  { "color": "green", "value": 0.15 }
+                  { "color": "green", "value": 10737418240 }
                 ]
               }
             },
@@ -198,7 +198,7 @@ data:
           "targets": [
             {
               "refId": "A",
-              "expr": "sum by (description) (increase(node_network_receive_errs_total{job=\"opnsense\", device=~\"igb0|igb1|ix1\"}[5m]) * on(instance, device) group_left(description) label_replace(opnsense_interface_link_up, \"device\", \"$1\", \"interface\", \"(.*)\"))",
+              "expr": "sum by (description) (increase(node_network_receive_errs_total{job=\"opnsense\", device=~\"igb0|igb1|ix1\"}[5m]) * on(instance, device) group_left(description) (0 * label_replace(opnsense_interface_link_up, \"device\", \"$1\", \"interface\", \"(.*)\") + 1))",
               "legendFormat": "{{description}}",
               "interval": "5m"
             }
@@ -231,7 +231,7 @@ data:
           "targets": [
             {
               "refId": "A",
-              "expr": "8 * sum by (description) (rate(node_network_receive_bytes_total{job=\"opnsense\", device=~\"igb0|igb1|ix1\"}[$__rate_interval]) * on(instance, device) group_left(description) label_replace(opnsense_interface_link_up, \"device\", \"$1\", \"interface\", \"(.*)\"))",
+              "expr": "8 * sum by (description) (rate(node_network_receive_bytes_total{job=\"opnsense\", device=~\"igb0|igb1|ix1\"}[$__rate_interval]) * on(instance, device) group_left(description) (0 * label_replace(opnsense_interface_link_up, \"device\", \"$1\", \"interface\", \"(.*)\") + 1))",
               "legendFormat": "{{description}}"
             }
           ],
@@ -262,7 +262,7 @@ data:
           "targets": [
             {
               "refId": "A",
-              "expr": "8 * sum by (description) (rate(node_network_transmit_bytes_total{job=\"opnsense\", device=~\"igb0|igb1|ix1\"}[$__rate_interval]) * on(instance, device) group_left(description) label_replace(opnsense_interface_link_up, \"device\", \"$1\", \"interface\", \"(.*)\"))",
+              "expr": "8 * sum by (description) (rate(node_network_transmit_bytes_total{job=\"opnsense\", device=~\"igb0|igb1|ix1\"}[$__rate_interval]) * on(instance, device) group_left(description) (0 * label_replace(opnsense_interface_link_up, \"device\", \"$1\", \"interface\", \"(.*)\") + 1))",
               "legendFormat": "{{description}}"
             }
           ],
