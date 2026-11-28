@@ -54,11 +54,40 @@ temperature_metrics() {
 	return 0
 }
 
+# dpinger answers each socket with "<gateway> <rtt_us> <stddev_us> <loss_pct>" for gateways
+# that have monitoring enabled (System → Gateways → monitor IP).
+gateway_metrics() {
+	lines=""
+	for sock in /var/run/dpinger_*.sock; do
+		[ -S "$sock" ] || continue
+		lines="${lines}$(nc -U "$sock" </dev/null)
+"
+	done
+	printf '%s' "$lines" | awk '
+		NF == 4 {
+			rtt = rtt sprintf("opnsense_gateway_rtt_seconds{gateway=\"%s\"} %.6f\n", $1, $2 / 1e6)
+			sd = sd sprintf("opnsense_gateway_rtt_stddev_seconds{gateway=\"%s\"} %.6f\n", $1, $3 / 1e6)
+			loss = loss sprintf("opnsense_gateway_loss_ratio{gateway=\"%s\"} %.4f\n", $1, $4 / 100)
+		}
+		END {
+			print "# HELP opnsense_gateway_rtt_seconds dpinger average round trip to the monitor IP."
+			print "# TYPE opnsense_gateway_rtt_seconds gauge"
+			printf "%s", rtt
+			print "# HELP opnsense_gateway_rtt_stddev_seconds dpinger round-trip standard deviation."
+			print "# TYPE opnsense_gateway_rtt_stddev_seconds gauge"
+			printf "%s", sd
+			print "# HELP opnsense_gateway_loss_ratio dpinger packet loss to the monitor IP, 0-1."
+			print "# TYPE opnsense_gateway_loss_ratio gauge"
+			printf "%s", loss
+		}'
+}
+
 mkdir -p "$DIR"
 trap 'rm -f "$TMP"' EXIT
 {
 	link_metrics
 	temperature_metrics
+	gateway_metrics
 } >"$TMP"
 # node_exporter reads the directory on every scrape; rename so it never sees a half-written file.
 mv "$TMP" "$OUT"

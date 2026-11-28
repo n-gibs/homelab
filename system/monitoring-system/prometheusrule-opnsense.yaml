@@ -86,6 +86,49 @@ spec:
               A full root dataset stops OPNsense saving its config. ntopng and log
               retention are the usual growers.
 
+        # Loss and latency to 1.1.1.1 as dpinger measures it from the firewall, so it separates
+        # "the ISP is bad" from "the house network is bad". A full outage can't page until the
+        # WAN is back; the dead-man's switch is what notices that one in real time.
+        - alert: OPNsenseWANPacketLoss
+          expr: opnsense_gateway_loss_ratio > 0.05
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: >-
+              Internet packet loss is {{ $value | humanizePercentage }} on {{ $labels.gateway }}
+            description: >-
+              dpinger on OPNsense has seen over 5% loss to its monitor IP for 10m. Check
+              WAN link speed and errors on the OPNsense dashboard first; if those are
+              clean, the problem is upstream of the modem.
+
+        - alert: OPNsenseWANLatencyHigh
+          expr: opnsense_gateway_rtt_seconds > 0.1
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: >-
+              Internet latency is {{ $value | humanizeDuration }} on {{ $labels.gateway }}
+            description: >-
+              Round trip from OPNsense to its monitor IP has averaged over 100ms for 15m,
+              against a normal ~15-20ms. Sustained upload saturation is the usual local
+              cause; otherwise it is the ISP.
+
+        - alert: OPNsenseGatewayMonitorMissing
+          expr: >-
+            up{job="opnsense"} == 1
+              unless on(instance) count by (instance) (opnsense_gateway_loss_ratio)
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: OPNsense is not reporting internet loss or latency
+            description: >-
+              The firewall is scraped but exports no dpinger gateway series, so the two
+              WAN alerts cannot fire. Gateway monitoring is probably off: set a monitor IP
+              on the WAN gateway under System → Gateways.
+
         # Without this the two link alerts above go quiet, not red, when the cron job dies.
         - alert: OPNsenseTextfileMetricsStale
           expr: >-
