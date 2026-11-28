@@ -32,10 +32,11 @@ spec:
               previous kernel once with `grub-reboot`.
 
         # A missing or stale feed silences the alert above, and with it kured's brake. A failing
-        # timer leaves the last value in place, so staleness needs its own check.
+        # timer leaves the last value in place, so staleness needs its own check. Scoped to the
+        # nodes' job: OPNsense's FreeBSD node_exporter also exports node_uname_info.
         - alert: AppArmorDenialFeedMissing
           expr: |
-            (node_uname_info unless on (instance) node_apparmor_signal_denials_total)
+            (node_uname_info{job="node-exporter"} unless on (instance) node_apparmor_signal_denials_total)
               or on (instance)
             (
               (time() - node_textfile_mtime_seconds{file=~".*apparmor\\.prom"} > 600)
