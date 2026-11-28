@@ -366,6 +366,40 @@ config:
                 label: value.1
                 format: number
                 suffix: "C to limit"
+        # prometheusmetric, not customapi like Temperatures: these rows are fixed and each needs
+        # its own unit, which a dynamic-list's single suffix can't do. Link speed leads because
+        # a port stuck at 100 Mbit is invisible everywhere else. Series come from opnsense/.
+        - OPNsense:
+            href: https://grafana.nik-homelab.dev/d/homelab-opnsense
+            description: Firewall links, internet and updates
+            icon: opnsense.png
+            widget:
+              type: prometheusmetric
+              url: http://prometheus-operated.monitoring-system.svc.cluster.local:9090
+              refreshInterval: 60000
+              metrics:
+                - label: WAN link
+                  query: opnsense_interface_link_speed_mbps{device="igb0"}
+                  format:
+                    type: number
+                    suffix: " Mbit/s"
+                - label: LAN link
+                  query: opnsense_interface_link_speed_mbps{device="igb1"}
+                  format:
+                    type: number
+                    suffix: " Mbit/s"
+                - label: Latency
+                  query: opnsense_gateway_rtt_seconds{gateway="WAN_DHCP"}
+                  format:
+                    type: number
+                    scale: 1000
+                    suffix: " ms"
+                    options:
+                      maximumFractionDigits: 0
+                - label: Updates
+                  query: opnsense_firmware_updates_available
+                  format:
+                    type: number
 
   bookmarks:
     - Network:

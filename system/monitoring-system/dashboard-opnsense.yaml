@@ -1,0 +1,489 @@
+# Thresholds mirror prometheusrule-opnsense.yaml (tjmax 91C on the C3558); keep them in sync.
+# WAN/LAN/OPT2 keep one fixed color on every panel, validated for both Grafana themes.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-opnsense
+  namespace: monitoring-system
+  labels:
+    grafana_dashboard: "1"
+data:
+  homelab-opnsense.json: |
+    {
+      "title": "Homelab — OPNsense",
+      "uid": "homelab-opnsense",
+      "tags": ["homelab", "network"],
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "refresh": "1m",
+      "time": { "from": "now-24h", "to": "now" },
+      "templating": {
+        "list": [
+          {
+            "name": "datasource",
+            "label": "Data source",
+            "type": "datasource",
+            "query": "prometheus",
+            "hide": 0,
+            "current": {}
+          },
+          {
+            "name": "ports",
+            "label": "Cabled ports",
+            "type": "constant",
+            "query": "igb0|igb1|ix1",
+            "hide": 2
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Link speed",
+          "description": "Negotiated speed per cabled port. Red means it fell back from gigabit, usually a marginal cable, plug or coupler.",
+          "gridPos": { "x": 0, "y": 0, "w": 9, "h": 5 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "opnsense_interface_link_speed_mbps{device=~\"$ports\"} * on(instance, device) group_left(description) opnsense_interface_info",
+              "legendFormat": "{{description}}",
+              "instant": true
+            }
+          ],
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+            "colorMode": "background",
+            "graphMode": "none",
+            "textMode": "value_and_name",
+            "orientation": "vertical"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "Mbits",
+              "mappings": [
+                { "type": "value", "options": { "0": { "text": "No link", "color": "red" } } }
+              ],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "green", "value": 1000 }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": 14,
+          "type": "stat",
+          "title": "Pending updates",
+          "description": "Packages with an upgrade waiting at the last daily firmware check, and the core version they lead to.",
+          "gridPos": { "x": 9, "y": 0, "w": 3, "h": 5 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "opnsense_firmware_updates_available",
+              "legendFormat": "{{current}} → {{latest}}",
+              "instant": true
+            }
+          ],
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "value_and_name"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "decimals": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 1 }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "CPU temperature",
+          "description": "Hottest core. Yellow at tjmax − 12, the OPNsenseCPUTemperatureHigh threshold.",
+          "gridPos": { "x": 12, "y": 0, "w": 4, "h": 5 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            { "refId": "A", "expr": "max(opnsense_cpu_temperature_celsius)", "instant": true }
+          ],
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "value"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "celsius",
+              "decimals": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 79 },
+                  { "color": "red", "value": 86 }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Disk free",
+          "description": "Free space in the zroot pool, shared by every dataset. OPNsenseDiskSpaceLow fires under 10 GiB.",
+          "gridPos": { "x": 16, "y": 0, "w": 4, "h": 5 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "node_filesystem_avail_bytes{job=\"opnsense\", mountpoint=\"/\"}",
+              "instant": true
+            }
+          ],
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "value"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "decimals": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "green", "value": 10737418240 }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "Uptime",
+          "description": "A reset here after a power cut is the cue to check the LAN link speed.",
+          "gridPos": { "x": 20, "y": 0, "w": 4, "h": 5 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            { "refId": "A", "expr": "time() - node_boot_time_seconds{job=\"opnsense\"}", "instant": true }
+          ],
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+            "colorMode": "none",
+            "graphMode": "none",
+            "textMode": "value"
+          },
+          "fieldConfig": {
+            "defaults": { "unit": "s", "decimals": 1, "thresholds": { "mode": "absolute", "steps": [ { "color": "text", "value": null } ] } }
+          }
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "Link speed over time",
+          "description": "Drops show when a port renegotiated, and for how long it stayed down.",
+          "gridPos": { "x": 0, "y": 5, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "opnsense_interface_link_speed_mbps{device=~\"$ports\"} * on(instance, device) group_left(description) opnsense_interface_info",
+              "legendFormat": "{{description}}"
+            }
+          ],
+          "options": {
+            "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+            "tooltip": { "mode": "multi", "sort": "none" }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "Mbits",
+              "min": 0,
+              "custom": { "drawStyle": "line", "lineInterpolation": "stepAfter", "lineWidth": 2, "fillOpacity": 0, "showPoints": "never" }
+            },
+            "overrides": [
+              { "matcher": { "id": "byName", "options": "WAN (wan)" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "#3D7FE0" } } ] },
+              { "matcher": { "id": "byName", "options": "LAN (lan)" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "#E0752D" } } ] },
+              { "matcher": { "id": "byName", "options": "OPT2 (opt2)" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "#A352CC" } } ] }
+            ]
+          }
+        },
+        {
+          "id": 6,
+          "type": "timeseries",
+          "title": "Receive errors per 5m",
+          "description": "CRC, jabber and length errors. A healthy port shows none; OPNsenseNICReceiveErrors fires above 5 in an hour.",
+          "gridPos": { "x": 12, "y": 5, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (description) (increase(node_network_receive_errs_total{job=\"opnsense\", device=~\"$ports\"}[5m]) * on(instance, device) group_left(description) opnsense_interface_info)",
+              "legendFormat": "{{description}}",
+              "interval": "5m"
+            }
+          ],
+          "options": {
+            "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0,
+              "decimals": 0,
+              "custom": { "drawStyle": "bars", "lineWidth": 1, "fillOpacity": 80, "showPoints": "never" }
+            },
+            "overrides": [
+              { "matcher": { "id": "byName", "options": "WAN (wan)" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "#3D7FE0" } } ] },
+              { "matcher": { "id": "byName", "options": "LAN (lan)" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "#E0752D" } } ] },
+              { "matcher": { "id": "byName", "options": "OPT2 (opt2)" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "#A352CC" } } ] }
+            ]
+          }
+        },
+        {
+          "id": 7,
+          "type": "timeseries",
+          "title": "Received",
+          "description": "Inbound traffic on each port, as the firewall sees it. LAN inbound is the house uploading or talking to the cluster.",
+          "gridPos": { "x": 0, "y": 13, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "8 * sum by (description) (rate(node_network_receive_bytes_total{job=\"opnsense\", device=~\"$ports\"}[$__rate_interval]) * on(instance, device) group_left(description) opnsense_interface_info)",
+              "legendFormat": "{{description}}"
+            }
+          ],
+          "options": {
+            "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bps",
+              "min": 0,
+              "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 0, "showPoints": "never" }
+            },
+            "overrides": [
+              { "matcher": { "id": "byName", "options": "WAN (wan)" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "#3D7FE0" } } ] },
+              { "matcher": { "id": "byName", "options": "LAN (lan)" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "#E0752D" } } ] },
+              { "matcher": { "id": "byName", "options": "OPT2 (opt2)" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "#A352CC" } } ] }
+            ]
+          }
+        },
+        {
+          "id": 8,
+          "type": "timeseries",
+          "title": "Sent",
+          "description": "Outbound traffic on each port. LAN outbound flat near 94 Mbit/s means the AP link is saturated at 100 Mbit.",
+          "gridPos": { "x": 12, "y": 13, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "8 * sum by (description) (rate(node_network_transmit_bytes_total{job=\"opnsense\", device=~\"$ports\"}[$__rate_interval]) * on(instance, device) group_left(description) opnsense_interface_info)",
+              "legendFormat": "{{description}}"
+            }
+          ],
+          "options": {
+            "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+            "tooltip": { "mode": "multi", "sort": "desc" }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bps",
+              "min": 0,
+              "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 0, "showPoints": "never" }
+            },
+            "overrides": [
+              { "matcher": { "id": "byName", "options": "WAN (wan)" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "#3D7FE0" } } ] },
+              { "matcher": { "id": "byName", "options": "LAN (lan)" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "#E0752D" } } ] },
+              { "matcher": { "id": "byName", "options": "OPT2 (opt2)" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "#A352CC" } } ] }
+            ]
+          }
+        },
+        {
+          "id": 9,
+          "type": "timeseries",
+          "title": "CPU usage",
+          "gridPos": { "x": 0, "y": 21, "w": 8, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "1 - avg(rate(node_cpu_seconds_total{job=\"opnsense\", mode=\"idle\"}[$__rate_interval]))",
+              "legendFormat": "All cores"
+            }
+          ],
+          "options": {
+            "legend": { "displayMode": "list", "placement": "bottom", "showLegend": false },
+            "tooltip": { "mode": "single", "sort": "none" }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "min": 0,
+              "max": 1,
+              "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" }
+            }
+          }
+        },
+        {
+          "id": 10,
+          "type": "timeseries",
+          "title": "CPU temperature (hottest core)",
+          "description": "Dashed line at 79C, tjmax − 12, where OPNsenseCPUTemperatureHigh fires after 15m.",
+          "gridPos": { "x": 8, "y": 21, "w": 8, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "max(opnsense_cpu_temperature_celsius)",
+              "legendFormat": "Hottest core"
+            }
+          ],
+          "options": {
+            "legend": { "displayMode": "list", "placement": "bottom", "showLegend": false },
+            "tooltip": { "mode": "single", "sort": "none" }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "celsius",
+              "min": 30,
+              "max": 95,
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "showPoints": "never",
+                "thresholdsStyle": { "mode": "dashed" }
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "transparent", "value": null },
+                  { "color": "yellow", "value": 79 }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": 11,
+          "type": "timeseries",
+          "title": "Memory in use",
+          "description": "Wired plus active pages, which includes the ZFS ARC. Inactive and free pages count as available.",
+          "gridPos": { "x": 16, "y": 21, "w": 8, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "(node_memory_wired_bytes{job=\"opnsense\"} + node_memory_active_bytes{job=\"opnsense\"}) / node_memory_size_bytes{job=\"opnsense\"}",
+              "legendFormat": "In use"
+            }
+          ],
+          "options": {
+            "legend": { "displayMode": "list", "placement": "bottom", "showLegend": false },
+            "tooltip": { "mode": "single", "sort": "none" }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "min": 0,
+              "max": 1,
+              "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" }
+            }
+          }
+        },
+        {
+          "id": 12,
+          "type": "timeseries",
+          "title": "Internet latency",
+          "description": "dpinger round trip from the firewall to its monitor IP (1.1.1.1). Dashed line at 100ms, where OPNsenseWANLatencyHigh fires after 15m.",
+          "gridPos": { "x": 0, "y": 28, "w": 12, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            { "refId": "A", "expr": "opnsense_gateway_rtt_seconds", "legendFormat": "{{gateway}}" }
+          ],
+          "options": {
+            "legend": { "displayMode": "list", "placement": "bottom", "showLegend": false },
+            "tooltip": { "mode": "single", "sort": "none" }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "min": 0,
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "showPoints": "never",
+                "thresholdsStyle": { "mode": "dashed" }
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "transparent", "value": null },
+                  { "color": "yellow", "value": 0.1 }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": 13,
+          "type": "timeseries",
+          "title": "Internet packet loss",
+          "description": "dpinger loss to the monitor IP. Dashed line at 5%, where OPNsenseWANPacketLoss fires after 10m.",
+          "gridPos": { "x": 12, "y": 28, "w": 12, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            { "refId": "A", "expr": "opnsense_gateway_loss_ratio", "legendFormat": "{{gateway}}" }
+          ],
+          "options": {
+            "legend": { "displayMode": "list", "placement": "bottom", "showLegend": false },
+            "tooltip": { "mode": "single", "sort": "none" }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "min": 0,
+              "max": 1,
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "thresholdsStyle": { "mode": "dashed" }
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "transparent", "value": null },
+                  { "color": "yellow", "value": 0.05 }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }

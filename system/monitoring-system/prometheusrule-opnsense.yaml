@@ -1,0 +1,180 @@
+---
+# OPNsense itself going away needs no rule here: TargetDown covers the scrape, and losing the
+# firewall also cuts the route to ntfy, which the dead-man's switch catches from outside.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: opnsense
+  namespace: monitoring-system
+  labels:
+    release: monitoring-system
+spec:
+  groups:
+    - name: opnsense
+      rules:
+        # A gigabit port that renegotiates to 100 Mbit stays up and passes traffic, so nothing
+        # else notices; LAN clients just get a ~94 Mbit/s ceiling shared by the whole house.
+        - alert: OPNsenseLinkSpeedDegraded
+          # The script reports 0 without carrier, so "> 0" alone excludes down ports.
+          expr: >-
+            (opnsense_interface_link_speed_mbps > 0 < 1000)
+              * on(instance, device) group_left(description) opnsense_interface_info
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: >-
+              OPNsense {{ $labels.description }} is linked at {{ $value }} Mbit/s
+            description: >-
+              {{ $labels.device }} ({{ $labels.description }}) negotiated
+              {{ $value }} Mbit/s instead of 1000. Gigabit needs all four pairs, so this
+              usually means a marginal cable, plug or coupler on that run. Reseat every
+              connection on it; a link reset alone tends to land on 100 again.
+
+        - alert: OPNsenseLinkDown
+          expr: >-
+            (opnsense_interface_link_up{device=~"igb0|igb1"} == 0)
+              * on(instance, device) group_left(description) opnsense_interface_info
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: OPNsense {{ $labels.description }} has no carrier
+            description: >-
+              {{ $labels.device }} ({{ $labels.description }}) has had no link for 2m.
+              WAN means no internet for anything; LAN means the Wi-Fi AP is cut off.
+
+        # A healthy port logs no receive errors at all, so any sustained count is the cable
+        # or a port, not background noise.
+        - alert: OPNsenseNICReceiveErrors
+          expr: >-
+            increase(node_network_receive_errs_total{job="opnsense", device=~"igb.*|ix.*"}[1h])
+              > 5
+          labels:
+            severity: warning
+          annotations:
+            summary: >-
+              OPNsense {{ $labels.device }} logged {{ $value | printf "%.0f" }} receive
+              errors in 1h
+            description: >-
+              {{ $labels.device }} is receiving corrupted frames (CRC, jabber or length
+              errors). It often precedes OPNsenseLinkSpeedDegraded on the same port.
+              `sysctl dev.igb.N.mac_stats` on the firewall breaks the count down by type.
+
+        - alert: OPNsenseCPUTemperatureHigh
+          expr: >-
+            max by (instance) (opnsense_cpu_temperature_celsius)
+              >= on(instance) (opnsense_cpu_tjmax_celsius - 12)
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: OPNsense CPU is {{ $value | printf "%.0f" }}C
+            description: >-
+              The hottest core has been within 12C of its throttle point for 15m. The
+              box is passively cooled, so check that its vents are clear.
+
+        # Bytes, not a ratio: every ZFS dataset reports pool free space as its own avail, and
+        # its size as used + avail, so /var/log filling the pool never moves the ratio for /.
+        - alert: OPNsenseDiskSpaceLow
+          expr: node_filesystem_avail_bytes{job="opnsense", mountpoint="/"} < 10 * 1024 ^ 3
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: >-
+              OPNsense ZFS pool has {{ $value | humanize1024 }}B free
+            description: >-
+              The zroot pool is down to under 10 GiB free. A full pool stops OPNsense
+              saving its config. `zfs list -o name,used` on the firewall shows which
+              dataset grew; ntopng and /var/log are the usual ones.
+
+        # Loss and latency to 1.1.1.1 as dpinger measures it from the firewall, so it separates
+        # "the ISP is bad" from "the house network is bad". A full outage can't page until the
+        # WAN is back; the dead-man's switch is what notices that one in real time.
+        - alert: OPNsenseWANPacketLoss
+          expr: opnsense_gateway_loss_ratio > 0.05
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: >-
+              Internet packet loss is {{ $value | humanizePercentage }} on {{ $labels.gateway }}
+            description: >-
+              dpinger on OPNsense has seen over 5% loss to its monitor IP for 10m. Check
+              WAN link speed and errors on the OPNsense dashboard first; if those are
+              clean, the problem is upstream of the modem.
+
+        - alert: OPNsenseWANLatencyHigh
+          expr: opnsense_gateway_rtt_seconds > 0.1
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: >-
+              Internet latency is {{ $value | humanizeDuration }} on {{ $labels.gateway }}
+            description: >-
+              Round trip from OPNsense to its monitor IP has averaged over 100ms for 15m,
+              against a normal ~15-20ms. Sustained upload saturation is the usual local
+              cause; otherwise it is the ISP.
+
+        - alert: OPNsenseGatewayMonitorMissing
+          expr: >-
+            up{job="opnsense"} == 1
+              unless on(instance) count by (instance) (opnsense_gateway_loss_ratio)
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: OPNsense is not reporting internet loss or latency
+            description: >-
+              The firewall is scraped but exports no dpinger gateway series, so the two
+              WAN alerts cannot fire. Gateway monitoring is probably off: set a monitor IP
+              on the WAN gateway under System → Gateways.
+
+        # Warning, not info: info routes to the null receiver. It repeats on the warning route's
+        # 12h interval until the update is installed.
+        - alert: OPNsenseUpdateAvailable
+          expr: opnsense_firmware_updates_available > 0
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: >-
+              OPNsense has {{ $value }} package updates ({{ $labels.current }} → {{ $labels.latest }})
+            description: >-
+              The daily firmware check found pending updates. Read the changelog and
+              install from System → Firmware → Status. If base or kernel are in the list,
+              the update reboots the firewall, which takes the whole network down briefly.
+
+        - alert: OPNsenseFirmwareCheckFailing
+          expr: >-
+            (time() - opnsense_firmware_last_check_timestamp_seconds > 2 * 86400)
+              or opnsense_firmware_check_ok == 0
+              or (up{job="opnsense"} == 1 unless on(instance) opnsense_firmware_last_check_timestamp_seconds)
+          for: 6h
+          labels:
+            severity: warning
+          annotations:
+            summary: OPNsense has not completed a firmware update check
+            description: >-
+              The daily `homelab firmware_check` cron job has not produced a result in two
+              days, or its last run could not reach the package mirror, so
+              OPNsenseUpdateAvailable cannot fire. Run `configctl homelab firmware_check`
+              and read /tmp/pkg_update.out on the firewall.
+
+        # Without this the two link alerts above go quiet, not red, when the cron job dies.
+        - alert: OPNsenseTextfileMetricsStale
+          expr: >-
+            (time() - node_textfile_mtime_seconds{job="opnsense"} > 300)
+              or node_textfile_scrape_error{job="opnsense"} == 1
+              or (up{job="opnsense"} == 1 unless on(instance) node_textfile_mtime_seconds{job="opnsense"})
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: OPNsense link and temperature metrics have stopped updating
+            description: >-
+              The `homelab textfile` cron job on the firewall has not refreshed
+              opnsense.prom in over 5m, or the file is missing. Check System → Settings → Cron and run
+              `configctl homelab textfile` by hand to see its error. See opnsense/README.md.

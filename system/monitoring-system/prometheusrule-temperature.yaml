@@ -34,6 +34,8 @@ spec:
         # Kept separate from :max, which panel 1 needs for absolute-over-time, and split per
         # sensor class so a hot disk cannot hide behind a cool CPU.
         - record: node:temperature_headroom_celsius:min
+          # The firewall runs FreeBSD, so its row comes from opnsense/textfile-metrics.sh and is
+          # measured against tjmax, its throttle point, rather than an hwmon crit.
           expr: >-
             label_replace(
               min by (nodename) (
@@ -53,6 +55,12 @@ spec:
                 ) * on(instance) group_left(nodename) node_uname_info
               ),
               "sensor_name", "$1 NVMe", "nodename", "(.*)"
+            )
+            or
+            label_replace(
+              opnsense_cpu_tjmax_celsius
+                - on(instance) max by (instance) (opnsense_cpu_temperature_celsius),
+              "sensor_name", "OPNsense CPU", "instance", ".*"
             )
 
     - name: temperature-cpu-nvme

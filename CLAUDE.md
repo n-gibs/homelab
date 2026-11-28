@@ -39,6 +39,7 @@ system/         # low-level cluster infrastructure (cilium, cert-manager, nfs-pr
 bootstrap/      # one-time helmfile bootstrap (Cilium, ArgoCD, root ApplicationSet)
 ansible/        # node provisioning (Ubuntu install, k3s setup)
 config/         # sealed secrets that live outside app dirs (cert-manager cloudflare token)
+opnsense/       # metrics script the firewall runs for Prometheus; the box itself is not managed here
 ```
 
 ArgoCD sync waves: `system` (wave 1) → `platform` (wave 2) → `apps` (wave 3)

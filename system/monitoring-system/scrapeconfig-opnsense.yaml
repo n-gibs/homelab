@@ -1,0 +1,19 @@
+---
+# The firewall, outside the cluster. node_exporter listens only on the OPT2 address, which the
+# cluster subnet already reaches; opnsense_* series come from opnsense/textfile-metrics.sh.
+# A separate job keeps the chart's job="node-exporter" Linux rules from evaluating FreeBSD.
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: ScrapeConfig
+metadata:
+  name: opnsense
+  namespace: monitoring-system
+  labels:
+    release: monitoring-system
+spec:
+  scheme: HTTP
+  metricsPath: /metrics
+  staticConfigs:
+    - labels:
+        job: opnsense
+      targets:
+        - 192.168.30.1:9100
