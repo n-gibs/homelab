@@ -130,6 +130,37 @@ spec:
               WAN alerts cannot fire. Gateway monitoring is probably off: set a monitor IP
               on the WAN gateway under System → Gateways.
 
+        # Warning, not info: info routes to the null receiver. It repeats on the warning route's
+        # 12h interval until the update is installed.
+        - alert: OPNsenseUpdateAvailable
+          expr: opnsense_firmware_updates_available > 0
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: >-
+              OPNsense has {{ $value }} package updates ({{ $labels.current }} → {{ $labels.latest }})
+            description: >-
+              The daily firmware check found pending updates. Read the changelog and
+              install from System → Firmware → Status. If base or kernel are in the list,
+              the update reboots the firewall, which takes the whole network down briefly.
+
+        - alert: OPNsenseFirmwareCheckFailing
+          expr: >-
+            (time() - opnsense_firmware_last_check_timestamp_seconds > 2 * 86400)
+              or opnsense_firmware_check_ok == 0
+              or (up{job="opnsense"} == 1 unless on(instance) opnsense_firmware_last_check_timestamp_seconds)
+          for: 6h
+          labels:
+            severity: warning
+          annotations:
+            summary: OPNsense has not completed a firmware update check
+            description: >-
+              The daily `homelab firmware_check` cron job has not produced a result in two
+              days, or its last run could not reach the package mirror, so
+              OPNsenseUpdateAvailable cannot fire. Run `configctl homelab firmware_check`
+              and read /tmp/pkg_update.out on the firewall.
+
         # Without this the two link alerts above go quiet, not red, when the cron job dies.
         - alert: OPNsenseTextfileMetricsStale
           expr: >-

@@ -35,7 +35,7 @@ data:
           "type": "stat",
           "title": "Link speed",
           "description": "Negotiated speed per cabled port. Red means it fell back from gigabit, usually a marginal cable, plug or coupler.",
-          "gridPos": { "x": 0, "y": 0, "w": 12, "h": 5 },
+          "gridPos": { "x": 0, "y": 0, "w": 9, "h": 5 },
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
           "targets": [
             {
@@ -63,6 +63,42 @@ data:
                 "steps": [
                   { "color": "red", "value": null },
                   { "color": "green", "value": 1000 }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 14,
+          "type": "stat",
+          "title": "Pending updates",
+          "description": "Packages with an upgrade waiting at the last daily firmware check, and the core version they lead to.",
+          "gridPos": { "x": 9, "y": 0, "w": 3, "h": 5 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "opnsense_firmware_updates_available",
+              "legendFormat": "{{current}} → {{latest}}",
+              "instant": true
+            }
+          ],
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "value_and_name"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "decimals": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 1 }
                 ]
               }
             },

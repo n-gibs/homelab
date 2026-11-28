@@ -16,7 +16,8 @@ fills that gap: it writes `opnsense_interface_link_{up,speed_mbps}` and
 `opnsense_cpu_{temperature,tjmax}_celsius` to the textfile collector's directory every minute.
 It also reads dpinger's sockets for `opnsense_gateway_{rtt_seconds,rtt_stddev_seconds,loss_ratio}`,
 which exist only while the WAN gateway has a monitor IP set (System → Gateways, currently
-`1.1.1.1`).
+`1.1.1.1`). Finally it turns the daily firmware check's `/tmp/pkg_upgrade.json` into
+`opnsense_firmware_*`, caching the last result because the check deletes that file while it runs.
 
 ## Setup
 
@@ -43,11 +44,20 @@ which exist only while the WAN gateway has a monitor IP set (System → Gateways
    type:script
    message:writing node_exporter textfile metrics
    description:Write node_exporter textfile metrics (homelab)
+
+   [firmware_check]
+   command:/usr/sbin/daemon -f /usr/local/opnsense/scripts/firmware/launcher.sh check
+   parameters:
+   type:script
+   message:checking for firmware updates
+   description:Check for OPNsense firmware updates (homelab)
    ```
 
    and run `service configd restart`.
 5. **System → Settings → Cron:** add a job running every minute (`*` in all five fields) with the
-   command *Write node_exporter textfile metrics (homelab)*.
+   command *Write node_exporter textfile metrics (homelab)*. Add a second job at `17 4 * * *` with
+   *Check for OPNsense firmware updates (homelab)*; OPNsense otherwise only checks when someone
+   opens the firmware page.
 
 Check it with `curl -s http://192.168.30.1:9100/metrics | grep ^opnsense_` from a node.
 `OPNsenseTextfileMetricsStale` fires if the cron job stops.

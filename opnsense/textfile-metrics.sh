@@ -93,12 +93,45 @@ gateway_metrics() {
 		}'
 }
 
+FIRMWARE_JSON=/tmp/pkg_upgrade.json
+FIRMWARE_CACHE="$DIR/firmware.cache"
+
+firmware_from_json() {
+	checked=$(stat -f %m "$FIRMWARE_JSON")
+	jq -r --arg checked "$checked" '
+		([.upgrade_packages[]? | select(.name == "opnsense") | .new_version][0] // .product_version) as $latest
+		| "# HELP opnsense_firmware_updates_available Packages with a pending upgrade at the last firmware check.",
+		  "# TYPE opnsense_firmware_updates_available gauge",
+		  "opnsense_firmware_updates_available{current=\"\(.product_version)\",latest=\"\($latest)\"} \(.upgrade_packages // [] | length)",
+		  "# HELP opnsense_firmware_update_needs_reboot 1 if installing the pending updates needs a reboot.",
+		  "# TYPE opnsense_firmware_update_needs_reboot gauge",
+		  "opnsense_firmware_update_needs_reboot \(.needs_reboot // "0")",
+		  "# HELP opnsense_firmware_check_ok 1 if the last check reached the package mirror.",
+		  "# TYPE opnsense_firmware_check_ok gauge",
+		  "opnsense_firmware_check_ok \(if .connection == "ok" and .repository == "ok" then 1 else 0 end)",
+		  "# HELP opnsense_firmware_last_check_timestamp_seconds When the firmware check last wrote its result.",
+		  "# TYPE opnsense_firmware_last_check_timestamp_seconds gauge",
+		  "opnsense_firmware_last_check_timestamp_seconds \($checked)"
+	' "$FIRMWARE_JSON"
+}
+
+# check.sh deletes and rewrites its JSON while a check runs; serve the last good result
+# meanwhile so the update alert doesn't resolve and re-fire every day.
+firmware_metrics() {
+	if [ -s "$FIRMWARE_JSON" ] && fw=$(firmware_from_json 2>/dev/null); then
+		printf '%s\n' "$fw" >"$FIRMWARE_CACHE"
+	fi
+	[ -r "$FIRMWARE_CACHE" ] && cat "$FIRMWARE_CACHE"
+	return 0
+}
+
 mkdir -p "$DIR"
 trap 'rm -f "$TMP"' EXIT
 {
 	link_metrics
 	temperature_metrics
 	gateway_metrics
+	firmware_metrics
 } >"$TMP"
 # node_exporter reads the directory on every scrape; rename so it never sees a half-written file.
 mv "$TMP" "$OUT"
