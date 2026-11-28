@@ -15,10 +15,10 @@ spec:
         # A gigabit port that renegotiates to 100 Mbit stays up and passes traffic, so nothing
         # else notices; LAN clients just get a ~94 Mbit/s ceiling shared by the whole house.
         - alert: OPNsenseLinkSpeedDegraded
+          # The script reports 0 without carrier, so "> 0" alone excludes down ports.
           expr: >-
-            opnsense_interface_link_speed_mbps < 1000
-              and on(instance, interface)
-            opnsense_interface_link_up == 1
+            (opnsense_interface_link_speed_mbps > 0 < 1000)
+              * on(instance, device) group_left(description) opnsense_interface_info
           for: 5m
           labels:
             severity: warning
@@ -26,20 +26,22 @@ spec:
             summary: >-
               OPNsense {{ $labels.description }} is linked at {{ $value }} Mbit/s
             description: >-
-              {{ $labels.interface }} ({{ $labels.description }}) negotiated
+              {{ $labels.device }} ({{ $labels.description }}) negotiated
               {{ $value }} Mbit/s instead of 1000. Gigabit needs all four pairs, so this
               usually means a marginal cable, plug or coupler on that run. Reseat every
               connection on it; a link reset alone tends to land on 100 again.
 
         - alert: OPNsenseLinkDown
-          expr: opnsense_interface_link_up{interface=~"igb0|igb1"} == 0
+          expr: >-
+            (opnsense_interface_link_up{device=~"igb0|igb1"} == 0)
+              * on(instance, device) group_left(description) opnsense_interface_info
           for: 2m
           labels:
             severity: critical
           annotations:
             summary: OPNsense {{ $labels.description }} has no carrier
             description: >-
-              {{ $labels.interface }} ({{ $labels.description }}) has had no link for 2m.
+              {{ $labels.device }} ({{ $labels.description }}) has had no link for 2m.
               WAN means no internet for anything; LAN means the Wi-Fi AP is cut off.
 
         # A healthy port logs no receive errors at all, so any sustained count is the cable

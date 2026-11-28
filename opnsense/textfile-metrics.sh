@@ -6,6 +6,8 @@ set -eu
 DIR=/var/tmp/node_exporter
 OUT="$DIR/opnsense.prom"
 TMP="$OUT.$$"
+FIRMWARE_JSON=/tmp/pkg_upgrade.json
+FIRMWARE_CACHE="$DIR/firmware.cache"
 
 # Autoselect prints the active speed in parentheses, a forced port prints it bare:
 # "autoselect (1000baseT <full-duplex>)" / "1000baseT <full-duplex>" -> 1000, "10Gbase-T" -> 10000.
@@ -21,23 +23,33 @@ is_physical_nic() {
 	sysctl -n "dev.$drv.${1#"$drv"}.%driver" >/dev/null 2>&1
 }
 
+# `device` matches node_exporter's own label, so dashboards join node_network_* to the
+# description through opnsense_interface_info alone.
 link_metrics() {
+	info_lines=""
 	up_lines=""
 	speed_lines=""
 	for ifc in $(ifconfig -l ether); do
 		is_physical_nic "$ifc" || continue
 		info=$(ifconfig "$ifc") || continue
-		desc=$(printf '%s\n' "$info" | sed -n 's/^[[:space:]]*description: //p' | tr -d '"')
-		labels="interface=\"$ifc\",description=\"$desc\""
+		desc=$(printf '%s\n' "$info" | sed -n '/^[[:space:]]*description: /{s///;s/"//g;p;}')
 		up=0
-		printf '%s\n' "$info" | grep -q 'status: active' && up=1
-		speed=$(link_speed_mbps "$info")
-		[ "$up" -eq 1 ] || speed=0
-		up_lines="${up_lines}opnsense_interface_link_up{$labels} $up
+		speed=0
+		case $info in *'status: active'*)
+			up=1
+			speed=$(link_speed_mbps "$info")
+			;;
+		esac
+		info_lines="${info_lines}opnsense_interface_info{device=\"$ifc\",description=\"$desc\"} 1
 "
-		speed_lines="${speed_lines}opnsense_interface_link_speed_mbps{$labels} ${speed:-0}
+		up_lines="${up_lines}opnsense_interface_link_up{device=\"$ifc\"} $up
+"
+		speed_lines="${speed_lines}opnsense_interface_link_speed_mbps{device=\"$ifc\"} ${speed:-0}
 "
 	done
+	echo "# HELP opnsense_interface_info Interface description, for joining onto per-device series."
+	echo "# TYPE opnsense_interface_info gauge"
+	printf '%s' "$info_lines"
 	echo "# HELP opnsense_interface_link_up 1 if the NIC has carrier."
 	echo "# TYPE opnsense_interface_link_up gauge"
 	printf '%s' "$up_lines"
@@ -47,34 +59,26 @@ link_metrics() {
 }
 
 temperature_metrics() {
-	ncpu=$(sysctl -n hw.ncpu)
+	cpu=$(sysctl dev.cpu 2>/dev/null) || cpu=""
 	echo "# HELP opnsense_cpu_temperature_celsius Per-core temperature from coretemp."
 	echo "# TYPE opnsense_cpu_temperature_celsius gauge"
-	i=0
-	while [ "$i" -lt "$ncpu" ]; do
-		t=$(sysctl -n "dev.cpu.$i.temperature" 2>/dev/null | tr -d C) || t=""
-		[ -n "$t" ] && echo "opnsense_cpu_temperature_celsius{cpu=\"$i\"} $t"
-		i=$((i + 1))
-	done
+	printf '%s\n' "$cpu" |
+		sed -nE 's/^dev\.cpu\.([0-9]+)\.temperature: ([0-9.]+)C$/opnsense_cpu_temperature_celsius{cpu="\1"} \2/p'
 	echo "# HELP opnsense_cpu_tjmax_celsius Junction temperature at which the CPU throttles."
 	echo "# TYPE opnsense_cpu_tjmax_celsius gauge"
-	tj=$(sysctl -n dev.cpu.0.coretemp.tjmax 2>/dev/null | tr -d C) || tj=""
-	[ -n "$tj" ] && echo "opnsense_cpu_tjmax_celsius $tj"
-	return 0
+	printf '%s\n' "$cpu" |
+		sed -nE 's/^dev\.cpu\.0\.coretemp\.tjmax: ([0-9.]+)C$/opnsense_cpu_tjmax_celsius \1/p'
 }
 
 # dpinger answers each socket with "<gateway> <rtt_us> <stddev_us> <loss_pct>" for gateways
 # that have monitoring enabled (System → Gateways → monitor IP).
 gateway_metrics() {
-	lines=""
 	for sock in /var/run/dpinger_*.sock; do
 		[ -S "$sock" ] || continue
 		# A socket left behind by a dead dpinger must not take the link metrics down with it.
-		reply=$(nc -w 2 -U "$sock" </dev/null 2>/dev/null) || continue
-		lines="${lines}${reply}
-"
-	done
-	printf '%s' "$lines" | awk '
+		nc -w 2 -U "$sock" </dev/null 2>/dev/null || continue
+		echo
+	done | awk '
 		NF == 4 {
 			rtt = rtt sprintf("opnsense_gateway_rtt_seconds{gateway=\"%s\"} %.6f\n", $1, $2 / 1e6)
 			sd = sd sprintf("opnsense_gateway_rtt_stddev_seconds{gateway=\"%s\"} %.6f\n", $1, $3 / 1e6)
@@ -92,9 +96,6 @@ gateway_metrics() {
 			printf "%s", loss
 		}'
 }
-
-FIRMWARE_JSON=/tmp/pkg_upgrade.json
-FIRMWARE_CACHE="$DIR/firmware.cache"
 
 firmware_from_json() {
 	checked=$(stat -f %m "$FIRMWARE_JSON")
@@ -115,10 +116,13 @@ firmware_from_json() {
 	' "$FIRMWARE_JSON"
 }
 
-# check.sh deletes and rewrites its JSON while a check runs; serve the last good result
-# meanwhile so the update alert doesn't resolve and re-fire every day.
+# The JSON changes once a day, and check.sh deletes it while a check runs, so parse it only
+# when it is newer than the cache and serve the cache otherwise. FreeBSD's -nt is false
+# against a missing file, hence the explicit first-run case.
 firmware_metrics() {
-	if [ -s "$FIRMWARE_JSON" ] && fw=$(firmware_from_json 2>/dev/null); then
+	if [ -s "$FIRMWARE_JSON" ] &&
+		{ [ ! -e "$FIRMWARE_CACHE" ] || [ "$FIRMWARE_JSON" -nt "$FIRMWARE_CACHE" ]; } &&
+		fw=$(firmware_from_json 2>/dev/null); then
 		printf '%s\n' "$fw" >"$FIRMWARE_CACHE"
 	fi
 	[ -r "$FIRMWARE_CACHE" ] && cat "$FIRMWARE_CACHE"

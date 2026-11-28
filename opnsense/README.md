@@ -12,7 +12,8 @@ alerts are in `prometheusrule-opnsense.yaml` next to it.
 The `os-node_exporter` plugin covers CPU, memory, ZFS, filesystems and per-NIC error counters.
 FreeBSD's node_exporter has no link-speed or CPU temperature collector, though, and a port that
 renegotiates from 1000 to 100 Mbit stays up in every metric it does have. `textfile-metrics.sh`
-fills that gap: it writes `opnsense_interface_link_{up,speed_mbps}` and
+fills that gap: it writes `opnsense_interface_link_{up,speed_mbps}` keyed by `device` like
+node_exporter's own NIC series, `opnsense_interface_info` to join a description onto any of them, and
 `opnsense_cpu_{temperature,tjmax}_celsius` to the textfile collector's directory every minute.
 It also reads dpinger's sockets for `opnsense_gateway_{rtt_seconds,rtt_stddev_seconds,loss_ratio}`,
 which exist only while the WAN gateway has a monitor IP set (System → Gateways, currently
