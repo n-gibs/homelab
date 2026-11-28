@@ -3,11 +3,6 @@ controllers:
     pod:
       nodeSelector:
         homelab.io/media: "true"
-      tolerations:
-        - key: homelab.io/media
-          operator: Equal
-          value: "true"
-          effect: PreferNoSchedule
       securityContext:
         runAsUser: 1000
         runAsGroup: 1000
@@ -16,12 +11,17 @@ controllers:
       app:
         image:
           repository: golift/unpackerr
-          tag: "v0.16.1"
+          tag: "v1.0.0"
         env:
           TZ: America/Los_Angeles
           UN_SONARR_0_URL: http://sonarr.sonarr.svc.cluster.local:8989
           UN_RADARR_0_URL: http://radarr.radarr.svc.cluster.local:7878
           UN_LIDARR_0_URL: http://lidarr.lidarr.svc.cluster.local:8686
+          # Envoy reaches the pod from the pod CIDR. Trusting it lets X-Forwarded-Proto
+          # mark the session cookie Secure and puts the real client IP in the access log.
+          UN_WEBSERVER_UPSTREAMS: 10.42.0.0/16
+        # Also carries UN_WEBSERVER_UI_PASSWORD. Without it every start logs a fresh
+        # generated admin password, and Alloy ships that to Loki.
         envFrom:
           - secretRef:
               name: unpackerr-api-keys
@@ -34,7 +34,35 @@ controllers:
           limits:
             memory: 256Mi
 
+service:
+  main:
+    controller: main
+    ports:
+      http:
+        port: 5656
+
+route:
+  main:
+    annotations:
+      gethomepage.dev/enabled: "true"
+      gethomepage.dev/name: "Unpackerr"
+      gethomepage.dev/description: "Archive extraction for the arrs"
+      gethomepage.dev/group: "Media"
+      gethomepage.dev/icon: "unpackerr.png"
+      gethomepage.dev/href: "https://unpackerr.nik-homelab.dev"
+    enabled: true
+    kind: HTTPRoute
+    hostnames:
+      - unpackerr.nik-homelab.dev
+    parentRefs:
+      - name: homelab
+        namespace: envoy-gateway-system
+
 persistence:
+  config:
+    existingClaim: unpackerr-config
+    globalMounts:
+      - path: /config
   data:
     type: nfs
     server: 192.168.30.144
