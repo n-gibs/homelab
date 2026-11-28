@@ -21,7 +21,7 @@ which exist only while the WAN gateway has a monitor IP set (System → Gateways
 ## Setup
 
 1. **System → Firmware → Plugins:** install `os-node_exporter`.
-2. **Services → Node Exporter:** enable it. Set the listen address to the OPT2 address,
+2. **Services → Prometheus Exporter:** enable it. Set the listen address to the OPT2 address,
    `192.168.30.1`, port `9100`, and enable the cpu, filesystem, loadavg, meminfo, netdev, time
    and zfs collectors. The existing OPT2 rule (`OPT2 net → any`) already lets the nodes in, and
    Cilium masquerades pod traffic to node IPs, so no new firewall rule is needed.
