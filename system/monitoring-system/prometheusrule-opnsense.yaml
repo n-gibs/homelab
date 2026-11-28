@@ -1,0 +1,102 @@
+---
+# OPNsense itself going away needs no rule here: TargetDown covers the scrape, and losing the
+# firewall also cuts the route to ntfy, which the dead-man's switch catches from outside.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: opnsense
+  namespace: monitoring-system
+  labels:
+    release: monitoring-system
+spec:
+  groups:
+    - name: opnsense
+      rules:
+        # A gigabit port that renegotiates to 100 Mbit stays up and passes traffic, so nothing
+        # else notices; LAN clients just get a ~94 Mbit/s ceiling shared by the whole house.
+        - alert: OPNsenseLinkSpeedDegraded
+          expr: >-
+            opnsense_interface_link_speed_mbps < 1000
+              and on(instance, interface)
+            opnsense_interface_link_up == 1
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: >-
+              OPNsense {{ $labels.description }} is linked at {{ $value }} Mbit/s
+            description: >-
+              {{ $labels.interface }} ({{ $labels.description }}) negotiated
+              {{ $value }} Mbit/s instead of 1000. Gigabit needs all four pairs, so this
+              usually means a marginal cable, plug or coupler on that run. Reseat every
+              connection on it; a link reset alone tends to land on 100 again.
+
+        - alert: OPNsenseLinkDown
+          expr: opnsense_interface_link_up{interface=~"igb0|igb1"} == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: OPNsense {{ $labels.description }} has no carrier
+            description: >-
+              {{ $labels.interface }} ({{ $labels.description }}) has had no link for 2m.
+              WAN means no internet for anything; LAN means the Wi-Fi AP is cut off.
+
+        # Zero on a healthy port: igb0 had none across 500M+ packets while a bad run on igb1
+        # logged hundreds, so any sustained count is the cable, not background noise.
+        - alert: OPNsenseNICReceiveErrors
+          expr: >-
+            increase(node_network_receive_errs_total{job="opnsense", device=~"igb.*|ix.*"}[1h])
+              > 5
+          labels:
+            severity: warning
+          annotations:
+            summary: >-
+              OPNsense {{ $labels.device }} logged {{ $value | printf "%.0f" }} receive
+              errors in 1h
+            description: >-
+              {{ $labels.device }} is receiving corrupted frames (CRC, jabber or length
+              errors). It often precedes OPNsenseLinkSpeedDegraded on the same port.
+              `sysctl dev.igb.N.mac_stats` on the firewall breaks the count down by type.
+
+        - alert: OPNsenseCPUTemperatureHigh
+          expr: >-
+            max by (instance) (opnsense_cpu_temperature_celsius)
+              >= on(instance) (opnsense_cpu_tjmax_celsius - 12)
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: OPNsense CPU is {{ $value | printf "%.0f" }}C
+            description: >-
+              The hottest core has been within 12C of its throttle point for 15m. The
+              box is passively cooled, so check that its vents are clear.
+
+        - alert: OPNsenseDiskSpaceLow
+          expr: >-
+            node_filesystem_avail_bytes{job="opnsense", mountpoint="/"}
+              / node_filesystem_size_bytes{job="opnsense", mountpoint="/"} < 0.15
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: >-
+              OPNsense root filesystem is {{ $value | humanizePercentage }} free
+            description: >-
+              A full root dataset stops OPNsense saving its config. ntopng and log
+              retention are the usual growers.
+
+        # Without this the two link alerts above go quiet, not red, when the cron job dies.
+        - alert: OPNsenseTextfileMetricsStale
+          expr: >-
+            (time() - node_textfile_mtime_seconds{job="opnsense"} > 300)
+              or node_textfile_scrape_error{job="opnsense"} == 1
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: OPNsense link and temperature metrics have stopped updating
+            description: >-
+              The `homelab textfile` cron job on the firewall has not refreshed
+              opnsense.prom in over 5m. Check System → Settings → Cron and run
+              `configctl homelab textfile` by hand to see its error. See opnsense/README.md.
